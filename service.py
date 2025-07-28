@@ -32,11 +32,23 @@ class Service:
 
     async def _chat(self, data: Dict):
         """处理聊天请求"""
-        message = data.get("message", "")
+        # 发送给llm
+        message: str = data.get("message", "")
         text_response = await self._post_to_ollama(model="qwen2.5", message=message)
         text = text_response["message"].get("content", "")
+        # 生成语音
         audio_response = await self._post_to_tts(text=text)
-        return {"text": text, "audio": audio_response}
+        # 存入记忆
+        data = {
+            "message_id": 10202,
+            "vector": [],  # 这里可以添加向量数据
+            "content": text,
+            "role": "Elysia",
+            "timestamp": datetime.datetime.now().isoformat(),
+            "audio_path": audio_response
+        }
+        response = await self.memory.daily_memory.summary_daily_memory()
+        return {"text": text, "audio": audio_response, "summary": response}
 
 
     async def _post_to_ollama(self, 
