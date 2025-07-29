@@ -78,7 +78,7 @@ class MessageAttachment:
 class ChatMessage:
     def __init__(self, role: str, content: str, 
                  message_id: int,
-                 timestamp: str = datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                 timestamp: str = datetime.now().strftime("%Y_%m_%d %H:%M:%S"),
                  attachments: MessageAttachment | None = None):
         """
         :param role: 消息角色

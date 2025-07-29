@@ -76,23 +76,23 @@ def create_daily_memory_partition(milvus_client: MilvusClient, collection_name: 
             return 
         
         milvus_client.create_partition(collection_name=collection_name, partition_name=today)
+        
 
-def create_collection(milvus_client: MilvusClient, collection_name: str):
-        """创建 Milvus 集合"""
+def create_daily_memory_collection(milvus_client: MilvusClient, collection_name: str="daily_memory"):
+        """创建 存储每日记忆的 Milvus 集合"""
         schema = milvus_client.create_schema(
             collection_name=collection_name,
             auto_id=False,
             enable_dynamic_field=True
         )
         
-        schema.add_field(field_name="message_id", datatype=DataType.INT64, is_primary=True)
         schema.add_field(field_name="vector", datatype=DataType.FLOAT_VECTOR, dim=1024)  # 假设向量维度为768
-        schema.add_field(field_name="timestamp", datatype=DataType.VARCHAR, max_length=255)
+        schema.add_field(field_name="timestamp", datatype=DataType.VARCHAR, max_length=255, is_primary=True)
         schema.add_field(field_name="role", datatype=DataType.VARCHAR, max_length=255)
         schema.add_field(field_name="content", datatype=DataType.VARCHAR, max_length=65535)
         
         milvus_client.create_collection(collection_name=collection_name, schema=schema)
-        
+        print(f"Collection {collection_name} created successfully.")
         # 创建索引（以 IVF_FLAT 为例）
         index_params = milvus_client.prepare_index_params()
         index_params.add_index(
@@ -105,7 +105,40 @@ def create_collection(milvus_client: MilvusClient, collection_name: str):
             collection_name=collection_name,
             index_params=index_params
         )
-        print(f"Index created for collection {collection_name}.")
+        print(f"Index created for collection: {collection_name}.")
+        
+
+def create_message_collection(milvus_client: MilvusClient, collection_name: str="chat_message"):       
+    """创建 Milvus 集合用于存储聊天消息"""
+    schema = milvus_client.create_schema(
+        collection_name=collection_name,
+        auto_id=False,
+        enable_dynamic_field=True
+    )
+    
+    schema.add_field(field_name="message_id", datatype=DataType.INT64, is_primary=True)
+    schema.add_field(field_name="vector", datatype=DataType.FLOAT_VECTOR, dim=1024)  # 假设向量维度为768
+    schema.add_field(field_name="timestamp", datatype=DataType.VARCHAR, max_length=255)
+    schema.add_field(field_name="role", datatype=DataType.VARCHAR, max_length=255)
+    schema.add_field(field_name="content", datatype=DataType.VARCHAR, max_length=65535)
+    
+    milvus_client.create_collection(collection_name=collection_name, schema=schema)
+    print(f"Collection {collection_name} created successfully.")
+    
+    # 创建索引（以 IVF_FLAT 为例）
+    index_params = milvus_client.prepare_index_params()
+    index_params.add_index(
+        field_name="vector",
+        index_type="IVF_FLAT",
+        metric_type="COSINE",
+        params={"nlist": 1024}
+    )
+    milvus_client.create_index(
+        collection_name=collection_name,
+        index_params=index_params
+    )
+    print(f"Index created for collection: {collection_name}.") 
+        
         
         
 async def main():
@@ -137,7 +170,7 @@ async def main():
     if not milvus_client.has_collection(collection_name):
         # raise ValueError(f"Collection {collection_name} does not exist.")
         print(f"Collection {collection_name} does not exist, creating...")
-        create_collection(milvus_client, collection_name)
+        create_message_collection(milvus_client, collection_name)
         print(f"Collection {collection_name} created successfully.")
         
     if not milvus_client.has_partition(collection_name, partition_name):

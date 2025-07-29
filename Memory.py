@@ -1,38 +1,65 @@
 from gc import collect
 import httpx
-from numpy import partition
+from sympy import limit, true
+from Utils import create_embedding_model
 from pymilvus import MilvusClient, DataType
 from datetime import datetime
+from ChatMessage import ChatMessage, MessageAttachment, AttachmentFile
+from typing import Dict, List
+from langchain_huggingface import HuggingFaceEmbeddings
 
 class DailyMemory:
-    def __init__(self):
+    def __init__(self, model: HuggingFaceEmbeddings):
         self.milvus_client = MilvusClient(uri="http://localhost:19530", token="root:Milvus")
         self.llm_client = httpx.AsyncClient(base_url="http://localhost:11434")
-        
-        self.milvus_client.load_collection(collection_name="daily_memory")
-        
-    async def summary_daily_memory(self):
+        self.daily_collection_name = "daily_memory"
+        self.chat_message_collection_name = "chat_message"
+        self.embedding_model = model
+
+    def _ensure_collections_loaded(self):
+        """确保集合已加载"""
+        try:
+            if self.milvus_client.has_collection(self.daily_collection_name):
+                self.milvus_client.load_collection(collection_name=self.daily_collection_name)
+            if self.milvus_client.has_collection(self.chat_message_collection_name):
+                self.milvus_client.load_collection(collection_name=self.chat_message_collection_name)
+        except Exception as e:
+            print(f"Warning: Could not load collections: {e}")
+
+    async def summary_daily_memory(self)-> str:
         """获取每日记忆的摘要"""
+        print("Generating daily memory summary...")
+        # 确保集合已加载
+        self._ensure_collections_loaded()
+        
         # 获取当前日期
         today = datetime.now().strftime("%Y_%m_%d")
-        collection_name = "daily_memory"
-        partition_name = f"daily_memory_{today}"
+        partition_name = today
         
-        if not self.milvus_client.has_collection(collection_name):
-            raise ValueError(f"Collection {collection_name} does not exist.")
-        if not self.milvus_client.has_partition(collection_name, partition_name):
+        if not self.milvus_client.has_collection(self.chat_message_collection_name):
+            raise ValueError(f"Collection {self.chat_message_collection_name} does not exist.")
+        
+        if not self.milvus_client.has_collection(self.daily_collection_name):
+            raise ValueError(f"Collection {self.daily_collection_name} does not exist.")
+        
+        if not self.milvus_client.has_partition(self.chat_message_collection_name, partition_name):
             raise ValueError(f"Partition for today {partition_name} does not exist.")
         
         # 查询当天的所有消息
-        filter_expr = f"timestamp >= '{datetime.now().strftime("%Y-%m-%d")} 00:00:00' and timestamp < '{datetime.now().strftime("%Y-%m-%d")} 23:59:59'"
+        filter_expr = f'timestamp like "{today}%"'  
+        
         messages = self.milvus_client.query(
-            collection_name=collection_name,
-            partition_name=partition_name,
+            collection_name=self.chat_message_collection_name,
+            partition_names=[partition_name],
             filter=filter_expr,
             output_fields=["message_id", "timestamp", "role", "content"]
         )
         
+        if messages:
+            print(f"Debug: First message timestamp: {messages[0].get('timestamp')}")
+        
         if not messages:
+            print(f"No messages for today: {today}.")
             return f"No messages for today:{today}."
         
         summary_prompt = f"""请对以下聊天记录生成客观的摘要。
@@ -46,7 +73,6 @@ class DailyMemory:
             {chr(10).join(message['content'] for message in messages)}
             
         """
-        print(f"summary_prompt: {summary_prompt}")
         # 构建请求数据
         data = {
             "model": "qwen2.5",
@@ -72,38 +98,137 @@ class DailyMemory:
         
         response_data = response.json()
         content = response_data['message'].get("content", "")
+        print("Daily memory summary generated successfully.")
         return content
         
 
-    def daily_memory_storage(self):
-        pass
+    async def daily_memory_storage(self) -> bool:
+        """存储每日记忆"""
+        # 获取每日记忆的摘要
+        daily_memory: str = await self.summary_daily_memory()
+        if not daily_memory:
+            print("No daily memory to store.")
+            return False
+        daily_memory_vector = await self.embedding_model.aembed_documents([daily_memory])
+        
+        # 获取当前日期
+        today = datetime.now().strftime("%Y_%m_%d")
+        
+        if not self.milvus_client.has_collection(self.daily_collection_name):
+            raise ValueError(f"Collection {self.daily_collection_name} does not exist.")
+        
+        # 插入每日记忆到 Milvus
+        data = [
+            {
+                "vector": daily_memory_vector[0],  
+                "timestamp": today,
+                "role": "system",
+                "content": daily_memory
+            }
+        ]
+        print(f"插入数据: {data[0].get('timestamp')}, {data[0].get('content')}")  
+        res = self.milvus_client.insert(
+            collection_name=self.daily_collection_name,
+            data=data,
+        )
+        
+        # 刷新集合以确保数据可查询
+        self.milvus_client.flush(collection_name=self.daily_collection_name)
+        
+        print(f"Daily memory stored successfully: {res}")
+        return True
+    
+        
 
 class Memory:
     def __init__(self):
         self.milvus_client = MilvusClient(uri="http://localhost:19530", token="root:Milvus")
-        self.daily_memory = DailyMemory()
+        self.chat_message_collection_name = "chat_message"
+        self.daily_memory_collection_name = "daily_memory"
+        self.embedding_model = create_embedding_model()
+        self.drop()
+        self.check()
+        # 在集合创建完成后再初始化 DailyMemory
+        self.daily_memory = DailyMemory(model=self.embedding_model)
         
-        if not self.milvus_client.has_collection("daily_memory"):
-            self.create_collection("daily_memory")
-        if not self.milvus_client.has_partition("daily_memory", f"daily_memory_{datetime.now().strftime('%Y_%m_%d')}"):
-            partition_name = f"daily_memory_{datetime.now().strftime('%Y_%m_%d')}"
-            self.create_daily_memory_partition(partition_name)
 
-    def create_daily_memory_partition(self, partition_name: str):
-        """创建 DailyMemory 分区"""
-        collection_name = "daily_memory"
+    def check(self):
+        """检查 Milvus 集合和分区是否存在"""
+        # 检查存储chatmessage的集合
+        if not self.milvus_client.has_collection(self.chat_message_collection_name):
+            print(f"Collection {self.chat_message_collection_name} does not exist, creating...")
+            self.create_chat_message_collection(self.chat_message_collection_name)
+        print(f"Collection {self.chat_message_collection_name} exists.")
+        
+        # 检查存储chatmessage的分区是否存在    
+        today = datetime.now().strftime("%Y_%m_%d")
+        if not self.milvus_client.has_partition(self.chat_message_collection_name, today):
+            print(f"Partition for today {today} does not exist in collection {self.chat_message_collection_name}, creating...")
+            self.create_chat_message_partition()
+        print(f"Partition for today {today} exists in collection {self.chat_message_collection_name}.")    
+
+        # 检查存储每日记忆的集合
+        if not self.milvus_client.has_collection(self.daily_memory_collection_name):
+            print(f"Collection {self.daily_memory_collection_name} does not exist, creating...")
+            self.create_daily_memory_collection(self.daily_memory_collection_name)
+        print(f"Collection {self.daily_memory_collection_name} exists.")   
+
+    def drop(self):
+        """删除 Milvus 集合和分区"""
+        if self.milvus_client.has_collection(self.chat_message_collection_name):
+            self.milvus_client.drop_collection(collection_name=self.chat_message_collection_name)
+            print(f"Collection {self.chat_message_collection_name} dropped.")
+        
+        if self.milvus_client.has_collection(self.daily_memory_collection_name):
+            self.milvus_client.drop_collection(collection_name=self.daily_memory_collection_name)
+            print(f"Collection {self.daily_memory_collection_name} dropped.")
+            
+    def create_chat_message_partition(self):
+        """创建 ChatMessage 的日期分区"""
         # 获取当前日期
         today = datetime.now().strftime("%Y_%m_%d")
-        if not self.milvus_client.has_collection(collection_name):
-            raise ValueError(f"Collection {collection_name}does not exist.")
-        if self.milvus_client.has_partition("daily_memory", partition_name):
-            print(f"Partition for today {today} already exists in collection daily_memory.")
-            return 
+        partition_name = today
+
+        if not self.milvus_client.has_collection(self.chat_message_collection_name):
+            raise ValueError(f"Collection {self.chat_message_collection_name} does not exist.")
+
+        if self.milvus_client.has_partition(self.chat_message_collection_name, partition_name):
+            print(f"Partition for today {today} already exists in collection {self.chat_message_collection_name}.")
+            return
+
+        self.milvus_client.create_partition(collection_name=self.chat_message_collection_name, partition_name=partition_name)
+
+    def create_daily_memory_collection(self, collection_name: str="daily_memory"):
+        """创建 存储每日记忆的 Milvus 集合"""
+        schema = self.milvus_client.create_schema(
+            collection_name=collection_name,
+            auto_id=False,
+            enable_dynamic_field=True
+        )
         
-        self.milvus_client.create_partition(collection_name=collection_name, partition_name=partition_name)
-         
-    def create_collection(self, collection_name: str):
-        """创建 Milvus 集合"""
+        schema.add_field(field_name="vector", datatype=DataType.FLOAT_VECTOR, dim=1024)  # 假设向量维度为768
+        schema.add_field(field_name="timestamp", datatype=DataType.VARCHAR, max_length=255, is_primary=True)
+        schema.add_field(field_name="role", datatype=DataType.VARCHAR, max_length=255)
+        schema.add_field(field_name="content", datatype=DataType.VARCHAR, max_length=65535)
+        
+        self.milvus_client.create_collection(collection_name=collection_name, schema=schema)
+        print(f"Collection {collection_name} created successfully.")
+        # 创建索引（以 IVF_FLAT 为例）
+        index_params = self.milvus_client.prepare_index_params()
+        index_params.add_index(
+            field_name="vector",
+            index_type="IVF_FLAT",
+            metric_type="COSINE",
+            params={"nlist": 1024}
+        )
+        self.milvus_client.create_index(
+            collection_name=collection_name,
+            index_params=index_params
+        )
+        print(f"Index created for collection: {collection_name}.")
+             
+    def create_chat_message_collection(self, collection_name: str="chat_message"):       
+        """创建 Milvus 集合用于存储聊天消息"""
         schema = self.milvus_client.create_schema(
             collection_name=collection_name,
             auto_id=False,
@@ -111,12 +236,13 @@ class Memory:
         )
         
         schema.add_field(field_name="message_id", datatype=DataType.INT64, is_primary=True)
-        schema.add_field(field_name="vector", datatype=DataType.FLOAT_VECTOR)
+        schema.add_field(field_name="vector", datatype=DataType.FLOAT_VECTOR, dim=1024)  # 假设向量维度为768
         schema.add_field(field_name="timestamp", datatype=DataType.VARCHAR, max_length=255)
         schema.add_field(field_name="role", datatype=DataType.VARCHAR, max_length=255)
         schema.add_field(field_name="content", datatype=DataType.VARCHAR, max_length=65535)
         
         self.milvus_client.create_collection(collection_name=collection_name, schema=schema)
+        print(f"Collection {collection_name} created successfully.")
         
         # 创建索引（以 IVF_FLAT 为例）
         index_params = self.milvus_client.prepare_index_params()
@@ -130,17 +256,60 @@ class Memory:
             collection_name=collection_name,
             index_params=index_params
         )
-        print(f"Index created for collection {collection_name}.")
+        print(f"Index created for collection: {collection_name}.") 
         
+    async def insert_chat_message(self, messages: List[ChatMessage]):
+        """"插入聊天消息到 Milvus"""
+        vectors_content: List[List[float]]  = await self.embedding_model.aembed_documents(
+            [message.content for message in messages]
+        )
+        today = datetime.now().strftime("%Y_%m_%d")
+        res = self.milvus_client.insert(
+                collection_name=self.chat_message_collection_name,
+                data=[{
+                        "role": message.role,
+                        "content": message.content,
+                        "vector": vector_content,
+                        "timestamp": message.timestamp,
+                        "message_id": message.message_id
+                    }for message, vector_content in zip(messages, vectors_content)
+                ],
+                partition_name=today,
+            )
+        self.milvus_client.flush(collection_name=self.chat_message_collection_name)
+        print(f"Inserted {len(messages)} messages into collection {self.chat_message_collection_name}).")
+        return res
         
-async def test():
-    memory = Memory()
-    summary = await memory.daily_memory.summary_daily_memory()
-    print(summary)
+    async def test(self):
+        # 插入测试数据
+        from insert_milvus import messages
+        if not messages:
+            print("No messages to insert.")
+            return
+        print(messages[0].timestamp)
+        res = await self.insert_chat_message(messages)
+        print(f"Insert response: {res}")
+        
+        res = await self.daily_memory.daily_memory_storage()
+        print(f"Daily memory storage result: {res}")
+        
+        # 刷新集合以确保数据可查询
+        self.milvus_client.flush(collection_name=self.daily_memory_collection_name)
+        print("Daily memory collection flushed.")
+        
+        # 查询
+        today = datetime.now().strftime("%Y_%m_%d")
+        filter_expr = f'timestamp == "{today}"'
+        res = self.milvus_client.query(
+            collection_name=self.daily_memory_collection_name,
+            filter=filter_expr,
+            output_fields=["timestamp", "role", "content"]  # 移除vector字段，因为通常不需要在结果中显示
+        )
+        print(f"Daily memory query response: {res}")
         
 if __name__ == "__main__":
     import asyncio
-    asyncio.run(test())
+    memory = Memory()
+    asyncio.run(memory.test())
     collect()  # 强制垃圾回收，清理内存
-    
-    
+
