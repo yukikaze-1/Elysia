@@ -32,6 +32,9 @@ class DailyMemory:
         # 确保集合已加载
         self._ensure_collections_loaded()
         
+        # 刷新聊天消息集合
+        self.milvus_client.flush(collection_name=self.chat_message_collection_name)
+        
         # 获取当前日期
         today = datetime.now().strftime("%Y_%m_%d")
         partition_name = today
@@ -303,7 +306,7 @@ class Memory:
         res = self.milvus_client.query(
             collection_name=self.daily_memory_collection_name,
             filter=filter_expr,
-            output_fields=["timestamp", "role", "content"]  # 移除vector字段，因为通常不需要在结果中显示
+            output_fields=["timestamp", "role", "content"]  
         )
         print(f"Daily memory query response: {res}")
         

@@ -1,7 +1,8 @@
 import os
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
-from Memory import Memory
+from Memory import Memory, ChatMessage
+from Utils import MessageIDGenerator
 from RAG import RAG
 import httpx
 import aiofiles
@@ -16,6 +17,7 @@ class Service:
         self.tts_client = httpx.AsyncClient(base_url="http://localhost:9880")
         self.memory = Memory()
         self.rag = RAG()
+        self.message_id_generator = MessageIDGenerator()  # 添加ID生成器
 
     def setup_routes(self):
         """设置 API 路由"""
@@ -32,23 +34,39 @@ class Service:
 
     async def _chat(self, data: Dict):
         """处理聊天请求"""
-        # 发送给llm
         message: str = data.get("message", "")
+        if not message:
+            raise HTTPException(status_code=400, detail="Message cannot be empty.")
+        
+        # 存入用户消息
+        # 生成消息 ID
+        message_id = await self.message_id_generator.get_next_id()
+        user_message = ChatMessage(
+            role="user",
+            content=message,
+            message_id=message_id
+        )
+        print(f"User message ID: {message_id}, content: {message}")
+        await self.memory.insert_chat_message(messages=[user_message])
+        
+        # 发送给llm
         text_response = await self._post_to_ollama(model="qwen2.5", message=message)
         text = text_response["message"].get("content", "")
+
+        # 存入记忆
+        message_id = await self.message_id_generator.get_next_id()
+        assistant_message = ChatMessage(
+            role="assistant",
+            content=text,
+            message_id=message_id
+        )
+        print(f"Assistant message ID: {message_id}, content: {text}")
+        await self.memory.insert_chat_message(messages=[assistant_message])
+        
         # 生成语音
         audio_response = await self._post_to_tts(text=text)
-        # 存入记忆
-        data = {
-            "message_id": 10202,
-            "vector": [],  # 这里可以添加向量数据
-            "content": text,
-            "role": "Elysia",
-            "timestamp": datetime.datetime.now().isoformat(),
-            "audio_path": audio_response
-        }
-        response = await self.memory.daily_memory.summary_daily_memory()
-        return {"text": text, "audio": audio_response, "summary": response}
+        
+        return {"text": text, "audio": audio_response}
 
 
     async def _post_to_ollama(self, 
@@ -68,12 +86,24 @@ class Service:
             "stream": False,
             "options": optimized_params or {}  # Ollama 使用 options 字段
         }
-        response = await self.llm_client.post("/api/chat",
-                                              json=data, 
-                                              headers={"Content-Type": "application/json"},
-                                              timeout=60.0)
-        return response.json()
-    
+        
+        try:
+            response = await self.llm_client.post("/api/chat",
+                                                  json=data, 
+                                                  headers={"Content-Type": "application/json"},
+                                                  timeout=60.0)
+            response.raise_for_status()  # 检查HTTP状态码
+            return response.json()
+        except httpx.RequestError as e:
+            print(f"Request error: {e}")
+            raise HTTPException(status_code=500, detail="Failed to connect to LLM service")
+        except httpx.HTTPStatusError as e:
+            print(f"HTTP error: {e}")
+            raise HTTPException(status_code=500, detail="LLM service returned an error")
+        except Exception as e:
+            print(f"Unexpected error: {e}")
+            raise HTTPException(status_code=500, detail="Unexpected error occurred")
+
 
     async def _post_to_tts(self, text: str)->str:
         """处理 POST 请求到 TTS 服务"""
@@ -127,5 +157,4 @@ class Service:
 if __name__ == "__main__":
     service = Service()
     service.run()
-    
-    
+
