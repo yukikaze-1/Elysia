@@ -154,8 +154,7 @@ class Memory:
         # 在集合创建完成后再初始化 DailyMemory
         self.daily_memory = DailyMemory(model=self.embedding_model)
         
-
-    def check(self):
+    def check(self)->None:
         """检查 Milvus 集合和分区是否存在"""
         # 检查存储chatmessage的集合
         if not self.milvus_client.has_collection(self.chat_message_collection_name):
@@ -282,10 +281,32 @@ class Memory:
         self.milvus_client.flush(collection_name=self.chat_message_collection_name)
         print(f"Inserted {len(messages)} messages into collection {self.chat_message_collection_name}).")
         return res
+
+    async def search_memory(self, query: str)-> List[List[Dict]]:
+        """在 Milvus 中搜索记忆"""
+        query_vector = await self.embedding_model.aembed_documents([query])
+        if not query_vector:
+            raise ValueError("Query vector is empty.")
         
+        # 确保集合已加载
+        if not self.milvus_client.has_collection(self.chat_message_collection_name):
+            raise ValueError(f"Collection {self.chat_message_collection_name} does not exist.")
+        
+        self.milvus_client.load_collection(collection_name=self.chat_message_collection_name)
+        
+        results = self.milvus_client.search(
+            collection_name=self.chat_message_collection_name,
+            data=query_vector,
+            anns_field="vector",
+            limit=5,
+            output_fields=["timestamp", "role", "content"]
+        )
+        
+        return results
+    
     async def test(self):
         # 插入测试数据
-        from insert_milvus import messages
+        from test_dataset import messages
         if not messages:
             print("No messages to insert.")
             return
@@ -309,6 +330,13 @@ class Memory:
             output_fields=["timestamp", "role", "content"]  
         )
         print(f"Daily memory query response: {res}")
+
+        # 查询记忆
+        query = "猫娘"
+        print(f"Searching memory for query: {query}")
+        res = await self.search_memory(query)
+        res_content = [item[0].get("content") for item in res]
+        print(f"Search results for query '{query}': {res_content}")
         
 if __name__ == "__main__":
     import asyncio
