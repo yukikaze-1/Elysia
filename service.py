@@ -1,7 +1,7 @@
 import os
+from requests import session
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
-from Memory import Memory, ChatMessage
 from Utils import MessageIDGenerator
 from RAG import RAG
 import httpx
@@ -10,14 +10,86 @@ import aiofiles
 from typing import Dict, List
 import datetime
 
+from langchain.memory import ConversationBufferMemory, ConversationTokenBufferMemory, ConversationSummaryMemory, ConversationSummaryBufferMemory
+from langchain_ollama import ChatOllama
+from langchain_core.runnables import RunnableWithMessageHistory, RunnableConfig
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.chat_history import BaseChatMessageHistory
+from langchain_community.chat_message_histories import ChatMessageHistory
+
+from Prompt import CharacterPromptManager
+
+
 class Service:
     def __init__(self):
         self.app = FastAPI()
-        self.llm_client = httpx.AsyncClient(base_url="http://localhost:11434")
+        self.character_prompt_manager = CharacterPromptManager()
         self.tts_client = httpx.AsyncClient(base_url="http://localhost:9880")
-        self.memory = Memory()
         self.rag = RAG()
         self.message_id_generator = MessageIDGenerator()  # 添加ID生成器
+        # 存储会话历史
+        self.store = {}
+        self.conversation = self.advanced_setup()  # 初始化会话处理
+        self.config = RunnableConfig(configurable={"session_id": "default"})
+        
+    def get_session_history(self, session_id: str) -> BaseChatMessageHistory:
+        if session_id not in self.store:
+            self.store[session_id] = ChatMessageHistory()
+        return self.store[session_id]
+
+    async def check_memory_status(self, session_id="default")->List[str]:
+        """检查内存状态"""
+        history = self.get_session_history(session_id)
+        messages = history.messages
+        
+        print(f"当前消息数量: {len(messages)}")
+        print("对话历史:")
+        res = [] 
+        
+        # 定义显示名称映射
+        type_mapping = {
+            "human": "用户",
+            "ai": "爱莉希雅", 
+            "system": "系统"
+        }
+        
+        for i, msg in enumerate(messages):
+            display_type = type_mapping.get(msg.type, msg.type)
+            formatted_msg = f"{i+1}. {display_type}: {msg.content}"
+            res.append(formatted_msg)
+            print(f"  {formatted_msg}")
+        return res
+    
+    def advanced_setup(self):
+        llm = ChatOllama(
+            model="qwen2.5",
+            base_url="http://localhost:11434",
+            temperature=0.3,
+            num_predict=512,
+            top_p=0.9,
+            repeat_penalty=1.1
+        )
+        
+        # 创建聊天提示模板
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", self.character_prompt_manager.get_Elysia_prompt()),
+            MessagesPlaceholder(variable_name="history"),
+            ("user", "{input}")
+        ])
+        
+        # 创建链
+        chain = prompt | llm
+        
+        # 使用RunnableWithMessageHistory包装
+        conversation = RunnableWithMessageHistory(
+            chain,
+            self.get_session_history,
+            input_messages_key="input",
+            history_messages_key="history",
+        )
+        
+        return conversation
+        
 
     def setup_routes(self):
         """设置 API 路由"""
@@ -29,80 +101,35 @@ class Service:
         @self.app.post("/chat/text")
         async def chat(request: Request):
             data = await request.json()
-            return await self._chat(data)
+            return await self._chat_new(data)
+        
+        @self.app.get("/chat/show_history")
+        async def show_history(request: Request):
+            session_id = request.query_params.get("session_id", "default")
+            return await self.check_memory_status(session_id)
+    
 
-
-    async def _chat(self, data: Dict):
-        """处理聊天请求"""
+    async def _chat_new(self, data: Dict):
+        """处理新的聊天请求"""
         message: str = data.get("message", "")
+        
         if not message:
             raise HTTPException(status_code=400, detail="Message cannot be empty.")
-        
-        # 存入用户消息
-        # 生成消息 ID
-        message_id = await self.message_id_generator.get_next_id()
-        user_message = ChatMessage(
-            role="user",
-            content=message,
-            message_id=message_id
-        )
-        print(f"User message ID: {message_id}, content: {message}")
-        await self.memory.insert_chat_message(messages=[user_message])
-        
-        # 发送给llm
-        text_response = await self._post_to_ollama(model="qwen2.5", message=message)
-        text = text_response["message"].get("content", "")
+    
+        # 发送给LLM
+        response = self.conversation.invoke({"input": message}, config=self.config)
 
-        # 存入记忆
-        message_id = await self.message_id_generator.get_next_id()
-        assistant_message = ChatMessage(
-            role="assistant",
-            content=text,
-            message_id=message_id
-        )
-        print(f"Assistant message ID: {message_id}, content: {text}")
-        await self.memory.insert_chat_message(messages=[assistant_message])
-        
+        def clean_text_from_brackets(text: str) -> str:
+            """移除文本中的方括号内容"""
+            import re
+            # 移除方括号及其内容
+            cleaned = re.sub(r'\[.*?\]', '', text)
+            return cleaned.strip()
+
         # 生成语音
-        audio_response = await self._post_to_tts(text=text)
-        
-        return {"text": text, "audio": audio_response}
+        audio_response = await self._post_to_tts(text=clean_text_from_brackets(response.content))
 
-
-    async def _post_to_ollama(self, 
-                              message: str ,
-                              model: str = "qwen2.5", 
-                              optimized_params: Dict | None = None)->Dict:
-        """处理 POST 请求到 Ollama"""
-        # 构建请求数据
-        data = {
-            "model": model, 
-            "messages": [
-                {
-                    "role": "user",
-                    "content": message
-                }
-            ],
-            "stream": False,
-            "options": optimized_params or {}  # Ollama 使用 options 字段
-        }
-        
-        try:
-            response = await self.llm_client.post("/api/chat",
-                                                  json=data, 
-                                                  headers={"Content-Type": "application/json"},
-                                                  timeout=60.0)
-            response.raise_for_status()  # 检查HTTP状态码
-            return response.json()
-        except httpx.RequestError as e:
-            print(f"Request error: {e}")
-            raise HTTPException(status_code=500, detail="Failed to connect to LLM service")
-        except httpx.HTTPStatusError as e:
-            print(f"HTTP error: {e}")
-            raise HTTPException(status_code=500, detail="LLM service returned an error")
-        except Exception as e:
-            print(f"Unexpected error: {e}")
-            raise HTTPException(status_code=500, detail="Unexpected error occurred")
+        return {"text": response.content, "audio": audio_response}
 
 
     async def _post_to_tts(self, text: str)->str:
@@ -143,7 +170,6 @@ class Service:
 
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error processing TTS request: {str(e)}")
-
 
 
     def run(self):

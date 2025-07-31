@@ -59,3 +59,163 @@ messages = [ChatMessage(role="user", content=test_text_01, message_id=1),
 
     
     
+from ChatMessage import ChatMessage, MessageAttachment
+from datetime import datetime, timedelta
+from typing import List
+from Utils import MessageIDGenerator
+
+class Test:
+    def __init__(self) -> None:
+        self.id_generator = MessageIDGenerator()
+        
+    async def generate_test_conversations(self) -> List[ChatMessage]:
+        """生成测试对话数据"""
+        messages = []
+        base_time = datetime.now()
+        
+        # 场景1: 技术问题讨论
+        tech_conversations = [
+            ("user", "你好，我在使用Python的时候遇到了一个问题，能帮我看看吗？"),
+            ("assistant", "当然可以！请描述一下你遇到的具体问题，我会尽力帮助你解决。"),
+            ("user", "我在使用pandas读取CSV文件时，总是出现编码错误，提示UnicodeDecodeError"),
+            ("assistant", "这是一个常见的编码问题。你可以尝试在pd.read_csv()中指定encoding参数，比如encoding='utf-8'或encoding='gbk'。你的CSV文件是什么来源的？"),
+            ("user", "是从Excel导出的中文数据，我试试你说的方法"),
+            ("assistant", "Excel导出的文件通常是gbk编码，建议先试encoding='gbk'。如果还不行，可以用encoding='utf-8-sig'。"),
+            ("user", "太好了！用gbk编码成功读取了，谢谢你的帮助！"),
+            ("assistant", "不客气！遇到编码问题时，了解数据来源很重要。还有其他问题随时问我。")
+        ]
+        
+        # 场景2: 日常闲聊
+        casual_conversations = [
+            ("user", "今天天气真不错啊，适合出去走走"),
+            ("assistant", "是的！好天气总是能让人心情愉悦。你有什么出行计划吗？"),
+            ("user", "想去附近的公园拍拍照，最近对摄影很感兴趣"),
+            ("assistant", "摄影是很有意思的爱好！公园里现在应该有很多春花，很适合练习微距和风景摄影。你用什么设备拍照？"),
+            ("user", "就是手机，还没买专业相机"),
+            ("assistant", "手机摄影也能拍出很棒的作品！关键是构图和光线的运用。建议多尝试不同角度和时间段。"),
+            ("user", "好的，我会多练习的。对了，你觉得哪个时间段拍照最好？"),
+            ("assistant", "一般来说，日出后1小时和日落前1小时是'黄金时间'，光线柔和温暖。不过阴天的散射光也很适合拍人像。")
+        ]
+        
+        # 场景3: 学习讨论
+        learning_conversations = [
+            ("user", "我正在学习机器学习，但总觉得概念很抽象，有什么好的学习方法吗？"),
+            ("assistant", "机器学习确实概念较多。建议你从实际项目入手，比如先做一个简单的分类问题，边做边理解概念。"),
+            ("user", "你能推荐一个适合初学者的项目吗？"),
+            ("assistant", "可以试试鸢尾花分类或手写数字识别。这两个项目经典且数据集小，容易上手。你熟悉Python吗？"),
+            ("user", "Python基础还可以，但sklearn库不太熟悉"),
+            ("assistant", "那很好！sklearn的文档很详细，建议先学习train_test_split、StandardScaler这些基础工具，然后尝试LogisticRegression。"),
+            ("user", "我去看看sklearn的官方教程，谢谢指导！"),
+            ("assistant", "加油！学习过程中有问题随时交流。记住：实践比理论更重要。")
+        ]
+        
+        # 场景4: 问题解决
+        problem_solving = [
+            ("user", "我的代码运行很慢，处理一个100MB的文件要10分钟，正常吗？"),
+            ("assistant", "这确实有点慢了。能告诉我你在做什么类型的处理吗？是文本处理、数据分析还是其他操作？"),
+            ("user", "是在做文本分析，需要对每一行进行分词和情感分析"),
+            ("assistant", "文本处理确实比较耗时。建议几个优化方向：1)使用向量化操作代替循环 2)考虑多进程处理 3)如果可能，先采样一部分数据测试。你用的什么分词工具？"),
+            ("user", "用的jieba分词，每行都要调用一次"),
+            ("assistant", "可以尝试批量处理，jieba.cut_all()或者先把所有文本合并再分词。另外，考虑使用pandas的apply()配合multiprocessing。"),
+            ("user", "好主意！我试试批量处理的方法"),
+            ("assistant", "记得先备份数据，然后小批量测试效果。优化是个迭代过程，慢慢来。")
+        ]
+        
+        # 场景5: 创意讨论
+        creative_conversations = [
+            ("user", "我想写一个小说，但总是没有灵感，你有什么建议吗？"),
+            ("assistant", "写作灵感确实需要积累。你可以从观察日常生活开始，记录有趣的对话、场景或想法。你偏好什么类型的小说？"),
+            ("user", "比较喜欢科幻和悬疑类的"),
+            ("assistant", "很好的选择！科幻可以从'如果某项技术发展到极致会怎样'这个角度入手。悬疑则可以先设计一个谜题，再倒推情节。"),
+            ("user", "那我先试着写个短篇练练手？"),
+            ("assistant", "绝对建议从短篇开始！目标2000-5000字，专注一个核心概念或悬念。写完了可以分享给朋友看看反馈。"),
+            ("user", "好的，我先构思一个关于AI的科幻短篇"),
+            ("assistant", "太棒了！AI主题很有现实意义。记住保持逻辑一致性，科幻不是胡思乱想，而是合理的推演。期待你的作品！")
+        ]
+        
+        # 生成消息对象
+        all_conversations = tech_conversations + casual_conversations + learning_conversations + problem_solving + creative_conversations
+        
+        for i, (role, content) in enumerate(all_conversations):
+            # 随机分布时间，模拟真实对话
+            time_offset = timedelta(minutes=i*2 + (i%3)*10)  # 每条消息间隔不等
+            timestamp = (base_time - timedelta(hours=2) + time_offset).strftime("%Y_%m_%d %H:%M:%S")
+            
+            message = ChatMessage(
+                role=role,
+                content=content,
+                message_id=await self.id_generator.get_next_id(),
+                timestamp=timestamp
+            )
+            messages.append(message)
+        
+        return messages
+
+    # 生成特定主题的对话
+    async def generate_topic_conversations(self, topic: str, count: int = 10) -> List[ChatMessage]:
+        """生成特定主题的对话"""
+        topics_data = {
+            "编程": [
+                ("user", f"我在学习{topic}，有什么好的资源推荐吗？"),
+                ("assistant", f"学习{topic}建议从官方文档开始，然后做一些实际项目练手。"),
+                ("user", "有没有适合初学者的项目？"),
+                ("assistant", "可以从Todo应用、计算器这样的小项目开始。"),
+                ("user", "好的，我去试试看！"),
+            ],
+            "美食": [
+                ("user", "今天想做点好吃的，有什么推荐吗？"),
+                ("assistant", "看你想吃什么口味的，中式、西式还是日式？"),
+                ("user", "想试试日式料理"),
+                ("assistant", "可以试试照烧鸡肉饭，材料简单但味道很棒。"),
+                ("user", "听起来不错，需要什么调料？"),
+            ],
+            "电影": [
+                ("user", "最近有什么好电影推荐吗？"),
+                ("assistant", "你喜欢什么类型的？动作、爱情、科幻还是文艺片？"),
+                ("user", "比较喜欢科幻电影"),
+                ("assistant", "推荐《星际穿越》或《银翼杀手2049》，都是很棒的科幻作品。"),
+                ("user", "《星际穿越》我看过了，很震撼！"),
+            ]
+        }
+        
+        messages = []
+        base_time = datetime.now()
+        conversations = topics_data.get(topic, topics_data["编程"])
+        
+        for i, (role, content) in enumerate(conversations[:count]):
+            timestamp = (base_time - timedelta(minutes=i*5)).strftime("%Y_%m_%d %H:%M:%S")
+            message = ChatMessage(
+                role=role,
+                content=content,
+                message_id=await self.id_generator.get_next_id(),
+                timestamp=timestamp
+            )
+            messages.append(message)
+        
+        return messages
+
+async def test():
+    # 测试生成对话
+    test = Test()
+    test_messages = await test.generate_test_conversations()
+    print(f"生成了 {len(test_messages)} 条测试消息")
+    
+    # 显示前几条消息
+    for msg in test_messages[:5]:
+        print(f"[{msg.timestamp}] {msg.role}: {msg.content}")
+    
+    print("\n" + "="*50 + "\n")
+    
+    # 生成特定主题对话
+    topic_messages = await test.generate_topic_conversations("编程", 8)
+    print(f"生成了 {len(topic_messages)} 条编程主题消息")
+    
+    for msg in topic_messages:
+        print(f"[{msg.timestamp}] {msg.role}: {msg.content}")
+    
+
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(test())
+    
+    

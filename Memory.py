@@ -1,5 +1,6 @@
 from gc import collect
 import httpx
+from sklearn.utils import resample
 from sympy import limit, true
 from Utils import create_embedding_model
 from pymilvus import MilvusClient, DataType
@@ -65,16 +66,19 @@ class DailyMemory:
             print(f"No messages for today: {today}.")
             return f"No messages for today:{today}."
         
-        summary_prompt = f"""请对以下聊天记录生成客观的摘要。
+        summary_prompt = f"""请对以下用'###'包含的聊天记录生成客观的摘要。
 
             要求：
             1. 总结主要话题
             2. 提取关键信息  
-            3. 控制在100字以内
+            3. 控制在200字以内
+            4. 只输出总结的内容
+            5. 不要输出额外的信息
 
             聊天记录：
+            ###
             {chr(10).join(message['content'] for message in messages)}
-            
+            ###
         """
         # 构建请求数据
         data = {
@@ -105,10 +109,8 @@ class DailyMemory:
         return content
         
 
-    async def daily_memory_storage(self) -> bool:
+    async def daily_memory_storage(self, daily_memory: str) -> bool:
         """存储每日记忆"""
-        # 获取每日记忆的摘要
-        daily_memory: str = await self.summary_daily_memory()
         if not daily_memory:
             print("No daily memory to store.")
             return False
@@ -282,7 +284,7 @@ class Memory:
         print(f"Inserted {len(messages)} messages into collection {self.chat_message_collection_name}).")
         return res
 
-    async def search_memory(self, query: str)-> List[List[Dict]]:
+    async def search_memory(self, query: str, threshold: float = 0.3)-> List[List[Dict]]:
         """在 Milvus 中搜索记忆"""
         query_vector = await self.embedding_model.aembed_documents([query])
         if not query_vector:
@@ -306,22 +308,49 @@ class Memory:
     
     async def test(self):
         # 插入测试数据
-        from test_dataset import messages
-        if not messages:
-            print("No messages to insert.")
-            return
-        print(messages[0].timestamp)
-        res = await self.insert_chat_message(messages)
-        print(f"Insert response: {res}")
+        from test_dataset import messages, Test
         
-        res = await self.daily_memory.daily_memory_storage()
+        # # 测试自己的数据
+        # if not messages:
+        #     print("No messages to insert.")
+        #     return
+        # print(messages[0].timestamp)
+        # res = await self.insert_chat_message(messages)
+        # print(f"Insert response: {res}")
+        
+        # res = await self.daily_memory.daily_memory_storage()
+        # print(f"Daily memory storage result: {res}")
+        
+        # # 刷新集合以确保数据可查询
+        # self.milvus_client.flush(collection_name=self.daily_memory_collection_name)
+        # print("Daily memory collection flushed.")
+        
+        # 测试 conversations
+        test = Test()
+        print("Generating test conversations...")
+        test_conversations = await test.generate_test_conversations()
+        
+        # 显示前几条消息
+        for msg in test_conversations:
+            print(f"[{msg.timestamp}] {msg.role}: {msg.content}")
+        
+        if not test_conversations:
+            print("No test conversations to insert.")
+            return
+        res = await self.insert_chat_message(test_conversations)
+        print(f"Test conversations inserted: {res}")
+        
+        memory_summary = await self.daily_memory.summary_daily_memory()
+        print(f"Daily memory summary: {memory_summary}")
+        res = await self.daily_memory.daily_memory_storage(memory_summary)
         print(f"Daily memory storage result: {res}")
         
         # 刷新集合以确保数据可查询
         self.milvus_client.flush(collection_name=self.daily_memory_collection_name)
         print("Daily memory collection flushed.")
         
-        # 查询
+        
+        # 测试查询每日总结后的记忆(daily_memory)
         today = datetime.now().strftime("%Y_%m_%d")
         filter_expr = f'timestamp == "{today}"'
         res = self.milvus_client.query(
@@ -331,12 +360,12 @@ class Memory:
         )
         print(f"Daily memory query response: {res}")
 
-        # 查询记忆
-        query = "猫娘"
+        # 测试查询记忆(chat_message)
+        query = "机器学习"
         print(f"Searching memory for query: {query}")
         res = await self.search_memory(query)
-        res_content = [item[0].get("content") for item in res]
-        print(f"Search results for query '{query}': {res_content}")
+        # res_content = [item[0].get("content") for item in res]
+        print(f"Search results for query '{query}': {res}")
         
 if __name__ == "__main__":
     import asyncio
