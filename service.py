@@ -7,6 +7,7 @@ from Utils import MessageIDGenerator
 from RAG import RAG
 import httpx
 import aiofiles
+import base64
 
 from typing import Dict, List
 import datetime
@@ -140,44 +141,79 @@ class Service:
                         full_content += content
                         
                         # 发送流式文本数据
-                        # JSON Lines 格式 - 每行一个 JSON 对象
                         yield json.dumps({"type": "text", "content": content}, ensure_ascii=False) + "\n"
                 
                 # 流式响应完成后，处理语音生成
-                # if full_content:
-                #     try:
-                #         def clean_text_from_brackets(text: str) -> str:
-                #             """移除文本中的方括号内容"""
-                #             import re
-                #             cleaned = re.sub(r'\[.*?\]', '', text)
-                #             return cleaned.strip()
+                if full_content:
+                    try:
+                        def clean_text_from_brackets(text: str) -> str:
+                            """移除文本中的方括号内容"""
+                            import re
+                            cleaned = re.sub(r'\[.*?\]', '', text)
+                            return cleaned.strip()
                         
-                #         # 生成语音
-                #         audio_path = await self._post_to_tts(text=clean_text_from_brackets(full_content))
+                        # 发送音频开始标记
+                        yield json.dumps({"type": "audio_start", "audio_format": "ogg"}, ensure_ascii=False) + "\n"
                         
-                #         # 发送音频路径
-                #         yield f"data: {json.dumps({'type': 'audio', 'audio_path': audio_path}, ensure_ascii=False)}\n\n"
+                        # 真正的音频流式生成和传输
+                        async for audio_chunk in self._stream_tts_audio(text=clean_text_from_brackets(full_content)):
+                            if audio_chunk:
+                                # 将音频块编码为base64并流式发送
+                                chunk_base64 = base64.b64encode(audio_chunk).decode('utf-8')
+                                yield json.dumps({
+                                    "type": "audio_chunk", 
+                                    "audio_data": chunk_base64,
+                                    "chunk_size": len(audio_chunk)
+                                }, ensure_ascii=False) + "\n"
                         
-                #     except Exception as e:
-                #         print(f"语音生成失败: {e}")
-                #         yield f"data: {json.dumps({'type': 'error', 'error': f'语音生成失败: {str(e)}'}, ensure_ascii=False)}\n\n"
+                        # 发送音频结束标记
+                        yield json.dumps({"type": "audio_end"}, ensure_ascii=False) + "\n"
+                            
+                    except Exception as e:
+                        print(f"语音生成失败: {e}")
+                        yield json.dumps({'type': 'error', 'error': f'语音生成失败: {str(e)}'}, ensure_ascii=False) + "\n"
                 
                 # 发送完成标记
-                # yield "\ndata: [DONE]\n\n"
                 yield json.dumps({"type": "done"}) + "\n"
                 
             except Exception as e:
                 error_msg = str(e)
                 print(f"流式响应错误: {error_msg}")
-                yield f"data: {json.dumps({'type': 'error', 'error': error_msg}, ensure_ascii=False)}\n\n"
-                yield "data: [DONE]\n\n"
+                yield json.dumps({'type': 'error', 'error': error_msg}, ensure_ascii=False) + "\n"
         
         # 返回流式响应
         return StreamingResponse(
             generate(),
-            media_type="application/x-ndjson"  # JSON Lines 格式
+            media_type="application/x-ndjson"
         )
+    
+    async def _stream_tts_audio(self, text: str):
+        """真正的流式音频生成"""
+        payload = {
+            "text": text,
+            "text_lang": "zh", 
+            "ref_audio_path": "/home/yomu/Elysia/ref.wav",
+            "prompt_lang": "zh",
+            "prompt_text": "我的话，嗯哼，更多是靠少女的小心思吧~看看你现在的表情，好想去那里。",
+            "text_split_method": "cut5",
+            "batch_size": 20,
+            "media_type": "ogg",
+            "streaming_mode": True
+        }
+        headers = {'Content-Type': 'application/json'}
+        
+        try:
+            response = await self.tts_client.request("POST", "/tts", json=payload, headers=headers, timeout=60.0)
+            response.raise_for_status()
             
+            # 真正的流式处理 - 逐块yield音频数据
+            async for chunk in response.aiter_bytes(chunk_size=8192):
+                if chunk:
+                    yield chunk  # 直接yield音频块
+                    
+        except Exception as e:
+            print(f"TTS 流式处理失败: {e}")
+            yield None
 
     async def _chat(self, data: Dict):
         """处理新的聊天请求"""
@@ -200,8 +236,7 @@ class Service:
         audio_response = await self._post_to_tts(text=clean_text_from_brackets(response.content))
 
         return {"text": response.content, "audio": audio_response}
-
-
+    
     async def _post_to_tts(self, text: str)->str:
         """处理 POST 请求到 TTS 服务"""
         payload = {
