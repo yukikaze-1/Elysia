@@ -1,4 +1,3 @@
-import os
 from requests import session
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
@@ -6,7 +5,6 @@ from fastapi.responses import StreamingResponse
 from Utils import MessageIDGenerator
 from RAG import RAG
 import httpx
-import aiofiles
 import base64
 
 from typing import Dict, List
@@ -20,6 +18,7 @@ from langchain_core.chat_history import BaseChatMessageHistory
 from langchain_community.chat_message_histories import ChatMessageHistory
 
 from Prompt import CharacterPromptManager
+from PersistentChatHistory import GlobalChatMessageHistory
 
 
 class Service:
@@ -29,28 +28,26 @@ class Service:
         self.tts_client = httpx.AsyncClient(base_url="http://localhost:9880")
         self.rag = RAG()
         self.message_id_generator = MessageIDGenerator()  # 添加ID生成器
-        # 存储会话历史
-        self.store = {}
-        self.conversation = self.advanced_setup()  # 初始化会话处理
+        self.conversation = self.setup_conversation()  # 初始化会话处理
         self.config = RunnableConfig(configurable={"session_id": "default"})
         
+    
     def get_session_history(self, session_id: str) -> BaseChatMessageHistory:
-        if session_id not in self.store:
-            self.store[session_id] = ChatMessageHistory()
-        return self.store[session_id]
+        """获取会话历史 - 始终返回全局单例"""
+        return GlobalChatMessageHistory()
 
-    async def check_memory_status(self, session_id="default")->List[str]:
-        """检查内存状态"""
-        history = self.get_session_history(session_id)
+    async def check_memory_status(self, session_id=None)->List[str]:
+        """检查记忆状态 - session_id 参数被忽略"""
+        history = GlobalChatMessageHistory()
         messages = history.messages
         
         print(f"当前消息数量: {len(messages)}")
-        print("对话历史:")
+        print("全局对话历史:")
         res = [] 
         
         # 定义显示名称映射
         type_mapping = {
-            "human": "用户",
+            "human": "魂魄妖梦",
             "ai": "爱莉希雅", 
             "system": "系统",
             "AIMessageChunk": "爱莉希雅",
@@ -63,9 +60,10 @@ class Service:
             print(f"  {formatted_msg}")
         return res
     
-    def advanced_setup(self):
+    def setup_conversation(self, model: str = "qwen2.5") -> RunnableWithMessageHistory:
+        """设置聊天会话处理"""
         llm = ChatOllama(
-            model="qwen2.5",
+            model=model,
             base_url="http://localhost:11434",
             temperature=0.3,
             num_predict=512,
@@ -85,8 +83,8 @@ class Service:
         
         # 使用RunnableWithMessageHistory包装
         conversation = RunnableWithMessageHistory(
-            chain,
-            self.get_session_history,
+            runnable=chain,
+            get_session_history=self.get_session_history,
             input_messages_key="input",
             history_messages_key="history",
         )
@@ -101,11 +99,6 @@ class Service:
         async def health_check():
             return {"status": "healthy"}
 
-        @self.app.post("/chat/text")
-        async def chat(request: Request):
-            data = await request.json()
-            return await self._chat(data)
-        
         @self.app.post("/chat/stream_text")
         async def chat_stream(request: Request):
             data = await request.json()
@@ -115,6 +108,7 @@ class Service:
         async def show_history(request: Request):
             session_id = request.query_params.get("session_id", "default")
             return await self.check_memory_status(session_id)
+
 
     async def _chat_stream(self, data: Dict):
         """处理新的聊天请求, 支持流式响应"""
@@ -142,6 +136,9 @@ class Service:
                         
                         # 发送流式文本数据
                         yield json.dumps({"type": "text", "content": content}, ensure_ascii=False) + "\n"
+                
+                # 消息已经通过 RunnableWithMessageHistory 自动添加到历史中
+                # 由于我们使用了 HybridChatMessageHistory，消息会自动同步到 Milvus
                 
                 # 流式响应完成后，处理语音生成
                 if full_content:
@@ -182,10 +179,8 @@ class Service:
                 yield json.dumps({'type': 'error', 'error': error_msg}, ensure_ascii=False) + "\n"
         
         # 返回流式响应
-        return StreamingResponse(
-            generate(),
-            media_type="application/x-ndjson"
-        )
+        return StreamingResponse(generate(), media_type="application/x-ndjson")
+    
     
     async def _stream_tts_audio(self, text: str):
         """真正的流式音频生成"""
@@ -215,68 +210,7 @@ class Service:
             print(f"TTS 流式处理失败: {e}")
             yield None
 
-    async def _chat(self, data: Dict):
-        """处理新的聊天请求"""
-        message: str = data.get("message", "")
-        
-        if not message:
-            raise HTTPException(status_code=400, detail="Message cannot be empty.")
-    
-        # 发送给LLM
-        response = self.conversation.invoke({"input": message}, config=self.config)
-
-        def clean_text_from_brackets(text: str) -> str:
-            """移除文本中的方括号内容"""
-            import re
-            # 移除方括号及其内容
-            cleaned = re.sub(r'\[.*?\]', '', text)
-            return cleaned.strip()
-
-        # 生成语音
-        audio_response = await self._post_to_tts(text=clean_text_from_brackets(response.content))
-
-        return {"text": response.content, "audio": audio_response}
-    
-    async def _post_to_tts(self, text: str)->str:
-        """处理 POST 请求到 TTS 服务"""
-        payload = {
-            "text": text,
-            "text_lang": "zh",
-            "ref_audio_path": "/home/yomu/Elysia/ref.wav",
-            "prompt_lang": "zh",
-            "prompt_text": "我的话，嗯哼，更多是靠少女的小心思吧~看看你现在的表情，好想去那里。",
-            "text_split_method": "cut5",
-            "batch_size": 20,
-            "media_type": "wav",
-            "streaming_mode": True
-        }
-        headers = {'Content-Type': 'application/json'}
-        method = "POST"
-        save_dir = "/home/yomu/Elysia/tts_output/"
-
-        try:
-            # 发起异步请求
-            response = await self.tts_client.request(method, "/tts", json=payload, headers=headers, timeout=60.0)
-
-            # 检查 HTTP 响应状态码
-            response.raise_for_status()
-            
-            # 生成唯一的文件名
-            timestamp = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S%f")
-            filename = os.path.join(save_dir, f"{timestamp}_output.wav")
-            
-            # 异步写入文件
-            async with aiofiles.open(filename, 'wb') as f:
-                async for chunk in response.aiter_bytes(chunk_size=8192):
-                    if chunk:
-                        await f.write(chunk)
-            
-            return filename  # 返回文件路径
-
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error processing TTS request: {str(e)}")
-
-
+   
     def run(self):
         """运行 FastAPI 应用"""
         self.setup_routes()
