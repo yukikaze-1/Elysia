@@ -2,6 +2,7 @@ import os
 from requests import session
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from Utils import MessageIDGenerator
 from RAG import RAG
 import httpx
@@ -50,7 +51,8 @@ class Service:
         type_mapping = {
             "human": "用户",
             "ai": "爱莉希雅", 
-            "system": "系统"
+            "system": "系统",
+            "AIMessageChunk": "爱莉希雅",
         }
         
         for i, msg in enumerate(messages):
@@ -101,15 +103,83 @@ class Service:
         @self.app.post("/chat/text")
         async def chat(request: Request):
             data = await request.json()
-            return await self._chat_new(data)
+            return await self._chat(data)
+        
+        @self.app.post("/chat/stream_text")
+        async def chat_stream(request: Request):
+            data = await request.json()
+            return await self._chat_stream(data)
         
         @self.app.get("/chat/show_history")
         async def show_history(request: Request):
             session_id = request.query_params.get("session_id", "default")
             return await self.check_memory_status(session_id)
-    
 
-    async def _chat_new(self, data: Dict):
+    async def _chat_stream(self, data: Dict):
+        """处理新的聊天请求, 支持流式响应"""
+        message: str = data.get("message", "")
+        
+        if not message:
+            raise HTTPException(status_code=400, detail="Message cannot be empty.")
+        
+        async def generate():
+            try:
+                import json
+                
+                # 发送给LLM，获取流式响应
+                full_content = ""
+                
+                # 使用 astream 方法获取流式响应
+                async for chunk in self.conversation.astream(
+                    {"input": message}, 
+                    config=self.config
+                ):
+                    # 检查chunk是否包含内容
+                    if hasattr(chunk, 'content') and chunk.content:
+                        content = chunk.content
+                        full_content += content
+                        
+                        # 发送流式文本数据
+                        # JSON Lines 格式 - 每行一个 JSON 对象
+                        yield json.dumps({"type": "text", "content": content}, ensure_ascii=False) + "\n"
+                
+                # 流式响应完成后，处理语音生成
+                # if full_content:
+                #     try:
+                #         def clean_text_from_brackets(text: str) -> str:
+                #             """移除文本中的方括号内容"""
+                #             import re
+                #             cleaned = re.sub(r'\[.*?\]', '', text)
+                #             return cleaned.strip()
+                        
+                #         # 生成语音
+                #         audio_path = await self._post_to_tts(text=clean_text_from_brackets(full_content))
+                        
+                #         # 发送音频路径
+                #         yield f"data: {json.dumps({'type': 'audio', 'audio_path': audio_path}, ensure_ascii=False)}\n\n"
+                        
+                #     except Exception as e:
+                #         print(f"语音生成失败: {e}")
+                #         yield f"data: {json.dumps({'type': 'error', 'error': f'语音生成失败: {str(e)}'}, ensure_ascii=False)}\n\n"
+                
+                # 发送完成标记
+                # yield "\ndata: [DONE]\n\n"
+                yield json.dumps({"type": "done"}) + "\n"
+                
+            except Exception as e:
+                error_msg = str(e)
+                print(f"流式响应错误: {error_msg}")
+                yield f"data: {json.dumps({'type': 'error', 'error': error_msg}, ensure_ascii=False)}\n\n"
+                yield "data: [DONE]\n\n"
+        
+        # 返回流式响应
+        return StreamingResponse(
+            generate(),
+            media_type="application/x-ndjson"  # JSON Lines 格式
+        )
+            
+
+    async def _chat(self, data: Dict):
         """处理新的聊天请求"""
         message: str = data.get("message", "")
         
