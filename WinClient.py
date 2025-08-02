@@ -13,10 +13,6 @@ import platform
 import os
 import time
 
-"""
-基于pygame的windows客户端(测试版)
-"""
-
 class ElysiaClient:
     def __init__(self):
         self.root = tk.Tk()
@@ -40,13 +36,17 @@ class ElysiaClient:
         self.audio_playing = False
         self.temp_audio_files = []  # 用于管理临时文件
         
+        # 流式响应追踪
+        self.current_streaming_response_type = None  # "local" 或 "cloud"
+        self.current_streaming_response_line = None  # 当前流式响应的行号
+        
         self.setup_ui()
         
     def setup_ui(self):
         """设置用户界面"""
         # 主框架
         main_frame = ttk.Frame(self.root, padding="10")
-        main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        main_frame.grid(row=0, column=0, sticky="nsew")
         
         # 配置网格权重
         self.root.columnconfigure(0, weight=1)
@@ -60,7 +60,7 @@ class ElysiaClient:
         
         # 聊天显示区域
         chat_frame = ttk.LabelFrame(main_frame, text="聊天记录", padding="5")
-        chat_frame.grid(row=1, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 10))
+        chat_frame.grid(row=1, column=0, columnspan=3, sticky="nsew", pady=(0, 10))
         chat_frame.columnconfigure(0, weight=1)
         chat_frame.rowconfigure(0, weight=1)
         
@@ -71,15 +71,15 @@ class ElysiaClient:
             height=20,
             font=("Microsoft YaHei", 10)
         )
-        self.chat_display.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        self.chat_display.grid(row=0, column=0, sticky="nsew")
         
         # 输入区域
         input_frame = ttk.Frame(main_frame)
-        input_frame.grid(row=2, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(0, 10))
+        input_frame.grid(row=2, column=0, columnspan=3, sticky="ew", pady=(0, 10))
         input_frame.columnconfigure(0, weight=1)
         
         self.message_entry = ttk.Entry(input_frame, font=("Microsoft YaHei", 10))
-        self.message_entry.grid(row=0, column=0, sticky=(tk.W, tk.E), padx=(0, 10))
+        self.message_entry.grid(row=0, column=0, sticky="ew", padx=(0, 10))
         self.message_entry.bind("<Return>", self.on_send_message)
         
         self.send_button = ttk.Button(input_frame, text="发送", command=self.on_send_message)
@@ -87,25 +87,28 @@ class ElysiaClient:
         
         # 控制按钮区域
         control_frame = ttk.Frame(main_frame)
-        control_frame.grid(row=3, column=0, columnspan=3, sticky=(tk.W, tk.E))
+        control_frame.grid(row=3, column=0, columnspan=3, sticky="ew")
         
         self.stream_button = ttk.Button(control_frame, text="流式聊天", command=self.on_stream_chat)
         self.stream_button.grid(row=0, column=0, padx=(0, 10))
         
+        self.cloud_button = ttk.Button(control_frame, text="云端聊天", command=self.on_cloud_chat)
+        self.cloud_button.grid(row=0, column=1, padx=(0, 10))
+        
         self.normal_button = ttk.Button(control_frame, text="普通聊天", command=self.on_normal_chat)
-        self.normal_button.grid(row=0, column=1, padx=(0, 10))
+        self.normal_button.grid(row=0, column=2, padx=(0, 10))
         
         self.history_button = ttk.Button(control_frame, text="查看历史", command=self.on_show_history)
-        self.history_button.grid(row=0, column=2, padx=(0, 10))
+        self.history_button.grid(row=0, column=3, padx=(0, 10))
         
         self.clear_button = ttk.Button(control_frame, text="清空聊天", command=self.on_clear_chat)
-        self.clear_button.grid(row=0, column=3)
+        self.clear_button.grid(row=0, column=4)
         
         # 状态栏
         self.status_var = tk.StringVar()
         self.status_var.set("就绪")
         status_bar = ttk.Label(main_frame, textvariable=self.status_var, relief=tk.SUNKEN)
-        status_bar.grid(row=4, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(10, 0))
+        status_bar.grid(row=4, column=0, columnspan=3, sticky="ew", pady=(10, 0))
         
     def append_to_chat(self, message, sender=""):
         """向聊天区域添加消息"""
@@ -135,6 +138,9 @@ class ElysiaClient:
             messagebox.showwarning("警告", "请先输入消息")
             return
         
+        # 重置流式响应状态
+        self.reset_streaming_response()
+        
         self.status_var.set("正在发送流式请求...")
         self.disable_buttons()
         
@@ -142,6 +148,144 @@ class ElysiaClient:
         thread = threading.Thread(target=self.run_async_stream_chat, args=(message,))
         thread.daemon = True
         thread.start()
+        
+    def on_cloud_chat(self):
+        """云端流式聊天"""
+        message = self.get_last_user_message()
+        if not message:
+            messagebox.showwarning("警告", "请先输入消息")
+            return
+        
+        # 重置流式响应状态
+        self.reset_streaming_response()
+        
+        self.status_var.set("正在发送云端流式请求...")
+        self.disable_buttons()
+        
+        # 在新线程中运行异步函数
+        thread = threading.Thread(target=self.run_async_cloud_chat, args=(message,))
+        thread.daemon = True
+        thread.start()
+        
+    def run_async_cloud_chat(self, message):
+        """在新线程中运行异步云端流式聊天"""
+        try:
+            # 创建新的事件循环
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(self.cloud_chat_async(message))
+        finally:
+            loop.close()
+            
+    async def cloud_chat_async(self, message):
+        """异步云端流式聊天"""
+        try:
+            # 设置更大的chunk限制和连接参数
+            connector = aiohttp.TCPConnector(
+                limit_per_host=100,
+                enable_cleanup_closed=True
+            )
+            timeout = aiohttp.ClientTimeout(total=120)  # 云端可能需要更长时间
+            
+            async with aiohttp.ClientSession(
+                connector=connector,
+                timeout=timeout,
+                read_bufsize=2*1024*1024,  # 2MB buffer
+                max_line_size=10*1024*1024,  # 10MB max line size
+                max_field_size=10*1024*1024  # 10MB max field size
+            ) as session:
+                url = f"{self.api_base_url}/chat/stream_text_cloud"
+                payload = {"message": message, "user_id": "test_user"}
+                
+                print(f"发送云端流式请求到: {url}")
+                print(f"payload: {payload}")
+                
+                async with session.post(url, json=payload) as response:
+                    if response.status != 200:
+                        error_text = await response.text()
+                        self.root.after(0, lambda: self.append_to_chat(f"云端错误: {error_text}", "系统"))
+                        return
+                    
+                    print(f"收到云端响应: {response.status}")
+                    current_response = ""
+                    
+                    # 使用 content.readline() 而不是逐行迭代
+                    while True:
+                        try:
+                            line = await response.content.readline()
+                            if not line:
+                                break
+                                
+                            line_text = line.decode('utf-8').strip()
+                            if not line_text:
+                                continue
+                                
+                            print(f"收到云端数据: {line_text[:100]}...")  # 只打印前100个字符
+                            
+                            try:
+                                data = json.loads(line_text)
+                                
+                                if data.get("type") == "text":
+                                    content = data.get("content", "")
+                                    current_response += content
+                                    
+                                    # 清理可能的重复内容
+                                    clean_response = self.remove_immediate_duplicates(current_response)
+                                    
+                                    # 如果清理后的内容和之前相同，跳过这次更新
+                                    if hasattr(self, '_last_cloud_response') and clean_response == self._last_cloud_response:
+                                        continue
+                                    
+                                    current_response = clean_response
+                                    self._last_cloud_response = clean_response
+                                    
+                                    # 更新UI（需要在主线程中执行）
+                                    response_copy = current_response
+                                    self.root.after(0, lambda c=response_copy: self.update_current_cloud_response(c))
+                                
+                                elif data.get("type") == "audio_start":
+                                    # 音频流开始
+                                    audio_format = data.get("audio_format", "ogg")
+                                    self.root.after(0, lambda: self.init_streaming_audio(audio_format))
+                                    
+                                elif data.get("type") == "audio_chunk":
+                                    # 音频流块
+                                    audio_data = data.get("audio_data", "")
+                                    chunk_size = data.get("chunk_size", 0)
+                                    if audio_data:
+                                        self.root.after(0, lambda ad=audio_data, cs=chunk_size: self.handle_audio_chunk(ad, cs))
+                                        
+                                elif data.get("type") == "audio_end":
+                                    # 音频流结束
+                                    self.root.after(0, lambda: self.finalize_streaming_audio())
+                                    
+                                elif data.get("type") == "done":
+                                    self.root.after(0, lambda: self.status_var.set("云端流式响应完成"))
+                                    # 确保最终响应格式正确
+                                    self.root.after(0, lambda: self.finalize_cloud_response(current_response))
+                                    # 重置流式响应状态
+                                    self.root.after(0, self.reset_streaming_response)
+                                    break
+                                    
+                                elif data.get("type") == "error":
+                                    error_msg = data.get("error", "未知错误")
+                                    self.root.after(0, lambda msg=error_msg: self.append_to_chat(f"云端错误: {msg}", "系统"))
+                                    break
+                                    
+                            except json.JSONDecodeError as e:
+                                print(f"云端JSON解析错误: {e}, 原始数据: {line_text}")
+                                continue
+                                
+                        except Exception as line_error:
+                            print(f"云端读取行错误: {line_error}")
+                            break
+                            
+        except Exception as e:
+            error_msg = str(e)
+            print(f"云端流式聊天异常: {error_msg}")
+            self.root.after(0, lambda: self.append_to_chat(f"云端流式聊天失败: {error_msg}", "系统"))
+        finally:
+            self.root.after(0, self.enable_buttons)
         
     def run_async_stream_chat(self, message):
         """在新线程中运行异步流式聊天"""
@@ -204,8 +348,20 @@ class ElysiaClient:
                                 if data.get("type") == "text":
                                     content = data.get("content", "")
                                     current_response += content
+                                    
+                                    # 清理可能的重复内容
+                                    clean_response = self.remove_immediate_duplicates(current_response)
+                                    
+                                    # 如果清理后的内容和之前相同，跳过这次更新
+                                    if hasattr(self, '_last_local_response') and clean_response == self._last_local_response:
+                                        continue
+                                    
+                                    current_response = clean_response
+                                    self._last_local_response = clean_response
+                                    
                                     # 更新UI（需要在主线程中执行）
-                                    self.root.after(0, lambda c=current_response: self.update_current_response(c))
+                                    response_copy = current_response
+                                    self.root.after(0, lambda c=response_copy: self.update_current_response(c))
                                 
                                 elif data.get("type") == "audio_start":
                                     # 音频流开始
@@ -225,6 +381,10 @@ class ElysiaClient:
                                     
                                 elif data.get("type") == "done":
                                     self.root.after(0, lambda: self.status_var.set("流式响应完成"))
+                                    # 确保最终响应格式正确
+                                    self.root.after(0, lambda: self.finalize_local_response(current_response))
+                                    # 重置流式响应状态
+                                    self.root.after(0, self.reset_streaming_response)
                                     break
                                     
                                 elif data.get("type") == "error":
@@ -261,22 +421,287 @@ class ElysiaClient:
             
     def update_current_response(self, response):
         """更新当前响应显示"""
-        # 清除之前的Elysia响应
-        content = self.chat_display.get("1.0", tk.END)
-        lines = content.split('\n')
+        try:
+            # 调试信息
+            print(f"更新本地响应，长度: {len(response)} 字符")
+            print(f"响应前50个字符: {response[:50]}...")
+            
+            # 如果这是第一次更新，创建新的响应行
+            if self.current_streaming_response_type != "local" or self.current_streaming_response_line is None:
+                # 添加新的响应行
+                timestamp = datetime.now().strftime("%H:%M:%S")
+                new_content = f"[{timestamp}] Elysia: {response}\n"
+                self.chat_display.insert(tk.END, new_content)
+                
+                # 记录当前流式响应信息
+                self.current_streaming_response_type = "local"
+                # 获取刚插入行的行号
+                content = self.chat_display.get("1.0", tk.END)
+                lines = content.strip().split('\n')
+                self.current_streaming_response_line = len(lines) - 1  # 最后一行的索引
+                print(f"创建了新的本地响应行: {self.current_streaming_response_line}")
+            else:
+                # 更新现有的响应行
+                line_start = f"{self.current_streaming_response_line + 1}.0"
+                line_end = f"{self.current_streaming_response_line + 1}.end"
+                
+                # 删除旧的响应行内容
+                self.chat_display.delete(line_start, line_end)
+                
+                # 插入新的完整响应
+                timestamp = datetime.now().strftime("%H:%M:%S")
+                new_content = f"[{timestamp}] Elysia: {response}"
+                self.chat_display.insert(line_start, new_content)
+                print(f"更新了第{self.current_streaming_response_line + 1}行的本地响应")
+            
+            # 确保滚动到最新内容
+            self.chat_display.see(tk.END)
+            
+        except Exception as e:
+            print(f"更新本地响应失败: {e}")
+            # 如果更新失败，至少记录错误
+            self.append_to_chat(f"显示更新错误: {str(e)}", "系统")
         
-        # 找到最后一个Elysia的响应并替换
-        for i in range(len(lines) - 1, -1, -1):
-            if "Elysia:" in lines[i]:
-                # 找到了，删除这一行及其后续内容
-                line_start = f"{i+1}.0"
-                self.chat_display.delete(line_start, tk.END)
-                break
+    def update_current_cloud_response(self, response):
+        """更新当前云端响应显示"""
+        try:
+            # 调试信息
+            print(f"更新云端响应，长度: {len(response)} 字符")
+            print(f"响应前50个字符: {response[:50]}...")
+            
+            # 如果这是第一次更新，创建新的响应行
+            if self.current_streaming_response_type != "cloud" or self.current_streaming_response_line is None:
+                # 添加新的云端响应行
+                timestamp = datetime.now().strftime("%H:%M:%S")
+                new_content = f"[{timestamp}] ☁️Elysia: {response}\n"
+                self.chat_display.insert(tk.END, new_content)
+                
+                # 记录当前流式响应信息
+                self.current_streaming_response_type = "cloud"
+                # 获取刚插入行的行号
+                content = self.chat_display.get("1.0", tk.END)
+                lines = content.strip().split('\n')
+                self.current_streaming_response_line = len(lines) - 1  # 最后一行的索引
+                print(f"创建了新的云端响应行: {self.current_streaming_response_line}")
+            else:
+                # 更新现有的响应行
+                line_start = f"{self.current_streaming_response_line + 1}.0"
+                line_end = f"{self.current_streaming_response_line + 1}.end"
+                
+                # 删除旧的响应行内容
+                self.chat_display.delete(line_start, line_end)
+                
+                # 插入新的完整响应
+                timestamp = datetime.now().strftime("%H:%M:%S")
+                new_content = f"[{timestamp}] ☁️Elysia: {response}"
+                self.chat_display.insert(line_start, new_content)
+                print(f"更新了第{self.current_streaming_response_line + 1}行的云端响应")
+            
+            # 确保滚动到最新内容
+            self.chat_display.see(tk.END)
+            
+        except Exception as e:
+            print(f"更新云端响应失败: {e}")
+            # 如果更新失败，至少记录错误
+            self.append_to_chat(f"显示更新错误: {str(e)}", "系统")
         
-        # 添加新的响应
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        self.chat_display.insert(tk.END, f"[{timestamp}] Elysia: {response}\n")
-        self.chat_display.see(tk.END)
+    def finalize_cloud_response(self, final_response):
+        """完成云端响应，确保格式正确"""
+        try:
+            if not final_response.strip():
+                return
+                
+            # 获取当前聊天内容
+            content = self.chat_display.get("1.0", tk.END)
+            lines = content.strip().split('\n')
+            
+            # 查找最后一个云端响应并确保格式正确
+            for i in range(len(lines) - 1, -1, -1):
+                if lines[i].strip() and "☁️Elysia:" in lines[i]:
+                    # 检查是否有重复或不完整的内容
+                    current_line = lines[i]
+                    if current_line.count("呀～牵着手就像编织") > 1 or not current_line.strip().endswith(("～", "！", "。", "♪")):
+                        # 清理并重新写入正确的响应
+                        line_start = f"{i + 1}.0"
+                        line_end = f"{i + 2}.0"
+                        self.chat_display.delete(line_start, line_end)
+                        
+                        timestamp = datetime.now().strftime("%H:%M:%S")
+                        clean_response = self.clean_duplicate_content(final_response)
+                        new_content = f"[{timestamp}] ☁️Elysia: {clean_response}\n"
+                        self.chat_display.insert(line_start, new_content)
+                        print("清理并修复了云端响应格式")
+                    break
+                    
+        except Exception as e:
+            print(f"完成云端响应处理失败: {e}")
+    
+    def clean_duplicate_content(self, text):
+        """清理重复的内容"""
+        try:
+            # 首先按行分割并去除明显的重复
+            lines = text.split('\n')
+            cleaned_lines = []
+            
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+                
+                # 检查是否和已有行重复或是截断版本
+                should_add = True
+                for i, existing_line in enumerate(cleaned_lines):
+                    # 如果当前行是已有行的截断版本，跳过
+                    if existing_line.startswith(line) and len(line) < len(existing_line):
+                        should_add = False
+                        break
+                    # 如果当前行是已有行的完整版本，替换已有行
+                    elif line.startswith(existing_line) and len(line) > len(existing_line):
+                        cleaned_lines[i] = line
+                        should_add = False
+                        break
+                    # 如果完全相同，跳过
+                    elif line == existing_line:
+                        should_add = False
+                        break
+                
+                if should_add:
+                    cleaned_lines.append(line)
+            
+            # 特殊处理：移除重复的句式开头
+            final_lines = []
+            seen_patterns = set()
+            
+            for line in cleaned_lines:
+                # 提取句子的开头模式（前20个字符）
+                pattern = line[:20] if len(line) > 20 else line
+                
+                # 对于特定的重复模式，只保留最长的版本
+                if pattern.startswith("呀～") or pattern.startswith("[轻盈地"):
+                    # 检查是否已经有相似的模式
+                    found_similar = False
+                    for i, existing_line in enumerate(final_lines):
+                        existing_pattern = existing_line[:20] if len(existing_line) > 20 else existing_line
+                        
+                        # 如果是相同的模式开头
+                        if (pattern.startswith("呀～") and existing_pattern.startswith("呀～")) or \
+                           (pattern.startswith("[轻盈地") and existing_pattern.startswith("[轻盈地")):
+                            # 保留更长的版本
+                            if len(line) > len(existing_line):
+                                final_lines[i] = line
+                            found_similar = True
+                            break
+                    
+                    if not found_similar:
+                        final_lines.append(line)
+                else:
+                    final_lines.append(line)
+            
+            return '\n'.join(final_lines)
+            
+        except Exception as e:
+            print(f"清理重复内容失败: {e}")
+            return text
+        
+    def finalize_local_response(self, final_response):
+        """完成本地响应，确保格式正确"""
+        try:
+            if not final_response.strip():
+                return
+                
+            # 获取当前聊天内容
+            content = self.chat_display.get("1.0", tk.END)
+            lines = content.strip().split('\n')
+            
+            # 查找最后一个本地响应并确保格式正确
+            for i in range(len(lines) - 1, -1, -1):
+                if lines[i].strip() and "Elysia:" in lines[i] and not "☁️Elysia:" in lines[i]:
+                    # 检查是否有重复或不完整的内容
+                    current_line = lines[i]
+                    if current_line.count("呀～牵着手就像编织") > 1 or len(current_line) < 50:  # 可能是不完整的
+                        # 清理并重新写入正确的响应
+                        line_start = f"{i + 1}.0"
+                        line_end = f"{i + 2}.0"
+                        self.chat_display.delete(line_start, line_end)
+                        
+                        timestamp = datetime.now().strftime("%H:%M:%S")
+                        clean_response = self.clean_duplicate_content(final_response)
+                        new_content = f"[{timestamp}] Elysia: {clean_response}\n"
+                        self.chat_display.insert(line_start, new_content)
+                        print("清理并修复了本地响应格式")
+                    break
+                    
+        except Exception as e:
+            print(f"完成本地响应处理失败: {e}")
+    
+    def remove_immediate_duplicates(self, text):
+        """移除即时重复的内容"""
+        try:
+            # 按行分割
+            lines = text.split('\n')
+            cleaned_lines = []
+            
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+                    
+                # 检查是否和前一行重复
+                if cleaned_lines and line == cleaned_lines[-1]:
+                    continue
+                
+                # 检查是否是不完整的重复或截断
+                if cleaned_lines:
+                    last_line = cleaned_lines[-1]
+                    
+                    # 如果当前行是上一行的前缀（截断），跳过当前行
+                    if last_line.startswith(line) and len(line) < len(last_line):
+                        continue
+                    
+                    # 如果当前行是上一行的扩展，替换上一行
+                    elif line.startswith(last_line) and len(line) > len(last_line):
+                        cleaned_lines[-1] = line
+                        continue
+                    
+                    # 检查是否是相似的开头但内容不同（可能是重复的句式）
+                    # 对于特定的重复句式，只保留第一个完整的
+                    if line.startswith("呀～") and last_line.startswith("呀～"):
+                        # 如果两行都是以"呀～"开头，保留更完整的那个
+                        if len(line) <= len(last_line):
+                            continue  # 跳过较短的
+                        else:
+                            cleaned_lines[-1] = line  # 替换为较长的
+                            continue
+                
+                cleaned_lines.append(line)
+            
+            # 最后再做一次检查，移除重复的段落
+            final_lines = []
+            seen_content = set()
+            
+            for line in cleaned_lines:
+                # 对于长句子，检查是否已经有相似的内容
+                line_key = line[:50] if len(line) > 50 else line  # 使用前50个字符作为键
+                if line_key not in seen_content:
+                    final_lines.append(line)
+                    seen_content.add(line_key)
+            
+            return '\n'.join(final_lines)
+            
+        except Exception as e:
+            print(f"移除即时重复失败: {e}")
+            return text
+    
+    def reset_streaming_response(self):
+        """重置流式响应状态"""
+        self.current_streaming_response_type = None
+        self.current_streaming_response_line = None
+        # 重置响应缓存
+        if hasattr(self, '_last_cloud_response'):
+            delattr(self, '_last_cloud_response')
+        if hasattr(self, '_last_local_response'):
+            delattr(self, '_last_local_response')
+        print("重置了流式响应状态")
         
     def on_normal_chat(self):
         """普通聊天"""
@@ -643,12 +1068,14 @@ class ElysiaClient:
     def disable_buttons(self):
         """禁用按钮"""
         self.stream_button.configure(state="disabled")
+        self.cloud_button.configure(state="disabled")
         self.normal_button.configure(state="disabled")
         self.send_button.configure(state="disabled")
         
     def enable_buttons(self):
         """启用按钮"""
         self.stream_button.configure(state="normal")
+        self.cloud_button.configure(state="normal")
         self.normal_button.configure(state="normal")
         self.send_button.configure(state="normal")
         
