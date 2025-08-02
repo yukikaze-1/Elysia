@@ -5,3 +5,4 @@ __pycache__/*
 *.pyo
 *.pyd
 *.db
+token_stats.json

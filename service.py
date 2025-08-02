@@ -3,6 +3,7 @@ import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from Utils import MessageIDGenerator
+from TokenManager import TokenManager
 from RAG import RAG
 import httpx
 import base64
@@ -21,6 +22,7 @@ from Prompt import CharacterPromptManager
 from PersistentChatHistory import GlobalChatMessageHistory
 
 
+
 class Service:
     def __init__(self):
         self.app = FastAPI()
@@ -30,6 +32,7 @@ class Service:
         self.message_id_generator = MessageIDGenerator()  # 添加ID生成器
         self.conversation = self.setup_conversation()  # 初始化会话处理
         self.config = RunnableConfig(configurable={"session_id": "default"})
+        self.token_manager = TokenManager()
         
     
     def get_session_history(self, session_id: str) -> BaseChatMessageHistory:
@@ -108,6 +111,58 @@ class Service:
         async def show_history(request: Request):
             session_id = request.query_params.get("session_id", "default")
             return await self.check_memory_status(session_id)
+        
+        # Token 管理相关 API
+        @self.app.get("/chat/token_stats")
+        async def get_token_stats():
+            """获取详细的 token 统计信息"""
+            return self.token_manager.get_current_stats()
+        
+        @self.app.get("/chat/token_stats/simple")
+        async def get_simple_token_stats():
+            """获取简化的 token 统计信息"""
+            stats = self.token_manager.get_current_stats()
+            return {
+                "total_tokens": stats["total_stats"]["total_tokens"],
+                "session_tokens": stats["session_stats"]["total_tokens"],
+                "conversations": stats["runtime_info"]["conversations_count"]
+            }
+        
+        @self.app.post("/chat/reset_session_tokens")
+        async def reset_session_tokens():
+            """重置会话 token 统计"""
+            self.token_manager.reset_session_stats()
+            return {"message": "Session token statistics reset successfully"}
+        
+        @self.app.post("/chat/reset_all_tokens")
+        async def reset_all_tokens():
+            """重置所有 token 统计"""
+            self.token_manager.reset_all_stats()
+            return {"message": "All token statistics reset successfully"}
+        
+        @self.app.get("/chat/recent_conversations")
+        async def get_recent_conversations(limit: int = 10):
+            """获取最近的对话统计"""
+            return self.token_manager.get_recent_conversations(limit)
+        
+        # 新增：持久化相关 API
+        @self.app.post("/chat/save_token_stats")
+        async def save_token_stats():
+            """手动保存 token 统计数据"""
+            self.token_manager.force_save()
+            return {"message": "Token statistics saved successfully"}
+        
+        @self.app.post("/chat/export_token_stats")
+        async def export_token_stats(export_name: str):
+            """导出 token 统计数据"""
+            if not export_name:
+                raise HTTPException(status_code=400, detail="Export name is required")
+            
+            try:
+                file_path = self.token_manager.export_stats(export_name)
+                return {"message": f"Statistics exported to {file_path}", "file_path": file_path}
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
 
 
     async def _chat_stream(self, data: Dict):
@@ -121,8 +176,12 @@ class Service:
             try:
                 import json
                 
+                # 计算并记录输入 tokens
+                input_tokens = self.token_manager.add_input_tokens(message)
+                
                 # 发送给LLM，获取流式响应
                 full_content = ""
+                output_tokens = 0
                 
                 # 使用 astream 方法获取流式响应
                 async for chunk in self.conversation.astream(
@@ -134,8 +193,19 @@ class Service:
                         content = chunk.content
                         full_content += content
                         
+                        # 累加输出 tokens
+                        chunk_tokens = self.token_manager.add_streaming_output_tokens(content)
+                        output_tokens += chunk_tokens
+                        
                         # 发送流式文本数据
                         yield json.dumps({"type": "text", "content": content}, ensure_ascii=False) + "\n"
+                
+                # 发送 token 使用统计信息 - 这是之前缺少的部分
+                token_usage = self.token_manager.get_turn_usage_info(input_tokens, output_tokens)
+                yield json.dumps(token_usage, ensure_ascii=False) + "\n"
+                
+                # 手动触发一次完整的对话记录（用于历史记录和自动保存）
+                self.token_manager.add_conversation_turn(message, full_content)
                 
                 # 消息已经通过 RunnableWithMessageHistory 自动添加到历史中
                 # 由于我们使用了 HybridChatMessageHistory，消息会自动同步到 Milvus
