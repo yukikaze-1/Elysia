@@ -10,6 +10,8 @@ import base64
 
 from typing import Dict, List
 import datetime
+import os
+from openai import OpenAI
 
 from langchain.memory import ConversationBufferMemory, ConversationTokenBufferMemory, ConversationSummaryMemory, ConversationSummaryBufferMemory
 from langchain_ollama import ChatOllama
@@ -21,31 +23,82 @@ from langchain_community.chat_message_histories import ChatMessageHistory
 from Prompt import CharacterPromptManager
 from PersistentChatHistory import GlobalChatMessageHistory
 
-
+from dotenv import load_dotenv, dotenv_values, find_dotenv
 
 class Service:
     def __init__(self):
         self.app = FastAPI()
         self.character_prompt_manager = CharacterPromptManager()
         self.tts_client = httpx.AsyncClient(base_url="http://localhost:9880")
-        self.rag = RAG()
-        self.message_id_generator = MessageIDGenerator()  # 添加ID生成器
-        self.conversation = self.setup_conversation()  # 初始化会话处理
+        # self.rag = RAG()
+        
+        # 立即初始化所有需要的组件
+        self._initialize_all_components()
+        
+        print("=== Service 初始化完成 ===")
+        
+    def _initialize_all_components(self):
+        """初始化所有组件"""
+        
+        # 1. 初始化 RAG（如果需要）
+        print("正在初始化 RAG...")
+        # self.rag = RAG()
+        print("✓ RAG 跳过")
+        
+        # 2. 强制初始化全局聊天历史
+        print("正在强制加载聊天历史...")
+        self._global_history = GlobalChatMessageHistory()
+        print(f"✓ 聊天历史已加载 ({len(self._global_history.messages)} 条消息)")
+        
+        # 3. 初始化对话处理器
+        print("正在设置本地对话...")
+        self.local_conversation = self.setup_local_conversation()
+        print("✓ 本地对话已设置")
+        
         self.config = RunnableConfig(configurable={"session_id": "default"})
+        
+        # 4. 初始化 Token 管理器
+        print("正在初始化 Token 管理器...")
         self.token_manager = TokenManager()
+        print("✓ Token 管理器已初始化")
+        
+        # 5. 初始化云端对话
+        print("正在设置云端对话...")
+        self.cloud_conversation = self.setup_cloud_conversation()
+        print("✓ 云端对话已设置")
+        
+        # 6. 预热检查
+        print("正在进行预热检查...")
+        self._warmup_check()
         
     
+    def _warmup_check(self):
+        """预热检查 - 确保所有组件正常工作"""
+        try:
+            # 检查聊天历史
+            message_count = len(self._global_history.messages)
+            print(f"  - 聊天历史: {message_count} 条消息")
+            
+            # 检查 Token 管理器
+            stats = self.token_manager.get_current_stats()
+            print(f"  - Token 统计: 总计 {stats['total_stats']['total_tokens']} tokens")
+            
+            print("✓ 预热检查完成")
+            
+        except Exception as e:
+            print(f"✗ 预热检查失败: {e}")    
+
     def get_session_history(self, session_id: str) -> BaseChatMessageHistory:
         """获取会话历史 - 始终返回全局单例"""
-        return GlobalChatMessageHistory()
+        return self._global_history  # 每次调用都返回同一实例！
 
     async def check_memory_status(self, session_id=None)->List[str]:
         """检查记忆状态 - session_id 参数被忽略"""
-        history = GlobalChatMessageHistory()
+        history = self._global_history
         messages = history.messages
         
-        print(f"当前消息数量: {len(messages)}")
-        print("全局对话历史:")
+        # print(f"当前消息数量: {len(messages)}")
+        # print("全局对话历史:")
         res = [] 
         
         # 定义显示名称映射
@@ -60,11 +113,32 @@ class Service:
             display_type = type_mapping.get(msg.type, msg.type)
             formatted_msg = f"{i+1}. {display_type}: {msg.content}"
             res.append(formatted_msg)
-            print(f"  {formatted_msg}")
+            # print(f"  {formatted_msg}")
         return res
+
+    def setup_cloud_conversation(self, model: str = "qwen3")-> OpenAI:
+        """
+        设置云端聊天会话处理
+        即使用云端模型进行对话处理
+        """
+        self.cloud_llm_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+        load_dotenv(find_dotenv())
+        self.api_key = dotenv_values(".env").get("QWEN3_API_KEY","")
+        if not self.api_key:
+            raise ValueError("API key for QWEN3 is not set in the environment variables.")
+        
+        return OpenAI(
+            api_key=self.api_key,
+            base_url=self.cloud_llm_url,
+        )
+        
+        
     
-    def setup_conversation(self, model: str = "qwen2.5") -> RunnableWithMessageHistory:
-        """设置聊天会话处理"""
+    def setup_local_conversation(self, model: str = "qwen2.5") -> RunnableWithMessageHistory:
+        """
+        设置本地聊天会话处理
+        即使用本地Ollama模型进行对话处理
+        """
         llm = ChatOllama(
             model=model,
             base_url="http://localhost:11434",
@@ -107,6 +181,11 @@ class Service:
             data = await request.json()
             return await self._chat_stream(data)
         
+        @self.app.post("/chat/stream_text_cloud")
+        async def chat_stream_cloud(request: Request):
+            data = await request.json()
+            return await self._chat_stream_cloud(data)
+        
         @self.app.get("/chat/show_history")
         async def show_history(request: Request):
             session_id = request.query_params.get("session_id", "default")
@@ -123,9 +202,17 @@ class Service:
             """获取简化的 token 统计信息"""
             stats = self.token_manager.get_current_stats()
             return {
+                "local_tokens": stats["local_stats"]["total_tokens"],
+                "cloud_tokens": stats["cloud_stats"]["total_tokens"],
                 "total_tokens": stats["total_stats"]["total_tokens"],
-                "session_tokens": stats["session_stats"]["total_tokens"],
-                "conversations": stats["runtime_info"]["conversations_count"]
+                "session_local": stats["session_stats"]["local"]["total_tokens"],
+                "session_cloud": stats["session_stats"]["cloud"]["total_tokens"],
+                "session_total": stats["session_stats"]["total"]["total_tokens"],
+                "conversations": {
+                    "local": stats["runtime_info"]["local_conversations"],
+                    "cloud": stats["runtime_info"]["cloud_conversations"],
+                    "total": stats["runtime_info"]["total_conversations"]
+                }
             }
         
         @self.app.post("/chat/reset_session_tokens")
@@ -164,9 +251,185 @@ class Service:
             except Exception as e:
                 raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
 
-
+    async def _chat_stream_cloud(self, data: Dict):
+        """
+        处理新的聊天请求，使用云端模型
+        支持流式响应
+        """
+        message: str = data.get("message", "")
+        if not message:
+            raise HTTPException(status_code=400, detail="Message cannot be empty.")
+        
+        async def generate():
+            try:
+                import json
+                
+                # 计算并记录输入 tokens（云端模型）
+                estimated_input_tokens = self.token_manager.add_cloud_input_tokens(message)
+            
+                
+                # 获取历史对话记录
+                history = GlobalChatMessageHistory()
+                messages = []
+                
+                # 添加系统提示
+                messages.append({
+                    'role': 'system', 
+                    'content': self.character_prompt_manager.get_Elysia_prompt()
+                })
+                
+                # 添加历史对话（转换格式）
+                for msg in history.messages:
+                    if msg.type == "human":
+                        messages.append({'role': 'user', 'content': msg.content})
+                    elif msg.type == "ai":
+                        messages.append({'role': 'assistant', 'content': msg.content})
+                
+                # 添加当前用户消息
+                messages.append({'role': 'user', 'content': message})
+                
+                # 调用云端模型
+                completion = self.cloud_conversation.chat.completions.create(
+                    model="qwen-plus",  # 或者使用你指定的模型
+                    messages=messages,
+                    stream=True,
+                    stream_options={"include_usage": True},
+                    temperature=0.3,
+                    max_tokens=1000
+                )
+                
+                full_content = ""
+                estimated_output_tokens = 0
+                usage_info = None
+                
+                # 处理流式响应
+                for chunk in completion:
+                    # 检查是否有内容
+                    if chunk.choices and len(chunk.choices) > 0:
+                        delta = chunk.choices[0].delta
+                        if hasattr(delta, 'content') and delta.content:
+                            content = delta.content
+                            full_content += content
+                            
+                            # 计算输出 tokens（云端模型）
+                            chunk_tokens = self.token_manager.add_cloud_streaming_output_tokens(content)
+                            estimated_output_tokens += chunk_tokens
+                            
+                            # 发送流式文本数据
+                            yield json.dumps({"type": "text", "content": content}, ensure_ascii=False) + "\n"
+                    
+                    # 检查是否有使用统计信息
+                    if hasattr(chunk, 'usage') and chunk.usage:
+                        usage_info = chunk.usage
+                
+                # 如果云端提供了准确的 token 统计，调整统计数据
+                if usage_info:
+                    actual_input_tokens = usage_info.prompt_tokens
+                    actual_output_tokens = usage_info.completion_tokens
+                    
+                    # 调整云端统计
+                    self.token_manager.adjust_cloud_tokens_with_usage(
+                        estimated_input_tokens, estimated_output_tokens,
+                        actual_input_tokens, actual_output_tokens
+                    )
+                    
+                    # 使用实际值发送统计信息
+                    token_usage = {
+                        "type": "token_usage",
+                        "model_type": "cloud",
+                        "current_turn": {
+                            "input_tokens": actual_input_tokens,
+                            "output_tokens": actual_output_tokens,
+                            "total_tokens": actual_input_tokens + actual_output_tokens
+                        },
+                        "session_cloud": {
+                            "input_tokens": self.token_manager.cloud_session_input_tokens,
+                            "output_tokens": self.token_manager.cloud_session_output_tokens,
+                            "total_tokens": self.token_manager.cloud_session_total_tokens
+                        },
+                        "session_total": {
+                            "input_tokens": self.token_manager.session_input_tokens,
+                            "output_tokens": self.token_manager.session_output_tokens,
+                            "total_tokens": self.token_manager.session_total_tokens
+                        },
+                        "grand_total": {
+                            "local_tokens": self.token_manager.local_total_tokens,
+                            "cloud_tokens": self.token_manager.cloud_total_tokens,
+                            "total_tokens": self.token_manager.total_tokens
+                        },
+                        "cloud_usage": {
+                            "prompt_tokens": usage_info.prompt_tokens,
+                            "completion_tokens": usage_info.completion_tokens,
+                            "total_tokens": usage_info.total_tokens
+                        }
+                    }
+                else:
+                    # 使用估算值
+                    token_usage = {
+                        "type": "token_usage",
+                        "model_type": "cloud",
+                        "current_turn": {
+                            "input_tokens": estimated_input_tokens,
+                            "output_tokens": estimated_output_tokens,
+                            "total_tokens": estimated_input_tokens + estimated_output_tokens
+                        },
+                        # ...其他统计信息
+                    }
+                
+                # 发送 token 统计信息
+                yield json.dumps(token_usage, ensure_ascii=False) + "\n"
+                
+                # 手动将对话添加到历史记录中（因为云端模型没有自动历史管理）
+                if full_content:
+                    history.add_user_message(message)
+                    history.add_ai_message(full_content)
+                    
+                    # 处理语音生成（与本地模型相同的逻辑）
+                    try:
+                        def clean_text_from_brackets(text: str) -> str:
+                            """移除文本中的方括号内容"""
+                            import re
+                            cleaned = re.sub(r'\[.*?\]', '', text)
+                            return cleaned.strip()
+                        
+                        # 发送音频开始标记
+                        yield json.dumps({"type": "audio_start", "audio_format": "ogg"}, ensure_ascii=False) + "\n"
+                        
+                        # 真正的音频流式生成和传输
+                        async for audio_chunk in self._stream_tts_audio(text=clean_text_from_brackets(full_content)):
+                            if audio_chunk:
+                                # 将音频块编码为base64并流式发送
+                                chunk_base64 = base64.b64encode(audio_chunk).decode('utf-8')
+                                yield json.dumps({
+                                    "type": "audio_chunk", 
+                                    "audio_data": chunk_base64,
+                                    "chunk_size": len(audio_chunk)
+                                }, ensure_ascii=False) + "\n"
+                        
+                        # 发送音频结束标记
+                        yield json.dumps({"type": "audio_end"}, ensure_ascii=False) + "\n"
+                            
+                    except Exception as e:
+                        print(f"语音生成失败: {e}")
+                        yield json.dumps({'type': 'error', 'error': f'语音生成失败: {str(e)}'}, ensure_ascii=False) + "\n"
+                
+                # 发送完成标记
+                yield json.dumps({"type": "done"}) + "\n"
+                
+            except Exception as e:
+                error_msg = str(e)
+                print(f"云端流式响应错误: {error_msg}")
+                yield json.dumps({'type': 'error', 'error': error_msg}, ensure_ascii=False) + "\n"
+    
+        # 返回流式响应
+        return StreamingResponse(generate(), media_type="application/x-ndjson")
+    
+    
     async def _chat_stream(self, data: Dict):
-        """处理新的聊天请求, 支持流式响应"""
+        """
+        处理新的聊天请求, 使用本地Ollama模型
+        支持流式响应
+        """
         message: str = data.get("message", "")
         
         if not message:
@@ -184,7 +447,7 @@ class Service:
                 output_tokens = 0
                 
                 # 使用 astream 方法获取流式响应
-                async for chunk in self.conversation.astream(
+                async for chunk in self.local_conversation.astream(
                     {"input": message}, 
                     config=self.config
                 ):
@@ -193,15 +456,39 @@ class Service:
                         content = chunk.content
                         full_content += content
                         
-                        # 累加输出 tokens
-                        chunk_tokens = self.token_manager.add_streaming_output_tokens(content)
+                        # 累加输出 tokens（本地模型）
+                        chunk_tokens = self.token_manager.add_local_streaming_output_tokens(content)
                         output_tokens += chunk_tokens
                         
                         # 发送流式文本数据
                         yield json.dumps({"type": "text", "content": content}, ensure_ascii=False) + "\n"
                 
-                # 发送 token 使用统计信息 - 这是之前缺少的部分
-                token_usage = self.token_manager.get_turn_usage_info(input_tokens, output_tokens)
+
+                # 发送 token 使用统计信息
+                token_usage = {
+                    "type": "token_usage",
+                    "model_type": "local",
+                    "current_turn": {
+                        "input_tokens": input_tokens,
+                        "output_tokens": output_tokens,
+                        "total_tokens": input_tokens + output_tokens
+                    },
+                    "session_local": {
+                        "input_tokens": self.token_manager.local_session_input_tokens,
+                        "output_tokens": self.token_manager.local_session_output_tokens,
+                        "total_tokens": self.token_manager.local_session_total_tokens
+                    },
+                    "session_total": {
+                        "input_tokens": self.token_manager.session_input_tokens,
+                        "output_tokens": self.token_manager.session_output_tokens,
+                        "total_tokens": self.token_manager.session_total_tokens
+                    },
+                    "grand_total": {
+                        "local_tokens": self.token_manager.local_total_tokens,
+                        "cloud_tokens": self.token_manager.cloud_total_tokens,
+                        "total_tokens": self.token_manager.total_tokens
+                    }
+                }
                 yield json.dumps(token_usage, ensure_ascii=False) + "\n"
                 
                 # 手动触发一次完整的对话记录（用于历史记录和自动保存）

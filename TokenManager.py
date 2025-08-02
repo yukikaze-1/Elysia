@@ -8,8 +8,13 @@ class TokenManager:
     """Token 计数管理器 - 支持持久化"""
     
     def __init__(self, data_file: str = "token_stats.json"):
+        """
+        初始化 TokenManager
+        
+        Args:
+            data_file: 持久化数据文件路径
+        """
         self.data_file = data_file
-        self.save_dir = "./"
         
         # 初始化默认值
         self._init_default_values()
@@ -17,20 +22,37 @@ class TokenManager:
         # 尝试加载持久化数据
         self._load_from_file()
         
+        
     def _init_default_values(self):
         """初始化默认值"""
-        # 总体统计
+        # 本地模型统计
+        self.local_total_input_tokens = 0
+        self.local_total_output_tokens = 0
+        self.local_total_tokens = 0
+        self.local_session_input_tokens = 0
+        self.local_session_output_tokens = 0
+        self.local_session_total_tokens = 0
+        
+        # 云端模型统计
+        self.cloud_total_input_tokens = 0
+        self.cloud_total_output_tokens = 0
+        self.cloud_total_tokens = 0
+        self.cloud_session_input_tokens = 0
+        self.cloud_session_output_tokens = 0
+        self.cloud_session_total_tokens = 0
+        
+        # 总体统计（本地+云端）
         self.total_input_tokens = 0
         self.total_output_tokens = 0
         self.total_tokens = 0
-        
-        # 会话统计
         self.session_input_tokens = 0
         self.session_output_tokens = 0
         self.session_total_tokens = 0
         
-        # 统计历史（可选，用于分析）
-        self.conversation_history = []
+        # 对话历史（区分模型类型）
+        self.local_conversation_history = []
+        self.cloud_conversation_history = []
+        self.conversation_history = []  # 保持兼容性
         
         # 统计开始时间
         self.start_time = datetime.now()
@@ -49,16 +71,24 @@ class TokenManager:
             with open(self.data_file, 'r', encoding='utf-8') as f:
                 data = json.load(f)
                 
-            # 加载总体统计
-            total_stats = data.get('total_stats', {})
-            self.total_input_tokens = total_stats.get('input_tokens', 0)
-            self.total_output_tokens = total_stats.get('output_tokens', 0)
-            self.total_tokens = total_stats.get('total_tokens', 0)
+            # 加载本地模型统计
+            local_stats = data.get('local_stats', {})
+            self.local_total_input_tokens = local_stats.get('input_tokens', 0)
+            self.local_total_output_tokens = local_stats.get('output_tokens', 0)
+            self.local_total_tokens = local_stats.get('total_tokens', 0)
             
-            # 会话统计不加载，每次启动重新开始
-            # 但保留历史记录中的数据
+            # 加载云端模型统计
+            cloud_stats = data.get('cloud_stats', {})
+            self.cloud_total_input_tokens = cloud_stats.get('input_tokens', 0)
+            self.cloud_total_output_tokens = cloud_stats.get('output_tokens', 0)
+            self.cloud_total_tokens = cloud_stats.get('total_tokens', 0)
+            
+            # 计算总体统计
+            self._update_total_stats()
             
             # 加载对话历史
+            self.local_conversation_history = data.get('local_conversation_history', [])
+            self.cloud_conversation_history = data.get('cloud_conversation_history', [])
             self.conversation_history = data.get('conversation_history', [])
             
             # 加载时间信息
@@ -69,7 +99,10 @@ class TokenManager:
                 except:
                     self.start_time = datetime.now()
             
-            print(f"成功加载Token统计数据: 总计 {self.total_tokens} tokens, 历史记录 {len(self.conversation_history)} 条")
+            print(f"成功加载Token统计数据:")
+            print(f"  本地模型: {self.local_total_tokens} tokens")
+            print(f"  云端模型: {self.cloud_total_tokens} tokens")
+            print(f"  总计: {self.total_tokens} tokens")
             
         except Exception as e:
             print(f"加载Token统计文件失败: {e}")
@@ -79,25 +112,51 @@ class TokenManager:
         """保存数据到文件"""
         try:
             data = {
+                "local_stats": {
+                    "input_tokens": self.local_total_input_tokens,
+                    "output_tokens": self.local_total_output_tokens,
+                    "total_tokens": self.local_total_tokens
+                },
+                "cloud_stats": {
+                    "input_tokens": self.cloud_total_input_tokens,
+                    "output_tokens": self.cloud_total_output_tokens,
+                    "total_tokens": self.cloud_total_tokens
+                },
                 "total_stats": {
                     "input_tokens": self.total_input_tokens,
                     "output_tokens": self.total_output_tokens,
                     "total_tokens": self.total_tokens
                 },
                 "session_stats": {
-                    "input_tokens": self.session_input_tokens,
-                    "output_tokens": self.session_output_tokens,
-                    "total_tokens": self.session_total_tokens
+                    "local": {
+                        "input_tokens": self.local_session_input_tokens,
+                        "output_tokens": self.local_session_output_tokens,
+                        "total_tokens": self.local_session_total_tokens
+                    },
+                    "cloud": {
+                        "input_tokens": self.cloud_session_input_tokens,
+                        "output_tokens": self.cloud_session_output_tokens,
+                        "total_tokens": self.cloud_session_total_tokens
+                    },
+                    "total": {
+                        "input_tokens": self.session_input_tokens,
+                        "output_tokens": self.session_output_tokens,
+                        "total_tokens": self.session_total_tokens
+                    }
                 },
+                "local_conversation_history": self.local_conversation_history,
+                "cloud_conversation_history": self.cloud_conversation_history,
                 "conversation_history": self.conversation_history,
                 "runtime_info": {
                     "start_time": self.start_time.isoformat(),
                     "last_save_time": datetime.now().isoformat(),
-                    "conversations_count": len(self.conversation_history)
+                    "local_conversations": len(self.local_conversation_history),
+                    "cloud_conversations": len(self.cloud_conversation_history),
+                    "total_conversations": len(self.conversation_history)
                 },
                 "metadata": {
-                    "version": "1.0",
-                    "description": "Elysia Token Statistics",
+                    "version": "2.0",
+                    "description": "Elysia Token Statistics with Local/Cloud Separation",
                     "auto_save_interval": self.auto_save_interval
                 }
             }
@@ -113,6 +172,134 @@ class TokenManager:
             
         except Exception as e:
             print(f"保存Token统计文件失败: {e}")
+            
+    def _update_total_stats(self):
+        """更新总体统计"""
+        self.total_input_tokens = self.local_total_input_tokens + self.cloud_total_input_tokens
+        self.total_output_tokens = self.local_total_output_tokens + self.cloud_total_output_tokens
+        self.total_tokens = self.local_total_tokens + self.cloud_total_tokens
+        
+        self.session_input_tokens = self.local_session_input_tokens + self.cloud_session_input_tokens
+        self.session_output_tokens = self.local_session_output_tokens + self.cloud_session_output_tokens
+        self.session_total_tokens = self.local_session_total_tokens + self.cloud_session_total_tokens
+    
+    def add_local_input_tokens(self, input_text: str) -> int:
+        """添加本地模型输入 token 统计"""
+        input_tokens = self.count_tokens_approximate(input_text)
+        self.local_total_input_tokens += input_tokens
+        self.local_total_tokens += input_tokens
+        self.local_session_input_tokens += input_tokens
+        self.local_session_total_tokens += input_tokens
+        self._update_total_stats()
+        return input_tokens
+    
+    def add_local_streaming_output_tokens(self, chunk_text: str) -> int:
+        """本地模型流式输出时，逐步累加 output tokens"""
+        chunk_tokens = self.count_tokens_approximate(chunk_text)
+        self.local_total_output_tokens += chunk_tokens
+        self.local_total_tokens += chunk_tokens
+        self.local_session_output_tokens += chunk_tokens
+        self.local_session_total_tokens += chunk_tokens
+        self._update_total_stats()
+        return chunk_tokens
+    
+    def add_cloud_input_tokens(self, input_text: str) -> int:
+        """添加云端模型输入 token 统计"""
+        input_tokens = self.count_tokens_approximate(input_text)
+        self.cloud_total_input_tokens += input_tokens
+        self.cloud_total_tokens += input_tokens
+        self.cloud_session_input_tokens += input_tokens
+        self.cloud_session_total_tokens += input_tokens
+        self._update_total_stats()
+        return input_tokens
+    
+    def add_cloud_streaming_output_tokens(self, chunk_text: str) -> int:
+        """云端模型流式输出时，逐步累加 output tokens"""
+        chunk_tokens = self.count_tokens_approximate(chunk_text)
+        self.cloud_total_output_tokens += chunk_tokens
+        self.cloud_total_tokens += chunk_tokens
+        self.cloud_session_output_tokens += chunk_tokens
+        self.cloud_session_total_tokens += chunk_tokens
+        self._update_total_stats()
+        return chunk_tokens
+    
+    def adjust_cloud_tokens_with_usage(self, estimated_input: int, estimated_output: int, 
+                                      actual_input: int, actual_output: int):
+        """使用云端API返回的准确token数调整统计"""
+        # 调整累计统计
+        input_diff = actual_input - estimated_input
+        output_diff = actual_output - estimated_output
+        
+        self.cloud_total_input_tokens += input_diff
+        self.cloud_total_output_tokens += output_diff
+        self.cloud_total_tokens += (input_diff + output_diff)
+        
+        self.cloud_session_input_tokens += input_diff
+        self.cloud_session_output_tokens += output_diff
+        self.cloud_session_total_tokens += (input_diff + output_diff)
+        
+        self._update_total_stats()
+     
+    def get_current_stats(self) -> Dict[str, Any]:
+        """获取当前的统计信息"""
+        runtime = datetime.now() - self.start_time
+        
+        return {
+            "local_stats": {
+                "input_tokens": self.local_total_input_tokens,
+                "output_tokens": self.local_total_output_tokens,
+                "total_tokens": self.local_total_tokens
+            },
+            "cloud_stats": {
+                "input_tokens": self.cloud_total_input_tokens,
+                "output_tokens": self.cloud_total_output_tokens,
+                "total_tokens": self.cloud_total_tokens
+            },
+            "total_stats": {
+                "input_tokens": self.total_input_tokens,
+                "output_tokens": self.total_output_tokens,
+                "total_tokens": self.total_tokens
+            },
+            "session_stats": {
+                "local": {
+                    "input_tokens": self.local_session_input_tokens,
+                    "output_tokens": self.local_session_output_tokens,
+                    "total_tokens": self.local_session_total_tokens
+                },
+                "cloud": {
+                    "input_tokens": self.cloud_session_input_tokens,
+                    "output_tokens": self.cloud_session_output_tokens,
+                    "total_tokens": self.cloud_session_total_tokens
+                },
+                "total": {
+                    "input_tokens": self.session_input_tokens,
+                    "output_tokens": self.session_output_tokens,
+                    "total_tokens": self.session_total_tokens
+                }
+            },
+            "runtime_info": {
+                "start_time": self.start_time.isoformat(),
+                "runtime_seconds": int(runtime.total_seconds()),
+                "local_conversations": len(self.local_conversation_history),
+                "cloud_conversations": len(self.cloud_conversation_history),
+                "total_conversations": len(self.conversation_history),
+                "last_save_time": self.last_save_time.isoformat()
+            },
+            "efficiency": {
+                "total_tokens_per_second": round(self.total_tokens / max(runtime.total_seconds(), 1), 2),
+                "local_tokens_per_second": round(self.local_total_tokens / max(runtime.total_seconds(), 1), 2),
+                "cloud_tokens_per_second": round(self.cloud_total_tokens / max(runtime.total_seconds(), 1), 2)
+            }
+        }
+        
+    # 保持向后兼容的方法
+    def add_input_tokens(self, input_text: str) -> int:
+        """向后兼容方法 - 默认使用本地模型统计"""
+        return self.add_local_input_tokens(input_text)
+    
+    def add_streaming_output_tokens(self, chunk_text: str) -> int:
+        """向后兼容方法 - 默认使用本地模型统计"""
+        return self.add_local_streaming_output_tokens(chunk_text)
             
     def _auto_save_if_needed(self):
         """如果需要，自动保存数据"""
@@ -195,73 +382,41 @@ class TokenManager:
         
         return turn_stats
     
-    def add_streaming_output_tokens(self, chunk_text: str) -> int:
+    def record_conversation_turn(self, input_text: str, output_text: str, input_tokens: int, output_tokens: int) -> Dict[str, Any]:
         """
-        流式输出时，逐步累加 output tokens
+        记录一轮对话到历史中（使用已计算的token数，避免重复计算）
         
         Args:
-            chunk_text: 输出的文本块
+            input_text: 用户输入文本
+            output_text: AI 输出文本
+            input_tokens: 已计算的输入token数
+            output_tokens: 已计算的输出token数
             
         Returns:
-            当前块的 token 数量
+            本轮对话的统计信息
         """
-        chunk_tokens = self.count_tokens_approximate(chunk_text)
-        self.total_output_tokens += chunk_tokens
-        self.total_tokens += chunk_tokens
-        self.session_output_tokens += chunk_tokens
-        self.session_total_tokens += chunk_tokens
+        turn_total = input_tokens + output_tokens
         
-        return chunk_tokens
-    
-    def add_input_tokens(self, input_text: str) -> int:
-        """
-        添加输入 token 统计
-        
-        Args:
-            input_text: 输入文本
-            
-        Returns:
-            输入的 token 数量
-        """
-        input_tokens = self.count_tokens_approximate(input_text)
-        self.total_input_tokens += input_tokens
-        self.total_tokens += input_tokens
-        self.session_input_tokens += input_tokens
-        self.session_total_tokens += input_tokens
-        
-        return input_tokens
-    
-    def get_current_stats(self) -> Dict[str, Any]:
-        """
-        获取当前的统计信息
-        
-        Returns:
-            完整的统计信息
-        """
-        runtime = datetime.now() - self.start_time
-        
-        return {
-            "total_stats": {
-                "input_tokens": self.total_input_tokens,
-                "output_tokens": self.total_output_tokens,
-                "total_tokens": self.total_tokens
-            },
-            "session_stats": {
-                "input_tokens": self.session_input_tokens,
-                "output_tokens": self.session_output_tokens,
-                "total_tokens": self.session_total_tokens
-            },
-            "runtime_info": {
-                "start_time": self.start_time.isoformat(),
-                "runtime_seconds": int(runtime.total_seconds()),
-                "conversations_count": len(self.conversation_history),
-                "last_save_time": self.last_save_time.isoformat()
-            },
-            "efficiency": {
-                "tokens_per_second": round(self.total_tokens / max(runtime.total_seconds(), 1), 2),
-                "avg_tokens_per_conversation": round(self.total_tokens / max(len(self.conversation_history), 1), 2)
-            }
+        # 记录本轮统计
+        turn_stats = {
+            "timestamp": datetime.now().isoformat(),
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "total_tokens": turn_total,
+            "input_text_length": len(input_text),
+            "output_text_length": len(output_text)
         }
+        
+        # 添加到历史记录（限制历史记录数量）
+        self.conversation_history.append(turn_stats)
+        if len(self.conversation_history) > 100:  # 保留最近100轮对话
+            self.conversation_history.pop(0)
+        
+        # 检查是否需要自动保存
+        self._auto_save_if_needed()
+        
+        return turn_stats
+    
     
     def get_turn_usage_info(self, input_tokens: int, output_tokens: int) -> Dict[str, Any]:
         """
@@ -295,10 +450,13 @@ class TokenManager:
     
     def reset_session_stats(self):
         """重置会话统计"""
-        self.session_input_tokens = 0
-        self.session_output_tokens = 0
-        self.session_total_tokens = 0
-        # 手动保存
+        self.local_session_input_tokens = 0
+        self.local_session_output_tokens = 0
+        self.local_session_total_tokens = 0
+        self.cloud_session_input_tokens = 0
+        self.cloud_session_output_tokens = 0
+        self.cloud_session_total_tokens = 0
+        self._update_total_stats()
         self._save_to_file()
     
     def reset_all_stats(self):

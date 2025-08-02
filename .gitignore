@@ -6,3 +6,4 @@ __pycache__/*
 *.pyd
 *.db
 token_stats.json
+.env
