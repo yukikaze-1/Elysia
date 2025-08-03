@@ -7,6 +7,7 @@ from TokenManager import TokenManager
 from RAG import RAG
 import httpx
 import base64
+import json
 
 from typing import Dict, List
 import datetime
@@ -122,6 +123,7 @@ class Service:
         即使用云端模型进行对话处理
         """
         self.cloud_llm_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+        self.cloud_llm_name = "qwen3-235b-a22b-instruct-2507" 
         load_dotenv(find_dotenv())
         self.api_key = dotenv_values(".env").get("QWEN3_API_KEY","")
         if not self.api_key:
@@ -208,11 +210,6 @@ class Service:
                 "session_local": stats["session_stats"]["local"]["total_tokens"],
                 "session_cloud": stats["session_stats"]["cloud"]["total_tokens"],
                 "session_total": stats["session_stats"]["total"]["total_tokens"],
-                "conversations": {
-                    "local": stats["runtime_info"]["local_conversations"],
-                    "cloud": stats["runtime_info"]["cloud_conversations"],
-                    "total": stats["runtime_info"]["total_conversations"]
-                }
             }
         
         @self.app.post("/chat/reset_session_tokens")
@@ -227,10 +224,6 @@ class Service:
             self.token_manager.reset_all_stats()
             return {"message": "All token statistics reset successfully"}
         
-        @self.app.get("/chat/recent_conversations")
-        async def get_recent_conversations(limit: int = 10):
-            """获取最近的对话统计"""
-            return self.token_manager.get_recent_conversations(limit)
         
         # 新增：持久化相关 API
         @self.app.post("/chat/save_token_stats")
@@ -260,17 +253,20 @@ class Service:
         if not message:
             raise HTTPException(status_code=400, detail="Message cannot be empty.")
         
+        
         async def generate():
-            try:
-                import json
-                
+            try:                
                 # 计算并记录输入 tokens（云端模型）
-                estimated_input_tokens = self.token_manager.add_cloud_input_tokens(message)
-            
-                
+                estimated_input_tokens = self.token_manager.count_tokens_approximate(message)
+                self.token_manager.add_cloud_input_tokens(estimated_input_tokens)
+             
                 # 获取历史对话记录
-                history = GlobalChatMessageHistory()
+                history = self._global_history
                 messages = []
+                
+                # 添加用户消息到历史记录
+                history.add_user_message(message)
+                
                 
                 # 添加系统提示
                 messages.append({
@@ -290,7 +286,7 @@ class Service:
                 
                 # 调用云端模型
                 completion = self.cloud_conversation.chat.completions.create(
-                    model="qwen-plus",  # 或者使用你指定的模型
+                    model=self.cloud_llm_name,  # 或者使用你指定的模型
                     messages=messages,
                     stream=True,
                     stream_options={"include_usage": True},
@@ -312,7 +308,8 @@ class Service:
                             full_content += content
                             
                             # 计算输出 tokens（云端模型）
-                            chunk_tokens = self.token_manager.add_cloud_streaming_output_tokens(content)
+                            chunk_tokens = self.token_manager.count_tokens_approximate(content)
+                            self.token_manager.add_cloud_streaming_output_tokens(chunk_tokens)
                             estimated_output_tokens += chunk_tokens
                             
                             # 发送流式文本数据
@@ -381,7 +378,7 @@ class Service:
                 
                 # 手动将对话添加到历史记录中（因为云端模型没有自动历史管理）
                 if full_content:
-                    history.add_user_message(message)
+                    # 手动添加AI 回复到历史记录
                     history.add_ai_message(full_content)
                     
                     # 处理语音生成（与本地模型相同的逻辑）
@@ -412,7 +409,10 @@ class Service:
                     except Exception as e:
                         print(f"语音生成失败: {e}")
                         yield json.dumps({'type': 'error', 'error': f'语音生成失败: {str(e)}'}, ensure_ascii=False) + "\n"
-                
+                else:
+                    print("没有生成内容，跳过语音生成")
+                    history.add_ai_message("没有生成内容，跳过语音生成")
+                    
                 # 发送完成标记
                 yield json.dumps({"type": "done"}) + "\n"
                 
@@ -437,7 +437,6 @@ class Service:
         
         async def generate():
             try:
-                import json
                 
                 # 计算并记录输入 tokens
                 input_tokens = self.token_manager.add_input_tokens(message)
@@ -491,9 +490,7 @@ class Service:
                 }
                 yield json.dumps(token_usage, ensure_ascii=False) + "\n"
                 
-                # 手动触发一次完整的对话记录（用于历史记录和自动保存）
-                self.token_manager.add_conversation_turn(message, full_content)
-                
+        
                 # 消息已经通过 RunnableWithMessageHistory 自动添加到历史中
                 # 由于我们使用了 HybridChatMessageHistory，消息会自动同步到 Milvus
                 
