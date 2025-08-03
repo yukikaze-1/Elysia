@@ -3,7 +3,7 @@ import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from Utils import MessageIDGenerator
-from TokenManager import TokenManager
+from TokenManager import TokenManager, UsageInfo
 from RAG import RAG
 import httpx
 import base64
@@ -26,6 +26,7 @@ from Prompt import CharacterPromptManager
 from PersistentChatHistory import GlobalChatMessageHistory
 
 from dotenv import load_dotenv, dotenv_values, find_dotenv
+
 
 class Service:
     def __init__(self):
@@ -132,8 +133,7 @@ class Service:
             base_url=self.cloud_llm_url,
         )
         
-        
-    
+          
     def setup_local_conversation(self, model: str = "qwen2.5") -> RunnableWithMessageHistory:
         """
         设置本地聊天会话处理
@@ -243,53 +243,6 @@ class Service:
                 raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
 
     
-    async def _generate_token_usage_response(self, model_type: str, input_tokens: int, output_tokens: int, usage_info=None):
-        """生成标准化的 token 使用统计响应"""
-        base_usage = {
-            "type": "token_usage",
-            "model_type": model_type,
-            "current_turn": {
-                "input_tokens": input_tokens,
-                "output_tokens": output_tokens,
-                "total_tokens": input_tokens + output_tokens
-            },
-            "session_total": {
-                "input_tokens": self.token_manager.session_input_tokens,
-                "output_tokens": self.token_manager.session_output_tokens,
-                "total_tokens": self.token_manager.session_total_tokens
-            },
-            "grand_total": {
-                "local_tokens": self.token_manager.local_total_tokens,
-                "cloud_tokens": self.token_manager.cloud_total_tokens,
-                "total_tokens": self.token_manager.total_tokens
-            }
-        }
-        
-        # 添加模型特定的会话统计
-        if model_type == "local":
-            base_usage["session_local"] = {
-                "input_tokens": self.token_manager.local_session_input_tokens,
-                "output_tokens": self.token_manager.local_session_output_tokens,
-                "total_tokens": self.token_manager.local_session_total_tokens
-            }
-        elif model_type == "cloud":
-            base_usage["session_cloud"] = {
-                "input_tokens": self.token_manager.cloud_session_input_tokens,
-                "output_tokens": self.token_manager.cloud_session_output_tokens,
-                "total_tokens": self.token_manager.cloud_session_total_tokens
-            }
-            
-            # 添加云端实际使用统计
-            if usage_info:
-                base_usage["cloud_usage"] = {
-                    "prompt_tokens": usage_info.prompt_tokens,
-                    "completion_tokens": usage_info.completion_tokens,
-                    "total_tokens": usage_info.total_tokens
-                }
-        
-        return base_usage
-    
-    
     async def _handle_audio_generation(self, content: str):
         """处理语音生成的通用逻辑"""
         def clean_text_from_brackets(text: str) -> str:
@@ -329,8 +282,8 @@ class Service:
         async def generate():
             try:
                 # 准备请求
-                estimated_input_tokens, messages = await self._prepare_cloud_request(message)
-                
+                estimated_input_tokens, messages = self._prepare_cloud_request(message)
+
                 # 处理流式响应 - 直接流式处理
                 full_content = ""
                 estimated_output_tokens = 0
@@ -345,12 +298,6 @@ class Service:
                             estimated_output_tokens = response_data.get("estimated_output_tokens", 0)
                             usage_info_data = response_data.get("usage_info")
                             if usage_info_data:
-                                # 创建一个简单的对象来模拟 usage_info
-                                class UsageInfo:
-                                    def __init__(self, data):
-                                        self.prompt_tokens = data.get("prompt_tokens", 0)
-                                        self.completion_tokens = data.get("completion_tokens", 0)
-                                        self.total_tokens = data.get("total_tokens", 0)
                                 usage_info = UsageInfo(usage_info_data)
                             break
                         else:
@@ -361,12 +308,12 @@ class Service:
                         yield response
                 
                 # 调整 token 统计
-                actual_input_tokens, actual_output_tokens = await self._adjust_cloud_tokens(
+                actual_input_tokens, actual_output_tokens = self.token_manager.adjust_cloud_tokens_with_actual_usage(
                     estimated_input_tokens, estimated_output_tokens, usage_info
                 )
                 
                 # 发送 token 统计
-                token_usage = await self._generate_token_usage_response(
+                token_usage = self.token_manager.generate_usage_response(
                     "cloud", actual_input_tokens, actual_output_tokens, usage_info
                 )
                 yield json.dumps(token_usage, ensure_ascii=False) + "\n"
@@ -379,6 +326,9 @@ class Service:
                     async for audio_response in self._handle_audio_generation(full_content):
                         yield audio_response
                 
+                # 强制保存token统计
+                self.token_manager.force_save()
+                
                 yield json.dumps({"type": "done"}) + "\n"
                 
             except Exception as e:
@@ -386,7 +336,7 @@ class Service:
         
         return StreamingResponse(generate(), media_type="application/x-ndjson")
 
-    async def _prepare_cloud_request(self, message: str)-> Tuple[int, List[ChatCompletionMessageParam]]:
+    def _prepare_cloud_request(self, message: str)-> Tuple[int, List[ChatCompletionMessageParam]]:
         """
         准备云端请求
         1. 计算输入 tokens 
@@ -426,7 +376,7 @@ class Service:
     
 
     async def _process_cloud_stream(self, messages: List[ChatCompletionMessageParam]):
-        """处理云端模型的流式响应"""
+        """处理云端模型的流式响应,异步生成器"""
         # 创建云端聊天完成请求(流式)
         response = self.cloud_conversation.chat.completions.create(
             model=self.cloud_llm_name,
@@ -454,8 +404,10 @@ class Service:
                     
                     yield json.dumps({"type": "text", "content": content}, ensure_ascii=False) + "\n"
             
-            if hasattr(chunk, 'usage') and chunk.usage:
+            # 修复: 确保usage_info被正确捕获
+            if hasattr(chunk, 'usage') and chunk.usage is not None:
                 usage_info = chunk.usage
+                print(f"捕获到usage信息: prompt_tokens={usage_info.prompt_tokens}, completion_tokens={usage_info.completion_tokens}")
         
         # 不能在异步生成器中使用 return，改为 yield 最终结果
         yield json.dumps({"type": "stream_complete", 
@@ -464,20 +416,6 @@ class Service:
                           "usage_info": usage_info.model_dump() if usage_info else None
                           }, ensure_ascii=False) + "\n"
 
-    async def _adjust_cloud_tokens(self, estimated_input: int, estimated_output: int, usage_info) -> Tuple[int, int]:
-        """调整云端 token 统计"""
-        if usage_info:
-            actual_input = usage_info.prompt_tokens
-            actual_output = usage_info.completion_tokens
-            
-            self.token_manager.adjust_cloud_tokens_with_usage(
-                estimated_input, estimated_output,
-                actual_input, actual_output
-            )
-            return actual_input, actual_output
-        
-        return estimated_input, estimated_output
-    
     
     async def _process_local_stream(self, message: str):
         """处理本地模型的流式响应"""
@@ -538,13 +476,16 @@ class Service:
                         yield response
                 
                 # 发送 token 统计
-                token_usage = await self._generate_token_usage_response("local", input_tokens, output_tokens)
+                token_usage = self.token_manager.generate_usage_response("local", input_tokens, output_tokens)
                 yield json.dumps(token_usage, ensure_ascii=False) + "\n"
                 
                 # 处理语音生成
                 if full_content:
                     async for audio_response in self._handle_audio_generation(full_content):
                         yield audio_response
+                
+                # 强制保存token统计
+                self.token_manager.force_save()
                         
                 # 发送完成标记
                 yield json.dumps({"type": "done"}) + "\n"

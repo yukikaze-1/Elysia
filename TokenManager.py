@@ -1,8 +1,15 @@
 import re
 import json
 import os
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
 from datetime import datetime
+
+class UsageInfo:
+    """用于重建 OpenAI usage 信息的简单类"""
+    def __init__(self, data: Dict):
+        self.prompt_tokens = data.get("prompt_tokens", 0)
+        self.completion_tokens = data.get("completion_tokens", 0)
+        self.total_tokens = data.get("total_tokens", 0)
 
 class TokenManager:
     """Token 计数管理器 - 支持持久化"""
@@ -174,6 +181,7 @@ class TokenManager:
         self.local_session_input_tokens += input_tokens
         self.local_session_total_tokens += input_tokens
         self._update_total_stats()
+        self._auto_save_if_needed()
         return input_tokens
 
     def add_local_streaming_output_tokens(self, chunk_tokens: int) -> int:
@@ -183,6 +191,7 @@ class TokenManager:
         self.local_session_output_tokens += chunk_tokens
         self.local_session_total_tokens += chunk_tokens
         self._update_total_stats()
+        self._auto_save_if_needed()
         return chunk_tokens
 
     def add_cloud_input_tokens(self, input_tokens: int) -> int:
@@ -192,6 +201,7 @@ class TokenManager:
         self.cloud_session_input_tokens += input_tokens
         self.cloud_session_total_tokens += input_tokens
         self._update_total_stats()
+        self._auto_save_if_needed()
         return input_tokens
 
     def add_cloud_streaming_output_tokens(self, chunk_tokens: int) -> int:
@@ -201,6 +211,7 @@ class TokenManager:
         self.cloud_session_output_tokens += chunk_tokens
         self.cloud_session_total_tokens += chunk_tokens
         self._update_total_stats()
+        self._auto_save_if_needed()
         return chunk_tokens
     
     def adjust_cloud_tokens_with_usage(self, estimated_input: int, estimated_output: int, 
@@ -219,6 +230,7 @@ class TokenManager:
         self.cloud_session_total_tokens += (input_diff + output_diff)
         
         self._update_total_stats()
+        self._auto_save_if_needed()
      
     def get_current_stats(self) -> Dict[str, Any]:
         """获取当前的统计信息"""
@@ -283,13 +295,10 @@ class TokenManager:
     def _auto_save_if_needed(self):
         """如果需要，自动保存数据"""
         time_since_save = (datetime.now() - self.last_save_time).total_seconds()
-        print(f"距离上次保存: {time_since_save:.1f}秒, 自动保存间隔: {self.auto_save_interval}秒")
         
         if time_since_save > self.auto_save_interval:
-            print("触发自动保存...")
+            print(f"触发自动保存... (距离上次保存: {time_since_save:.1f}秒)")
             self._save_to_file()
-        else:
-            print(f"还需等待 {self.auto_save_interval - time_since_save:.1f}秒 后自动保存")
     
     def count_tokens_approximate(self, text: str) -> int:
         """
@@ -419,6 +428,89 @@ class TokenManager:
         except Exception as e:
             print(f"导出统计数据失败: {e}")
             raise
+    
+    def generate_usage_response(self, model_type: str, input_tokens: int, output_tokens: int, usage_info=None) -> Dict[str, Any]:
+        """
+        生成标准化的 token 使用统计响应
+        
+        Args:
+            model_type: 模型类型 ("local" 或 "cloud")
+            input_tokens: 当前轮次输入 tokens
+            output_tokens: 当前轮次输出 tokens  
+            usage_info: 云端模型的实际使用信息（可选）
+            
+        Returns:
+            标准化的 token 使用统计响应字典
+        """
+        base_usage = {
+            "type": "token_usage",
+            "model_type": model_type,
+            "current_turn": {
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "total_tokens": input_tokens + output_tokens
+            },
+            "session_total": {
+                "input_tokens": self.session_input_tokens,
+                "output_tokens": self.session_output_tokens,
+                "total_tokens": self.session_total_tokens
+            },
+            "grand_total": {
+                "local_tokens": self.local_total_tokens,
+                "cloud_tokens": self.cloud_total_tokens,
+                "total_tokens": self.total_tokens
+            }
+        }
+        
+        # 添加模型特定的会话统计
+        if model_type == "local":
+            base_usage["session_local"] = {
+                "input_tokens": self.local_session_input_tokens,
+                "output_tokens": self.local_session_output_tokens,
+                "total_tokens": self.local_session_total_tokens
+            }
+        elif model_type == "cloud":
+            base_usage["session_cloud"] = {
+                "input_tokens": self.cloud_session_input_tokens,
+                "output_tokens": self.cloud_session_output_tokens,
+                "total_tokens": self.cloud_session_total_tokens
+            }
+            
+            # 添加云端实际使用统计
+            if usage_info:
+                base_usage["cloud_usage"] = {
+                    "prompt_tokens": usage_info.prompt_tokens,
+                    "completion_tokens": usage_info.completion_tokens,
+                    "total_tokens": usage_info.total_tokens
+                }
+        
+        return base_usage
+    
+    def adjust_cloud_tokens_with_actual_usage(self, estimated_input: int, estimated_output: int, usage_info) -> Tuple[int, int]:
+        """
+        使用实际的云端 API 使用信息调整 token 统计
+        
+        Args:
+            estimated_input: 估计的输入 tokens
+            estimated_output: 估计的输出 tokens  
+            usage_info: 云端 API 返回的实际使用信息（包含 prompt_tokens, completion_tokens 等）
+            
+        Returns:
+            (actual_input_tokens, actual_output_tokens): 实际的输入和输出 token 数量
+        """
+        if usage_info and hasattr(usage_info, 'prompt_tokens') and hasattr(usage_info, 'completion_tokens'):
+            actual_input = usage_info.prompt_tokens
+            actual_output = usage_info.completion_tokens
+            
+            # 使用现有的调整方法
+            self.adjust_cloud_tokens_with_usage(
+                estimated_input, estimated_output,
+                actual_input, actual_output
+            )
+            return actual_input, actual_output
+        
+        # 如果没有实际使用信息，返回估计值
+        return estimated_input, estimated_output
             
     def __del__(self):
         """析构函数，确保数据被保存"""
