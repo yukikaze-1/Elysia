@@ -1,18 +1,12 @@
-from requests import session
 import uvicorn
+import httpx
+import json
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from Utils import MessageIDGenerator
-from TokenManager import TokenManager, UsageInfo
-from RAG import RAG
-import httpx
-import base64
-import json
 
 from openai.types.chat import ChatCompletionMessageParam
 from typing import Dict, List, Any, Tuple
-import datetime
-import os, re
 from openai import OpenAI
 
 from langchain.memory import ConversationBufferMemory, ConversationTokenBufferMemory, ConversationSummaryMemory, ConversationSummaryBufferMemory
@@ -25,111 +19,10 @@ from langchain_community.chat_message_histories import ChatMessageHistory
 from Prompt import CharacterPromptManager
 from PersistentChatHistory import GlobalChatMessageHistory
 from HistoryManager import HistoryManager
-
-from dataclasses import dataclass
-from dotenv import load_dotenv, dotenv_values, find_dotenv
-
-# TODO 这个dataclass能否写成单例？
-@dataclass
-class ServiceConfig:
-    """服务配置类"""
-    # 服务配置
-    host: str = "0.0.0.0"
-    port: int = 11100
-    
-    # TTS配置
-    tts_base_url: str = "http://localhost:9880"
-    tts_ref_audio_path: str = "/home/yomu/Elysia/ref.wav"
-    tts_prompt_text: str = "我的话，嗯哼，更多是靠少女的小心思吧~看看你现在的表情，好想去那里。"
-    
-    # 本地模型配置
-    ollama_base_url: str = "http://localhost:11434"
-    local_model: str = "qwen2.5"
-    local_temperature: float = 0.3
-    local_num_predict: int = 512
-    local_top_p: float = 0.9
-    local_repeat_penalty: float = 1.1
-    
-    # 云端模型配置
-    cloud_model: str = "qwen3-235b-a22b-instruct-2507"
-    cloud_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    cloud_temperature: float = 0.3
-    cloud_max_tokens: int = 2000
-    
-    def __post_init__(self):
-        """初始化后加载环境变量"""
-        load_dotenv(find_dotenv())
-        env_vars = dotenv_values(".env")
-        self.api_key = env_vars.get("QWEN3_API_KEY", "")
-        if not self.api_key:
-            raise ValueError("API key for QWEN3 is not set in the environment variables.")
-
-
-class AudioHandler:
-    """音频处理类"""
-
-    def __init__(self, config: ServiceConfig, tts_client: httpx.AsyncClient):
-        self.tts_client = tts_client
-        self.config = config
-
-    @staticmethod
-    def clean_text_from_brackets(text: str) -> str:
-        """移除文本中的括号和标记内容"""
-        cleaned = re.sub(r'\[.*?\]', '', text)  # 移除肢体动作描写
-        cleaned = re.sub(r'<.*?>', '', cleaned)  # 移除面部表情描写
-        cleaned = re.sub(r'<<.*?>>', '', cleaned)  # 移除心情描写
-        cleaned = re.sub(r'\(.*?\)', '', cleaned)  # 移除语气标记
-        return cleaned.strip()
-    
-    async def generate_audio_stream(self, content: str):
-        """处理语音生成的通用逻辑"""
-        try:
-            yield json.dumps({"type": "audio_start", "audio_format": "ogg"}, ensure_ascii=False) + "\n"
-            
-            async for audio_chunk in self._stream_tts_audio(self.clean_text_from_brackets(content)):
-                if audio_chunk:
-                    chunk_base64 = base64.b64encode(audio_chunk).decode('utf-8')
-                    yield json.dumps({
-                        "type": "audio_chunk", 
-                        "audio_data": chunk_base64,
-                        "chunk_size": len(audio_chunk)
-                    }, ensure_ascii=False) + "\n"
-            
-            yield json.dumps({"type": "audio_end"}, ensure_ascii=False) + "\n"
-            
-        except Exception as e:
-            print(f"语音生成失败: {e}")
-            yield json.dumps({'type': 'error', 'error': f'语音生成失败: {str(e)}'}, ensure_ascii=False) + "\n"
-    
-    async def _stream_tts_audio(self, text: str):
-        """真正的流式音频生成"""
-        payload = {
-            "text": text,
-            "text_lang": "zh", 
-            "ref_audio_path": self.config.tts_ref_audio_path,
-            "prompt_lang": "zh",
-            "prompt_text": self.config.tts_prompt_text,
-            "text_split_method": "cut5",
-            "batch_size": 20,
-            "media_type": "ogg",
-            "streaming_mode": True
-        }
-        
-        try:
-            response = await self.tts_client.request(
-                "POST", "/tts", json=payload, 
-                headers={'Content-Type': 'application/json'}, 
-                timeout=60.0
-            )
-            response.raise_for_status()
-            
-            async for chunk in response.aiter_bytes(chunk_size=8192):
-                if chunk:
-                    yield chunk
-                    
-        except Exception as e:
-            print(f"TTS 流式处理失败: {e}")
-            yield None
+from AudioHandler import AudioHandler
+from TokenManager import TokenManager, UsageInfo
+from ServiceConfig import ServiceConfig
+from RAG import RAG
 
 
 class Service:
@@ -595,7 +488,7 @@ class Service:
                 # 处理语音生成
                 if full_content:
                     async for audio_response in self.audio_handler.generate_audio_stream(full_content):
-                         yield audio_response
+                        yield audio_response
                 
                 # 强制保存token统计
                 self.token_manager.force_save()
