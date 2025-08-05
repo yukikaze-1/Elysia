@@ -1,5 +1,6 @@
 import os
 import torch
+import threading
 from typing import Optional
 import asyncio
 import aiofiles
@@ -81,4 +82,55 @@ class MessageIDGenerator:
         async with self._lock:
             if self._current_id is None:
                 self._current_id = await self._load_current_id()
+            return self._current_id
+
+
+class SyncMessageIDGenerator:
+    """
+    同步消息ID生成器
+    使用文件存储当前ID，支持并发访问
+    """
+    def __init__(self, storage_file: str = "/home/yomu/Elysia/message_id_counter.txt"):
+        self.storage_file = storage_file
+        self._current_id: Optional[int] = None
+        import threading
+        self._lock = threading.Lock()
+    
+    def _load_current_id(self) -> int:
+        """从文件加载当前ID"""
+        try:
+            if os.path.exists(self.storage_file):
+                with open(self.storage_file, 'r') as f:
+                    content = f.read().strip()
+                    return int(content)
+            else:
+                # 文件不存在，从0开始
+                return 0
+        except (ValueError, IOError):
+            # 文件损坏或读取失败，从0开始
+            return 0
+    
+    def _save_current_id(self, message_id: int):
+        """保存当前ID到文件"""
+        try:
+            with open(self.storage_file, 'w') as f:
+                f.write(str(message_id))
+        except IOError as e:
+            print(f"Warning: Failed to save message ID to file: {e}")
+    
+    def get_next_id(self) -> int:
+        """获取下一个消息ID"""
+        with self._lock:
+            if self._current_id is None:
+                self._current_id = self._load_current_id()
+            
+            self._current_id += 1
+            self._save_current_id(self._current_id)
+            return self._current_id
+    
+    def get_current_id(self) -> int:
+        """获取当前ID（不递增）"""
+        with self._lock:
+            if self._current_id is None:
+                self._current_id = self._load_current_id()
             return self._current_id

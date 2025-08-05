@@ -7,7 +7,7 @@ from datetime import datetime
 import asyncio
 import threading
 import concurrent.futures
-from Utils import MessageIDGenerator, create_embedding_model
+from Utils import MessageIDGenerator, SyncMessageIDGenerator, create_embedding_model
 
 class GlobalChatMessageHistory(BaseChatMessageHistory):
     """全局单例聊天历史"""
@@ -35,11 +35,8 @@ class GlobalChatMessageHistory(BaseChatMessageHistory):
         self.milvus_client = MilvusClient(uri="http://localhost:19530", token="root:Milvus")
         self.embedding_model = create_embedding_model()
         
-        # 使用同步的 ID 生成器
-        import threading
-        import time
-        self._id_lock = threading.Lock()
-        self._last_id = int(time.time() * 1000000)  # 微秒时间戳作为起始ID
+        # 使用持久化的ID生成器
+        self.id_generator = SyncMessageIDGenerator()
         
         self.auto_sync = True
         self.pending_messages = []
@@ -54,12 +51,6 @@ class GlobalChatMessageHistory(BaseChatMessageHistory):
         
         self._initialized = True
         print(f"初始化全局聊天历史，会话ID: {self.session_id}")
-    
-    def _get_next_id_sync(self) -> int:
-        """同步生成下一个ID"""
-        with self._id_lock:
-            self._last_id += 1
-            return self._last_id
     
     def _load_history_from_db_sync(self):
         """同步从数据库加载历史记录到内存"""
@@ -168,7 +159,7 @@ class GlobalChatMessageHistory(BaseChatMessageHistory):
             
             # 准备数据
             data = {
-                "message_id": self._get_next_id_sync(),  # 使用同步ID生成
+                "message_id": self.id_generator.get_next_id(),  # 使用持久化ID生成器
                 "session_id": self.session_id,
                 "message_type": message_type,
                 "content": content_text,
@@ -196,6 +187,7 @@ class GlobalChatMessageHistory(BaseChatMessageHistory):
     def _get_next_sequence_number(self) -> int:
         """获取下一个序列号"""
         try:
+            # 查询当前会话中所有消息的序列号
             filter_expr = f'session_id == "{self.session_id}"'
             results = self.milvus_client.query(
                 collection_name=self.collection_name,
@@ -205,13 +197,16 @@ class GlobalChatMessageHistory(BaseChatMessageHistory):
             )
             
             if results:
+                # 找到最大序列号，然后+1
                 max_sequence = max(result.get("sequence_number", 0) for result in results)
                 return max_sequence + 1
             else:
+                # 如果没有消息，从1开始
                 return 1
                 
         except Exception as e:
             print(f"获取序列号失败: {e}")
+            # 备选方案：使用内存中的消息数量+1
             return len(self.memory_history.messages) + 1
     
     def clear(self) -> None:
