@@ -24,6 +24,7 @@ from langchain_community.chat_message_histories import ChatMessageHistory
 
 from Prompt import CharacterPromptManager
 from PersistentChatHistory import GlobalChatMessageHistory
+from HistoryManager import HistoryManager
 
 from dotenv import load_dotenv, dotenv_values, find_dotenv
 
@@ -31,16 +32,6 @@ from dotenv import load_dotenv, dotenv_values, find_dotenv
 class Service:
     """
     Elysia 聊天服务主类
-    
-    方法组织:
-    - __init__ & _initialize_*: 初始化相关
-    - setup_*: 服务设置相关 (对话、路由等)
-    - get_session_history & check_memory_status: 会话管理
-    - _*_token_*: Token 管理处理方法
-    - _*_chat_history*: 历史记录管理处理方法  
-    - _chat_stream_* & _process_*: 聊天流处理
-    - _handle_audio_* & _stream_tts_*: 音频处理
-    - run: 服务启动
     """
     def __init__(self):
         self.app = FastAPI()
@@ -65,6 +56,11 @@ class Service:
         print("正在强制加载聊天历史...")
         self._global_history = GlobalChatMessageHistory()
         print(f"✓ 聊天历史已加载 ({len(self._global_history.messages)} 条消息)")
+        
+        # 初始化历史记录管理器
+        print("正在初始化历史记录管理器...")
+        self.history_manager = HistoryManager(self._global_history)
+        print("✓ 历史记录管理器已初始化")
         
         # 3. 初始化对话处理器
         print("正在设置本地对话...")
@@ -112,24 +108,7 @@ class Service:
 
     async def check_memory_status(self, session_id=None)->List[str]:
         """检查记忆状态 - session_id 参数被忽略"""
-        history = self._global_history
-        messages = history.messages
-        res = [] 
-        
-        # 定义显示名称映射
-        type_mapping = {
-            "human": "魂魄妖梦",
-            "ai": "爱莉希雅", 
-            "system": "系统",
-            "AIMessageChunk": "爱莉希雅",
-        }
-        
-        for i, msg in enumerate(messages):
-            display_type = type_mapping.get(msg.type, msg.type)
-            formatted_msg = f"{i+1}. {display_type}: {msg.content}"
-            res.append(formatted_msg)
-            # print(f"  {formatted_msg}")
-        return res
+        return await self.history_manager.get_formatted_history()
     
 
     def setup_cloud_conversation(self, model: str = "qwen3-235b-a22b-instruct-2507" )-> OpenAI:
@@ -228,112 +207,13 @@ class Service:
             raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
     
     # =========================
-    # 历史记录管理相关处理方法
+    # 历史记录管理相关处理方法 - 已迁移到 HistoryManager
     # =========================
+    # 所有历史记录相关的方法已经迁移到 HistoryManager 类中
+    # 使用 self.history_manager 进行调用
     
-    async def _clear_chat_history(self):
-        """清除所有聊天历史记录（包括内存和Milvus中的数据）"""
-        try:
-            # 获取当前历史记录数量
-            current_count = len(self._global_history.messages)
-            
-            # 清除历史记录
-            self._global_history.clear()
-            
-            # 验证清除结果
-            remaining_count = len(self._global_history.messages)
-            
-            return {
-                "message": "Chat history cleared successfully",
-                "details": {
-                    "cleared_messages": current_count,
-                    "remaining_messages": remaining_count,
-                    "memory_cleared": True,
-                    "milvus_cleared": True
-                }
-            }
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Failed to clear chat history: {str(e)}")
-    
-    async def _get_history_stats(self):
-        """获取历史记录统计信息"""
-        try:
-            message_count = len(self._global_history.messages)
-            
-            # 统计不同类型的消息
-            human_count = sum(1 for msg in self._global_history.messages if msg.type == "human")
-            ai_count = sum(1 for msg in self._global_history.messages if msg.type == "ai")
-            
-            return {
-                "total_messages": message_count,
-                "human_messages": human_count,
-                "ai_messages": ai_count,
-                "session_id": self._global_history.session_id,
-                "collection_name": self._global_history.collection_name
-            }
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Failed to get history stats: {str(e)}")
-    
-    async def _backup_chat_history(self):
-        """备份当前聊天历史到文件"""
-        try:
-            import json
-            from datetime import datetime
-            
-            # 准备备份数据
-            backup_data = {
-                "timestamp": datetime.now().isoformat(),
-                "session_id": self._global_history.session_id,
-                "message_count": len(self._global_history.messages),
-                "messages": []
-            }
-            
-            # 导出消息
-            for i, msg in enumerate(self._global_history.messages):
-                backup_data["messages"].append({
-                    "index": i + 1,
-                    "type": msg.type,
-                    "content": str(msg.content),
-                    "timestamp": datetime.now().isoformat()  # 使用当前时间作为备份时间戳
-                })
-            
-            # 生成备份文件名
-            backup_filename = f"chat_history_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-            backup_path = os.path.join("/home/yomu/Elysia/chat_history_backup", backup_filename)
-
-            # 创建备份目录（如果不存在）
-            os.makedirs(os.path.dirname(backup_path), exist_ok=True)
-
-            # 写入文件
-            with open(backup_path, 'w', encoding='utf-8') as f:
-                json.dump(backup_data, f, ensure_ascii=False, indent=2)
-            
-            return {
-                "message": "Chat history backed up successfully",
-                "backup_file": backup_path,
-                "message_count": backup_data["message_count"]
-            }
-            
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Failed to backup chat history: {str(e)}")
-    
-    async def _reload_chat_history(self):
-        """重新从Milvus加载聊天历史到内存"""
-        try:
-            old_count = len(self._global_history.messages)
-            new_count = self._global_history.reload_from_db()
-            
-            return {
-                "message": "Chat history reloaded successfully",
-                "old_count": old_count,
-                "new_count": new_count
-            }
-            
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Failed to reload chat history: {str(e)}")
-
     def setup_routes(self):
-        """设置 API 路由 - 保持路由定义简洁，复杂逻辑封装在独立方法中"""
+        """设置 API 路由"""
         
         # =========================
         # 基础服务路由
@@ -388,23 +268,23 @@ class Service:
             return await self._export_token_stats(export_name)
         
         # =========================
-        # 历史记录管理路由
+        # 历史记录管理路由 
         # =========================
         @self.app.post("/chat/clear_history")
         async def clear_chat_history():
-            return await self._clear_chat_history()
+            return await self.history_manager.clear_history()
         
         @self.app.get("/chat/history_stats")
         async def get_history_stats():
-            return await self._get_history_stats()
+            return await self.history_manager.get_stats()
         
         @self.app.post("/chat/backup_history")
         async def backup_chat_history():
-            return await self._backup_chat_history()
+            return await self.history_manager.backup_history()
         
         @self.app.post("/chat/reload_history")
         async def reload_chat_history():
-            return await self._reload_chat_history()
+            return await self.history_manager.reload_history()
 
     
     async def _handle_audio_generation(self, content: str):
