@@ -29,6 +29,19 @@ from dotenv import load_dotenv, dotenv_values, find_dotenv
 
 
 class Service:
+    """
+    Elysia 聊天服务主类
+    
+    方法组织:
+    - __init__ & _initialize_*: 初始化相关
+    - setup_*: 服务设置相关 (对话、路由等)
+    - get_session_history & check_memory_status: 会话管理
+    - _*_token_*: Token 管理处理方法
+    - _*_chat_history*: 历史记录管理处理方法  
+    - _chat_stream_* & _process_*: 聊天流处理
+    - _handle_audio_* & _stream_tts_*: 音频处理
+    - run: 服务启动
+    """
     def __init__(self):
         self.app = FastAPI()
         self.character_prompt_manager = CharacterPromptManager()
@@ -90,10 +103,12 @@ class Service:
             
         except Exception as e:
             print(f"✗ 预热检查失败: {e}")    
+            
 
     def get_session_history(self, session_id: str) -> BaseChatMessageHistory:
         """获取会话历史 - 始终返回全局单例"""
         return self._global_history  # 每次调用都返回同一实例！
+    
 
     async def check_memory_status(self, session_id=None)->List[str]:
         """检查记忆状态 - session_id 参数被忽略"""
@@ -115,6 +130,7 @@ class Service:
             res.append(formatted_msg)
             # print(f"  {formatted_msg}")
         return res
+    
 
     def setup_cloud_conversation(self, model: str = "qwen3-235b-a22b-instruct-2507" )-> OpenAI:
         """
@@ -169,13 +185,166 @@ class Service:
         return conversation
         
 
-    def setup_routes(self):
-        """设置 API 路由"""
+    # =========================
+    # Token 管理相关处理方法
+    # =========================
+    
+    async def _get_simple_token_stats(self):
+        """获取简化的 token 统计信息"""
+        stats = self.token_manager.get_current_stats()
+        return {
+            "local_tokens": stats["local_stats"]["total_tokens"],
+            "cloud_tokens": stats["cloud_stats"]["total_tokens"],
+            "total_tokens": stats["total_stats"]["total_tokens"],
+            "session_local": stats["session_stats"]["local"]["total_tokens"],
+            "session_cloud": stats["session_stats"]["cloud"]["total_tokens"],
+            "session_total": stats["session_stats"]["total"]["total_tokens"],
+        }
+    
+    async def _reset_session_tokens(self):
+        """重置会话 token 统计"""
+        self.token_manager.reset_session_stats()
+        return {"message": "Session token statistics reset successfully"}
+    
+    async def _reset_all_tokens(self):
+        """重置所有 token 统计"""
+        self.token_manager.reset_all_stats()
+        return {"message": "All token statistics reset successfully"}
+    
+    async def _save_token_stats(self):
+        """手动保存 token 统计数据"""
+        self.token_manager.force_save()
+        return {"message": "Token statistics saved successfully"}
+    
+    async def _export_token_stats(self, export_name: str):
+        """导出 token 统计数据"""
+        if not export_name:
+            raise HTTPException(status_code=400, detail="Export name is required")
         
+        try:
+            file_path = self.token_manager.export_stats(export_name)
+            return {"message": f"Statistics exported to {file_path}", "file_path": file_path}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
+    
+    # =========================
+    # 历史记录管理相关处理方法
+    # =========================
+    
+    async def _clear_chat_history(self):
+        """清除所有聊天历史记录（包括内存和Milvus中的数据）"""
+        try:
+            # 获取当前历史记录数量
+            current_count = len(self._global_history.messages)
+            
+            # 清除历史记录
+            self._global_history.clear()
+            
+            # 验证清除结果
+            remaining_count = len(self._global_history.messages)
+            
+            return {
+                "message": "Chat history cleared successfully",
+                "details": {
+                    "cleared_messages": current_count,
+                    "remaining_messages": remaining_count,
+                    "memory_cleared": True,
+                    "milvus_cleared": True
+                }
+            }
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to clear chat history: {str(e)}")
+    
+    async def _get_history_stats(self):
+        """获取历史记录统计信息"""
+        try:
+            message_count = len(self._global_history.messages)
+            
+            # 统计不同类型的消息
+            human_count = sum(1 for msg in self._global_history.messages if msg.type == "human")
+            ai_count = sum(1 for msg in self._global_history.messages if msg.type == "ai")
+            
+            return {
+                "total_messages": message_count,
+                "human_messages": human_count,
+                "ai_messages": ai_count,
+                "session_id": self._global_history.session_id,
+                "collection_name": self._global_history.collection_name
+            }
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to get history stats: {str(e)}")
+    
+    async def _backup_chat_history(self):
+        """备份当前聊天历史到文件"""
+        try:
+            import json
+            from datetime import datetime
+            
+            # 准备备份数据
+            backup_data = {
+                "timestamp": datetime.now().isoformat(),
+                "session_id": self._global_history.session_id,
+                "message_count": len(self._global_history.messages),
+                "messages": []
+            }
+            
+            # 导出消息
+            for i, msg in enumerate(self._global_history.messages):
+                backup_data["messages"].append({
+                    "index": i + 1,
+                    "type": msg.type,
+                    "content": str(msg.content),
+                    "timestamp": datetime.now().isoformat()  # 使用当前时间作为备份时间戳
+                })
+            
+            # 生成备份文件名
+            backup_filename = f"chat_history_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            backup_path = os.path.join("/home/yomu/Elysia/chat_history_backup", backup_filename)
+
+            # 创建备份目录（如果不存在）
+            os.makedirs(os.path.dirname(backup_path), exist_ok=True)
+
+            # 写入文件
+            with open(backup_path, 'w', encoding='utf-8') as f:
+                json.dump(backup_data, f, ensure_ascii=False, indent=2)
+            
+            return {
+                "message": "Chat history backed up successfully",
+                "backup_file": backup_path,
+                "message_count": backup_data["message_count"]
+            }
+            
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to backup chat history: {str(e)}")
+    
+    async def _reload_chat_history(self):
+        """重新从Milvus加载聊天历史到内存"""
+        try:
+            old_count = len(self._global_history.messages)
+            new_count = self._global_history.reload_from_db()
+            
+            return {
+                "message": "Chat history reloaded successfully",
+                "old_count": old_count,
+                "new_count": new_count
+            }
+            
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to reload chat history: {str(e)}")
+
+    def setup_routes(self):
+        """设置 API 路由 - 保持路由定义简洁，复杂逻辑封装在独立方法中"""
+        
+        # =========================
+        # 基础服务路由
+        # =========================
         @self.app.get("/health")
         async def health_check():
             return {"status": "healthy"}
 
+        # =========================
+        # 聊天功能路由
+        # =========================
         @self.app.post("/chat/stream_text")
         async def chat_stream(request: Request):
             data = await request.json()
@@ -191,56 +360,51 @@ class Service:
             session_id = request.query_params.get("session_id", "default")
             return await self.check_memory_status(session_id)
         
-        # Token 管理相关 API
+        # =========================
+        # Token 管理路由
+        # =========================
         @self.app.get("/chat/token_stats")
         async def get_token_stats():
-            """获取详细的 token 统计信息"""
             return self.token_manager.get_current_stats()
         
         @self.app.get("/chat/token_stats/simple")
         async def get_simple_token_stats():
-            """获取简化的 token 统计信息"""
-            stats = self.token_manager.get_current_stats()
-            return {
-                "local_tokens": stats["local_stats"]["total_tokens"],
-                "cloud_tokens": stats["cloud_stats"]["total_tokens"],
-                "total_tokens": stats["total_stats"]["total_tokens"],
-                "session_local": stats["session_stats"]["local"]["total_tokens"],
-                "session_cloud": stats["session_stats"]["cloud"]["total_tokens"],
-                "session_total": stats["session_stats"]["total"]["total_tokens"],
-            }
+            return await self._get_simple_token_stats()
         
         @self.app.post("/chat/reset_session_tokens")
         async def reset_session_tokens():
-            """重置会话 token 统计"""
-            self.token_manager.reset_session_stats()
-            return {"message": "Session token statistics reset successfully"}
+            return await self._reset_session_tokens()
         
         @self.app.post("/chat/reset_all_tokens")
         async def reset_all_tokens():
-            """重置所有 token 统计"""
-            self.token_manager.reset_all_stats()
-            return {"message": "All token statistics reset successfully"}
+            return await self._reset_all_tokens()
         
-        
-        # 新增：持久化相关 API
         @self.app.post("/chat/save_token_stats")
         async def save_token_stats():
-            """手动保存 token 统计数据"""
-            self.token_manager.force_save()
-            return {"message": "Token statistics saved successfully"}
+            return await self._save_token_stats()
         
         @self.app.post("/chat/export_token_stats")
         async def export_token_stats(export_name: str):
-            """导出 token 统计数据"""
-            if not export_name:
-                raise HTTPException(status_code=400, detail="Export name is required")
-            
-            try:
-                file_path = self.token_manager.export_stats(export_name)
-                return {"message": f"Statistics exported to {file_path}", "file_path": file_path}
-            except Exception as e:
-                raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
+            return await self._export_token_stats(export_name)
+        
+        # =========================
+        # 历史记录管理路由
+        # =========================
+        @self.app.post("/chat/clear_history")
+        async def clear_chat_history():
+            return await self._clear_chat_history()
+        
+        @self.app.get("/chat/history_stats")
+        async def get_history_stats():
+            return await self._get_history_stats()
+        
+        @self.app.post("/chat/backup_history")
+        async def backup_chat_history():
+            return await self._backup_chat_history()
+        
+        @self.app.post("/chat/reload_history")
+        async def reload_chat_history():
+            return await self._reload_chat_history()
 
     
     async def _handle_audio_generation(self, content: str):

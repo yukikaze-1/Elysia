@@ -216,16 +216,61 @@ class GlobalChatMessageHistory(BaseChatMessageHistory):
     
     def clear(self) -> None:
         """清空内存和数据库中的消息"""
+        print(f"开始清除聊天历史记录...")
+        
+        # 记录清除前的消息数量
+        memory_count = len(self.memory_history.messages)
+        print(f"内存中有 {memory_count} 条消息")
+        
         # 清空内存
         self.memory_history.clear()
+        print("✓ 内存中的聊天历史已清空")
         
         # 清空数据库
         try:
             filter_expr = f'session_id == "{self.session_id}"'
-            self.milvus_client.delete(
+            
+            # 查询要删除的记录数量
+            results = self.milvus_client.query(
                 collection_name=self.collection_name,
-                filter=filter_expr
+                filter=filter_expr,
+                output_fields=["message_id"],
+                limit=10000  # 设置一个足够大的限制
             )
+            db_count = len(results)
+            print(f"Milvus中有 {db_count} 条记录")
+            
+            if db_count > 0:
+                # 删除记录
+                self.milvus_client.delete(
+                    collection_name=self.collection_name,
+                    filter=filter_expr
+                )
+                
+                # 刷新以确保删除操作完成
+                self.milvus_client.flush(collection_name=self.collection_name)
+                print(f"✓ Milvus中的 {db_count} 条记录已删除")
+            else:
+                print("✓ Milvus中没有需要删除的记录")
+                
+            print("聊天历史记录清除完成")
+            
         except Exception as e:
-            print(f"清空数据库消息失败: {e}")
+            print(f"✗ 清空数据库消息失败: {e}")
+            raise e
+    
+    def reload_from_db(self) -> int:
+        """重新从数据库加载历史记录"""
+        print("开始重新加载聊天历史...")
+        
+        # 清空当前内存中的历史
+        old_count = len(self.memory_history.messages)
+        self.memory_history.clear()
+        
+        # 重新加载
+        self._load_history_from_db_sync()
+        new_count = len(self.memory_history.messages)
+        
+        print(f"重新加载完成: {old_count} -> {new_count} 条消息")
+        return new_count
 
