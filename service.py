@@ -410,9 +410,16 @@ class Service:
     async def _handle_audio_generation(self, content: str):
         """处理语音生成的通用逻辑"""
         def clean_text_from_brackets(text: str) -> str:
-            """移除文本中的方括号内容"""
+            """移除文本中的括号和标记内容"""
             import re
+            # 移除 [] 内容  (肢体动作描写)
             cleaned = re.sub(r'\[.*?\]', '', text)
+            # 移除 <> 内容  (面部表情描写)
+            cleaned = re.sub(r'<.*?>', '', cleaned)
+            # 移除 <<>> 内容    (心情描写)
+            cleaned = re.sub(r'<<.*?>>', '', cleaned)
+            # 移除 () 内容  (语气标记)
+            cleaned = re.sub(r'\(.*?\)', '', cleaned)
             return cleaned.strip()
         
         try:
