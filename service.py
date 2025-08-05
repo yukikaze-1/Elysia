@@ -7,81 +7,53 @@ from fastapi.responses import StreamingResponse
 
 from openai.types.chat import ChatCompletionMessageParam
 from typing import Dict, List, Any, Tuple
-from openai import OpenAI
 
 from langchain.memory import ConversationBufferMemory, ConversationTokenBufferMemory, ConversationSummaryMemory, ConversationSummaryBufferMemory
-from langchain_ollama import ChatOllama
 from langchain_core.runnables import RunnableWithMessageHistory, RunnableConfig
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.chat_history import BaseChatMessageHistory
 from langchain_community.chat_message_histories import ChatMessageHistory
 
-from Prompt import CharacterPromptManager
-from PersistentChatHistory import GlobalChatMessageHistory
 from HistoryManager import HistoryManager
-from AudioHandler import AudioHandler
-from TokenManager import TokenManager, UsageInfo
 from ServiceConfig import ServiceConfig
 from RAG import RAG
 
+from TokenHandler import TokenHandler
+from ChatHandler import ChatHandler
 
+
+    
 class Service:
     """
     Elysia 聊天服务主类
     """
     def __init__(self):
+        print("=== Service 初始化开始 ===")
+        
         self.app = FastAPI()
-        self.character_prompt_manager = CharacterPromptManager()
-        self.tts_client = httpx.AsyncClient(base_url="http://localhost:9880")
-        # self.rag = RAG()
         self.config = ServiceConfig()
         
-        self.audio_handler = AudioHandler(config=self.config, tts_client=self.tts_client)
-        
-        # 立即初始化所有需要的组件
-        self._initialize_all_components()
-        
-        print("=== Service 初始化完成 ===")
-        
-    def _initialize_all_components(self):
-        """初始化所有组件"""
-        
-        # 1. 初始化 RAG（如果需要）
-        print("正在初始化 RAG...")
+        print("=== RAG初始化开始 ===")
         # self.rag = RAG()
-        print("✓ RAG 跳过")
+        print("✓ RAG 初始化跳过")
         
-        # 2. 强制初始化全局聊天历史
-        print("正在强制加载聊天历史...")
-        self._global_history = GlobalChatMessageHistory()
-        print(f"✓ 聊天历史已加载 ({len(self._global_history.messages)} 条消息)")
+        print("=== ChatHandler 初始化开始 ===")
+        self.chat_handler = ChatHandler(self.config)
+        print("✓ ChatHandler 初始化完成")
+
+        print("=== TokenHandler 初始化开始 ===")
+        self.token_handler = TokenHandler()
+        print("✓ TokenHandler 初始化完成")
         
-        # 初始化历史记录管理器
-        print("正在初始化历史记录管理器...")
+        self._global_history = self.chat_handler.global_history  # 引用同一个实例
         self.history_manager = HistoryManager(self._global_history)
-        print("✓ 历史记录管理器已初始化")
-        
-        # 3. 初始化对话处理器
-        print("正在设置本地对话...")
-        self.local_conversation = self.setup_local_conversation()
-        print("✓ 本地对话已设置")
-        
-        self.conversation_config = RunnableConfig(configurable={"session_id": "default"})
-        
-        # 4. 初始化 Token 管理器
-        print("正在初始化 Token 管理器...")
-        self.token_manager = TokenManager()
-        print("✓ Token 管理器已初始化")
-        
-        # 5. 初始化云端对话
-        print("正在设置云端对话...")
-        self.cloud_conversation = self.setup_cloud_conversation()
-        print("✓ 云端对话已设置")
         
         # 6. 预热检查
         print("正在进行预热检查...")
         self._warmup_check()
-        
+
+        print("=== Service 初始化完成 ===")
+           
     
     def _warmup_check(self):
         """预热检查 - 确保所有组件正常工作"""
@@ -91,7 +63,7 @@ class Service:
             print(f"  - 聊天历史: {message_count} 条消息")
             
             # 检查 Token 管理器
-            stats = self.token_manager.get_current_stats()
+            stats = self.token_handler.token_manager.get_current_stats()
             print(f"  - Token 统计: 总计 {stats['total_stats']['total_tokens']} tokens")
             
             print("✓ 预热检查完成")
@@ -99,104 +71,17 @@ class Service:
         except Exception as e:
             print(f"✗ 预热检查失败: {e}")    
             
-
-    def get_session_history(self, session_id: str) -> BaseChatMessageHistory:
-        """获取会话历史 - 始终返回全局单例"""
-        return self._global_history  # 每次调用都返回同一实例！
     
-
     async def check_memory_status(self, session_id=None)->List[str]:
         """检查记忆状态 - session_id 参数被忽略"""
         return await self.history_manager.get_formatted_history()
-    
-
-    def setup_cloud_conversation(self, model: str | None = None )-> OpenAI:
-        """设置云端聊天会话处理"""      
-        if model:
-            self.config.cloud_model = model
-
-        return OpenAI(
-            api_key=self.config.api_key,
-            base_url=self.config.cloud_base_url,
-        )
-        
           
-    def setup_local_conversation(self, model: str = "qwen2.5") -> RunnableWithMessageHistory:
-        """设置本地聊天会话处理"""
-        if model:
-            self.config.local_model = model
-            
-        llm = ChatOllama(
-            model=self.config.local_model,
-            base_url=self.config.ollama_base_url,
-            temperature=self.config.local_temperature,
-            num_predict=self.config.local_num_predict,
-            top_p=self.config.local_top_p,
-            repeat_penalty=self.config.local_repeat_penalty
-        )
-        
-        # 创建聊天提示模板
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", self.character_prompt_manager.get_Elysia_prompt()),
-            MessagesPlaceholder(variable_name="history"),
-            ("user", "{input}")
-        ])
-        
-        # 创建链
-        chain = prompt | llm
-        
-        # 使用RunnableWithMessageHistory包装
-        conversation = RunnableWithMessageHistory(
-            runnable=chain,
-            get_session_history=self.get_session_history,
-            input_messages_key="input",
-            history_messages_key="history",
-        )
-        
-        return conversation
-        
 
     # =========================
-    # Token 管理相关处理方法
+    # Token 管理相关处理方法 - 已迁移到 TokenHandler
     # =========================
-    
-    async def _get_simple_token_stats(self):
-        """获取简化的 token 统计信息"""
-        stats = self.token_manager.get_current_stats()
-        return {
-            "local_tokens": stats["local_stats"]["total_tokens"],
-            "cloud_tokens": stats["cloud_stats"]["total_tokens"],
-            "total_tokens": stats["total_stats"]["total_tokens"],
-            "session_local": stats["session_stats"]["local"]["total_tokens"],
-            "session_cloud": stats["session_stats"]["cloud"]["total_tokens"],
-            "session_total": stats["session_stats"]["total"]["total_tokens"],
-        }
-    
-    async def _reset_session_tokens(self):
-        """重置会话 token 统计"""
-        self.token_manager.reset_session_stats()
-        return {"message": "Session token statistics reset successfully"}
-    
-    async def _reset_all_tokens(self):
-        """重置所有 token 统计"""
-        self.token_manager.reset_all_stats()
-        return {"message": "All token statistics reset successfully"}
-    
-    async def _save_token_stats(self):
-        """手动保存 token 统计数据"""
-        self.token_manager.force_save()
-        return {"message": "Token statistics saved successfully"}
-    
-    async def _export_token_stats(self, export_name: str):
-        """导出 token 统计数据"""
-        if not export_name:
-            raise HTTPException(status_code=400, detail="Export name is required")
-        
-        try:
-            file_path = self.token_manager.export_stats(export_name)
-            return {"message": f"Statistics exported to {file_path}", "file_path": file_path}
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
+    # 所有 Token 管理相关的方法已经迁移到 TokenHandler 类中
+    # 使用 self.token_handler 进行调用
     
     # =========================
     # 历史记录管理相关处理方法 - 已迁移到 HistoryManager
@@ -218,50 +103,57 @@ class Service:
         # 聊天功能路由
         # =========================
         @self.app.post("/chat/stream_text")
-        async def chat_stream(request: Request):
+        async def chat_stream_local(request: Request):
             data = await request.json()
-            return await self._chat_stream_local(data)
+            message = data.get("message", "")
+            if not message:
+                raise HTTPException(status_code=400, detail="Message is required")
+            return await self.chat_handler.handle_local_chat_stream(message)
         
         @self.app.post("/chat/stream_text_cloud")
         async def chat_stream_cloud(request: Request):
             data = await request.json()
-            return await self._chat_stream_cloud(data)
+            message = data.get("message", "")
+            if not message:
+                raise HTTPException(status_code=400, detail="Message is required")
+            return await self.chat_handler.handle_cloud_chat_stream(message)
         
-        @self.app.get("/chat/show_history")
-        async def show_history(request: Request):
-            session_id = request.query_params.get("session_id", "default")
-            return await self.check_memory_status(session_id)
         
         # =========================
         # Token 管理路由
         # =========================
         @self.app.get("/chat/token_stats")
         async def get_token_stats():
-            return self.token_manager.get_current_stats()
+            return self.token_handler.token_manager.get_current_stats()
         
         @self.app.get("/chat/token_stats/simple")
         async def get_simple_token_stats():
-            return await self._get_simple_token_stats()
-        
+            return await self.token_handler.get_simple_token_stats()
+
         @self.app.post("/chat/reset_session_tokens")
         async def reset_session_tokens():
-            return await self._reset_session_tokens()
+            return await self.token_handler.reset_session_tokens()
         
         @self.app.post("/chat/reset_all_tokens")
         async def reset_all_tokens():
-            return await self._reset_all_tokens()
+            return await self.token_handler.reset_all_tokens()
         
         @self.app.post("/chat/save_token_stats")
         async def save_token_stats():
-            return await self._save_token_stats()
+            return await self.token_handler.save_token_stats()
         
         @self.app.post("/chat/export_token_stats")
         async def export_token_stats(export_name: str):
-            return await self._export_token_stats(export_name)
+            return await self.token_handler.export_token_stats(export_name)
         
         # =========================
         # 历史记录管理路由 
         # =========================
+        @self.app.get("/chat/show_history")
+        async def show_history(request: Request):
+            session_id = request.query_params.get("session_id", "default")
+            return await self.check_memory_status(session_id)
+        
         @self.app.post("/chat/clear_history")
         async def clear_chat_history():
             return await self.history_manager.clear_history()
@@ -277,233 +169,7 @@ class Service:
         @self.app.post("/chat/reload_history")
         async def reload_chat_history():
             return await self.history_manager.reload_history()
-            
-    
-    async def _chat_stream_cloud(self, data: Dict):
-        """云端模型流式聊天"""
-        message: str = data.get("message", "")
-        if not message:
-            raise HTTPException(status_code=400, detail="Message cannot be empty.")
-        
-        async def generate():
-            try:
-                # 准备请求
-                estimated_input_tokens, messages = self._prepare_cloud_request(message)
-
-                # 处理流式响应 - 直接流式处理
-                full_content = ""
-                estimated_output_tokens = 0
-                usage_info = None
-                
-                async for response in self._process_cloud_stream(messages):
-                    # 如果是流式完成标记，提取数据
-                    try:
-                        response_data = json.loads(response.strip())
-                        if response_data.get("type") == "stream_complete":
-                            full_content = response_data.get("full_content", "")
-                            estimated_output_tokens = response_data.get("estimated_output_tokens", 0)
-                            usage_info_data = response_data.get("usage_info")
-                            if usage_info_data:
-                                usage_info = UsageInfo(usage_info_data)
-                            break
-                        else:
-                            # 转发流式文本数据
-                            yield response
-                    except:
-                        # 如果不是JSON，直接转发
-                        yield response
-                
-                # 调整 token 统计
-                actual_input_tokens, actual_output_tokens = self.token_manager.adjust_cloud_tokens_with_actual_usage(
-                    estimated_input_tokens, estimated_output_tokens, usage_info
-                )
-                
-                # 发送 token 统计
-                token_usage = self.token_manager.generate_usage_response(
-                    "cloud", actual_input_tokens, actual_output_tokens, usage_info
-                )
-                yield json.dumps(token_usage, ensure_ascii=False) + "\n"
-                
-                # 添加到历史记录
-                if full_content:
-                    self._global_history.add_ai_message(full_content)
-                    
-                    # 处理语音生成
-                    async for audio_response in self.audio_handler.generate_audio_stream(full_content):
-                        yield audio_response
-                
-                # 强制保存token统计
-                self.token_manager.force_save()
-                
-                yield json.dumps({"type": "done"}) + "\n"
-                
-            except Exception as e:
-                yield json.dumps({'type': 'error', 'error': str(e)}, ensure_ascii=False) + "\n"
-        
-        return StreamingResponse(generate(), media_type="application/x-ndjson")
-
-    def _prepare_cloud_request(self, message: str)-> Tuple[int, List[ChatCompletionMessageParam]]:
-        """
-        准备云端请求
-        1. 计算输入 tokens 
-        2. 添加到全局历史
-        3. 构建消息列表(将历史消息转换为适合云端模型的格式并添加)
-        
-        参数:
-        - message: 用户输入的消息
-        
-        返回:
-        - estimated_input_tokens: 估计的输入 tokens 数量
-        - messages: 构建好的消息列表
-        """
-        # 计算并记录输入 tokens
-        estimated_input_tokens = self.token_manager.count_tokens_approximate(message)
-        self.token_manager.add_cloud_input_tokens(estimated_input_tokens)
-        
-        # 添加到全局历史
-        history = self._global_history
-        history.add_user_message(message)
-        
-        # 构建消息列表 - 使用正确的类型
-        messages: List[ChatCompletionMessageParam] = [{
-            'role': 'system', 
-            'content': self.character_prompt_manager.get_Elysia_prompt()
-            }]
-        
-        # 添加历史消息(消息类型转换)
-        for msg in history.messages:
-            if msg.type == "human":
-                messages.append({'role': 'user', 'content': str(msg.content)})
-            elif msg.type == "ai":
-                messages.append({'role': 'assistant', 'content': str(msg.content)})
-        
-        # 返回估计的输入 tokens 和消息列表
-        return estimated_input_tokens, messages
-    
-
-    async def _process_cloud_stream(self, messages: List[ChatCompletionMessageParam]):
-        """处理云端模型的流式响应,异步生成器"""
-        # 创建云端聊天完成请求(流式)
-        response = self.cloud_conversation.chat.completions.create(
-            model=self.config.cloud_model,
-            messages=messages,
-            stream=True,
-            stream_options={"include_usage": True},
-            temperature=0.3,
-            max_tokens=1000
-        )
-        
-        full_content = ""
-        estimated_output_tokens = 0
-        usage_info = None
-        
-        for chunk in response:
-            if chunk.choices and len(chunk.choices) > 0:
-                delta = chunk.choices[0].delta
-                if hasattr(delta, 'content') and delta.content:
-                    content = delta.content
-                    full_content += content
-                    
-                    chunk_tokens = self.token_manager.count_tokens_approximate(content)
-                    self.token_manager.add_cloud_streaming_output_tokens(chunk_tokens)
-                    estimated_output_tokens += chunk_tokens
-                    
-                    yield json.dumps({"type": "text", "content": content}, ensure_ascii=False) + "\n"
-            
-            # 修复: 确保usage_info被正确捕获
-            if hasattr(chunk, 'usage') and chunk.usage is not None:
-                usage_info = chunk.usage
-                print(f"捕获到usage信息: prompt_tokens={usage_info.prompt_tokens}, completion_tokens={usage_info.completion_tokens}")
-        
-        # 不能在异步生成器中使用 return，改为 yield 最终结果
-        yield json.dumps({"type": "stream_complete", 
-                          "full_content": full_content, 
-                          "estimated_output_tokens": estimated_output_tokens, 
-                          "usage_info": usage_info.model_dump() if usage_info else None
-                          }, ensure_ascii=False) + "\n"
-
-    
-    async def _process_local_stream(self, message: str):
-        """处理本地模型的流式响应"""
-        full_content = ""
-        output_tokens = 0
-        
-        async for chunk in self.local_conversation.astream(
-            {"input": message}, 
-            config=self.conversation_config
-        ):
-            if hasattr(chunk, 'content') and chunk.content:
-                content: str = chunk.content
-                full_content += content
-                
-                # 累加输出 tokens
-                chunk_tokens = self.token_manager.count_tokens_approximate(content)
-                self.token_manager.add_local_streaming_output_tokens(chunk_tokens)
-                output_tokens += chunk_tokens
-                
-                # 发送流式文本数据
-                yield json.dumps({"type": "text", "content": content}, ensure_ascii=False) + "\n"
-        
-        # 不能在异步生成器中使用 return，改为 yield 最终结果
-        yield json.dumps({"type": "stream_complete", "full_content": full_content, "output_tokens": output_tokens}, ensure_ascii=False) + "\n"
-    
-    async def _chat_stream_local(self, data: Dict):
-        """
-        处理新的聊天请求, 使用本地Ollama模型
-        支持流式响应
-        """
-        message: str = data.get("message", "")
-        
-        if not message:
-            raise HTTPException(status_code=400, detail="Message cannot be empty.")
-        
-        async def generate():
-            try:
-                # 计算并记录输入 tokens
-                input_tokens = self.token_manager.add_input_tokens(message)
-                
-                # 处理流式响应 - 直接流式处理
-                full_content = ""
-                output_tokens = 0
-                
-                async for response in self._process_local_stream(message):
-                    # 如果是流式完成标记，提取数据
-                    try:
-                        response_data = json.loads(response.strip())
-                        if response_data.get("type") == "stream_complete":
-                            full_content = response_data.get("full_content", "")
-                            output_tokens = response_data.get("output_tokens", 0)
-                            break
-                        else:
-                            # 转发流式文本数据
-                            yield response
-                    except:
-                        # 如果不是JSON，直接转发
-                        yield response
-                
-                # 发送 token 统计
-                token_usage = self.token_manager.generate_usage_response("local", input_tokens, output_tokens)
-                yield json.dumps(token_usage, ensure_ascii=False) + "\n"
-                
-                # 处理语音生成
-                if full_content:
-                    async for audio_response in self.audio_handler.generate_audio_stream(full_content):
-                        yield audio_response
-                
-                # 强制保存token统计
-                self.token_manager.force_save()
-                        
-                # 发送完成标记
-                yield json.dumps({"type": "done"}) + "\n"
-                
-            except Exception as e:
-                error_msg = str(e)
-                print(f"流式响应错误: {error_msg}")
-                yield json.dumps({'type': 'error', 'error': error_msg}, ensure_ascii=False) + "\n"
-        
-        # 返回流式响应
-        return StreamingResponse(generate(), media_type="application/x-ndjson")
-    
+              
    
     def run(self):
         """运行 FastAPI 应用"""

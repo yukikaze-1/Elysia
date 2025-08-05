@@ -1,0 +1,317 @@
+import json
+from typing import List, Tuple
+from fastapi import HTTPException
+from fastapi.responses import StreamingResponse
+import httpx
+
+from ServiceConfig import ServiceConfig
+from AudioHandler import AudioHandler
+from TokenManager import TokenManager, UsageInfo
+from CharacterPromptManager import CharacterPromptManager
+from PersistentChatHistory import GlobalChatMessageHistory
+
+from langchain_ollama import ChatOllama
+from langchain_core.runnables import RunnableWithMessageHistory, RunnableConfig
+from openai import OpenAI
+from openai.types.chat import ChatCompletionMessageParam
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.chat_history import BaseChatMessageHistory
+
+class ChatHandler:
+    """聊天处理器 - 自己管理需要的依赖"""
+    
+    def __init__(self, config: ServiceConfig):
+        self.config = config
+        
+        self._setup_components()
+        
+    
+    def _setup_components(self):
+        """内部设置组件"""
+        print("=== 角色提示管理器 初始化开始 ===")
+        self.character_prompt_manager = CharacterPromptManager()
+        print("✓ 角色提示管理器 初始化完成")
+        
+        print("=== 全局历史初始化开始 ===")
+        # 使用全局单例模式，确保全局只有一个 GlobalChatMessageHistory 实例
+        self.global_history = GlobalChatMessageHistory()
+        print("✓ 全局历史初始化完成")
+        
+        # 设置Token管理器
+        print("=== Token管理器 初始化开始 ===")
+        # 使用单例模式，确保全局只有一个 TokenManager 实例
+        self.token_manager = TokenManager()
+        print("✓ Token管理器 初始化完成")
+        
+        # 设置音频处理器
+        print("=== 音频处理器 初始化开始 ===")
+        self.tts_client = httpx.AsyncClient(base_url=self.config.tts_base_url)
+        self.audio_handler = AudioHandler(config=self.config, tts_client=self.tts_client)
+        print("✓ 音频处理器 初始化完成")
+        
+        # 设置对话处理器
+        print("=== 本地对话处理器 初始化开始 ===")
+        self.local_conversation = self._setup_local_conversation()
+        print("✓ 本地对话处理器 初始化完成")
+        
+        print("=== 云端对话处理器 初始化开始 ===")
+        self.cloud_conversation = self._setup_cloud_conversation()
+        print("✓ 云端对话处理器 初始化完成")
+        
+        
+    def get_session_history(self, session_id: str | None = None) -> BaseChatMessageHistory:
+        """获取会话历史 - 始终返回全局单例"""
+        return self.global_history  # 每次调用都返回同一实例！
+    
+    
+    def _setup_local_conversation(self)-> RunnableWithMessageHistory:
+        """设置本地对话处理器"""
+        # 本地对话
+        llm = ChatOllama(
+            model=self.config.local_model,
+            base_url=self.config.ollama_base_url,
+            temperature=self.config.local_temperature,
+            num_predict=self.config.local_num_predict,
+            top_p=self.config.local_top_p,
+            repeat_penalty=self.config.local_repeat_penalty
+        )
+        
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", self.character_prompt_manager.get_Elysia_prompt()),
+            MessagesPlaceholder(variable_name="history"),
+            ("user", "{input}")
+        ])
+        
+        chain = prompt | llm
+        conversation = RunnableWithMessageHistory(
+            runnable=chain,
+            get_session_history=self.get_session_history,
+            input_messages_key="input",
+            history_messages_key="history",
+        )
+        return conversation
+    
+    def _setup_cloud_conversation(self)-> OpenAI:
+        """设置对话处理器"""
+        self.conversation_config = RunnableConfig(configurable={"session_id": "default"})
+        
+        conversation = OpenAI(
+            api_key=self.config.api_key,
+            base_url=self.config.cloud_base_url,
+        )
+        return  conversation
+        
+    
+    async def handle_local_chat_stream(self, message: str):
+        """处理本地聊天流式响应"""
+        if not message:
+            raise HTTPException(status_code=400, detail="Message cannot be empty.")
+        
+        async def generate():
+            try:
+                # 计算并记录输入 tokens
+                input_tokens = self.token_manager.add_input_tokens(message)
+                
+                # 处理流式响应
+                full_content = ""
+                output_tokens = 0
+                
+                async for response in self._process_local_stream(message):
+                    try:
+                        response_data = json.loads(response.strip())
+                        if response_data.get("type") == "stream_complete":
+                            full_content = response_data.get("full_content", "")
+                            output_tokens = response_data.get("output_tokens", 0)
+                            break
+                        else:
+                            yield response
+                    except:
+                        yield response
+                
+                # 发送 token 统计
+                token_usage = self.token_manager.generate_usage_response("local", input_tokens, output_tokens)
+                yield json.dumps(token_usage, ensure_ascii=False) + "\n"
+                
+                # 处理语音生成
+                if full_content:
+                    async for audio_response in self.audio_handler.generate_audio_stream(full_content):
+                        yield audio_response
+                
+                # 强制保存token统计
+                self.token_manager.force_save()
+                        
+                # 发送完成标记
+                yield json.dumps({"type": "done"}) + "\n"
+                
+            except Exception as e:
+                error_msg = str(e)
+                print(f"流式响应错误: {error_msg}")
+                yield json.dumps({'type': 'error', 'error': error_msg}, ensure_ascii=False) + "\n"
+        
+        return StreamingResponse(generate(), media_type="application/x-ndjson")
+
+    
+    async def _process_local_stream(self, message: str):
+        """处理本地模型的流式响应"""
+        full_content = ""
+        output_tokens = 0
+        
+        async for chunk in self.local_conversation.astream(
+            {"input": message}, 
+            config=self.conversation_config
+        ):
+            if hasattr(chunk, 'content') and chunk.content:
+                content: str = chunk.content
+                full_content += content
+                
+                # 累加输出 tokens
+                chunk_tokens = self.token_manager.count_tokens_approximate(content)
+                self.token_manager.add_local_streaming_output_tokens(chunk_tokens)
+                output_tokens += chunk_tokens
+                
+                # 发送流式文本数据
+                yield json.dumps({"type": "text", "content": content}, ensure_ascii=False) + "\n"
+        
+        # 不能在异步生成器中使用 return，改为 yield 最终结果
+        yield json.dumps({"type": "stream_complete", "full_content": full_content, "output_tokens": output_tokens}, ensure_ascii=False) + "\n"
+    
+    
+    async def _process_cloud_stream(self, messages: List[ChatCompletionMessageParam]):
+        """处理云端模型的流式响应,异步生成器"""
+        # 创建云端聊天完成请求(流式)
+        response = self.cloud_conversation.chat.completions.create(
+            model=self.config.cloud_model,
+            messages=messages,
+            stream=True,
+            stream_options={"include_usage": True},
+            temperature=0.3,
+            max_tokens=1000
+        )
+        
+        full_content = ""
+        estimated_output_tokens = 0
+        usage_info = None
+        
+        for chunk in response:
+            if chunk.choices and len(chunk.choices) > 0:
+                delta = chunk.choices[0].delta
+                if hasattr(delta, 'content') and delta.content:
+                    content = delta.content
+                    full_content += content
+                    
+                    chunk_tokens = self.token_manager.count_tokens_approximate(content)
+                    self.token_manager.add_cloud_streaming_output_tokens(chunk_tokens)
+                    estimated_output_tokens += chunk_tokens
+                    
+                    yield json.dumps({"type": "text", "content": content}, ensure_ascii=False) + "\n"
+            
+            # 修复: 确保usage_info被正确捕获
+            if hasattr(chunk, 'usage') and chunk.usage is not None:
+                usage_info = chunk.usage
+                print(f"捕获到usage信息: prompt_tokens={usage_info.prompt_tokens}, completion_tokens={usage_info.completion_tokens}")
+        
+        # 不能在异步生成器中使用 return，改为 yield 最终结果
+        yield json.dumps({"type": "stream_complete", 
+                          "full_content": full_content, 
+                          "estimated_output_tokens": estimated_output_tokens, 
+                          "usage_info": usage_info.model_dump() if usage_info else None
+                          }, ensure_ascii=False) + "\n"
+
+
+    async def handle_cloud_chat_stream(self, message: str):
+        """处理云端聊天流式响应的业务逻辑"""
+        if not message:
+            raise HTTPException(status_code=400, detail="Message cannot be empty.")
+        
+        async def generate():
+            try:
+                # 准备请求
+                estimated_input_tokens, messages = self._prepare_cloud_request(message)
+                
+                # 处理流式响应
+                full_content = ""
+                estimated_output_tokens = 0
+                usage_info = None
+                
+                async for response in self._process_cloud_stream(messages):
+                    try:
+                        response_data = json.loads(response.strip())
+                        if response_data.get("type") == "stream_complete":
+                            full_content = response_data.get("full_content", "")
+                            estimated_output_tokens = response_data.get("estimated_output_tokens", 0)
+                            usage_info_data = response_data.get("usage_info")
+                            if usage_info_data:
+                                usage_info = UsageInfo(usage_info_data)
+                            break
+                        else:
+                            yield response
+                    except:
+                        yield response
+                
+                # 调整 token 统计
+                actual_input_tokens, actual_output_tokens = self.token_manager.adjust_cloud_tokens_with_actual_usage(
+                    estimated_input_tokens, estimated_output_tokens, usage_info
+                )
+                
+                # 发送 token 统计
+                token_usage = self.token_manager.generate_usage_response(
+                    "cloud", actual_input_tokens, actual_output_tokens, usage_info
+                )
+                yield json.dumps(token_usage, ensure_ascii=False) + "\n"
+                
+                # 添加到历史记录
+                if full_content:
+                    self.global_history.add_ai_message(full_content)
+                    
+                    # 处理语音生成
+                    async for audio_response in self.audio_handler.generate_audio_stream(full_content):
+                        yield audio_response
+                
+                # 强制保存token统计
+                self.token_manager.force_save()
+                
+                yield json.dumps({"type": "done"}) + "\n"
+                
+            except Exception as e:
+                yield json.dumps({'type': 'error', 'error': str(e)}, ensure_ascii=False) + "\n"
+        
+        return StreamingResponse(generate(), media_type="application/x-ndjson")
+    
+    
+    def _prepare_cloud_request(self, message: str)-> Tuple[int, List[ChatCompletionMessageParam]]:
+        """
+        准备云端请求
+        1. 计算输入 tokens 
+        2. 添加到全局历史
+        3. 构建消息列表(将历史消息转换为适合云端模型的格式并添加)
+        
+        参数:
+        - message: 用户输入的消息
+        
+        返回:
+        - estimated_input_tokens: 估计的输入 tokens 数量
+        - messages: 构建好的消息列表
+        """
+        # 计算并记录输入 tokens
+        estimated_input_tokens = self.token_manager.count_tokens_approximate(message)
+        self.token_manager.add_cloud_input_tokens(estimated_input_tokens)
+        
+        # 添加到全局历史
+        history = self.global_history
+        history.add_user_message(message)
+        
+        # 构建消息列表 - 使用正确的类型
+        messages: List[ChatCompletionMessageParam] = [{
+            'role': 'system', 
+            'content': self.character_prompt_manager.get_Elysia_prompt()
+            }]
+        
+        # 添加历史消息(消息类型转换)
+        for msg in history.messages:
+            if msg.type == "human":
+                messages.append({'role': 'user', 'content': str(msg.content)})
+            elif msg.type == "ai":
+                messages.append({'role': 'assistant', 'content': str(msg.content)})
+        
+        # 返回估计的输入 tokens 和消息列表
+        return estimated_input_tokens, messages
