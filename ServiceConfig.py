@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from dotenv import load_dotenv, find_dotenv, dotenv_values
+from typing import Optional
 
-# TODO 这个dataclass能否写成单例？
 @dataclass
 class ServiceConfig:
     """服务配置类"""
@@ -37,3 +37,17 @@ class ServiceConfig:
             raise ValueError("API key for QWEN3 is not set in the environment variables.")
 
 
+# 全局配置实例
+_config_instance: Optional[ServiceConfig] = None
+
+def get_service_config() -> ServiceConfig:
+    """获取全局配置实例"""
+    global _config_instance
+    if _config_instance is None:
+        _config_instance = ServiceConfig()
+    return _config_instance
+
+def set_service_config(config: ServiceConfig) -> None:
+    """设置全局配置实例（主要用于测试）"""
+    global _config_instance
+    _config_instance = config

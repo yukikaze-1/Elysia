@@ -1,27 +1,15 @@
 import uvicorn
 import httpx
-import json
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import StreamingResponse
-
-from openai.types.chat import ChatCompletionMessageParam
 from typing import Dict, List, Any, Tuple
 
-from langchain.memory import ConversationBufferMemory, ConversationTokenBufferMemory, ConversationSummaryMemory, ConversationSummaryBufferMemory
-from langchain_core.runnables import RunnableWithMessageHistory, RunnableConfig
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.chat_history import BaseChatMessageHistory
-from langchain_community.chat_message_histories import ChatMessageHistory
-
 from HistoryManager import HistoryManager
-from ServiceConfig import ServiceConfig
+from ServiceConfig import get_service_config
 from RAG import RAG
 
 from TokenHandler import TokenHandler
 from ChatHandler import ChatHandler
-
-
     
 class Service:
     """
@@ -31,7 +19,7 @@ class Service:
         print("=== Service 初始化开始 ===")
         
         self.app = FastAPI()
-        self.config = ServiceConfig()
+        self.config = get_service_config()
         
         print("=== RAG初始化开始 ===")
         # self.rag = RAG()
@@ -70,11 +58,6 @@ class Service:
             
         except Exception as e:
             print(f"✗ 预热检查失败: {e}")    
-            
-    
-    async def check_memory_status(self, session_id=None)->List[str]:
-        """检查记忆状态 - session_id 参数被忽略"""
-        return await self.history_manager.get_formatted_history()
           
 
     # =========================
@@ -152,7 +135,7 @@ class Service:
         @self.app.get("/chat/show_history")
         async def show_history(request: Request):
             session_id = request.query_params.get("session_id", "default")
-            return await self.check_memory_status(session_id)
+            return await self.history_manager.get_formatted_history()
         
         @self.app.post("/chat/clear_history")
         async def clear_chat_history():
