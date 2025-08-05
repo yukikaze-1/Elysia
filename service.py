@@ -26,8 +26,43 @@ from Prompt import CharacterPromptManager
 from PersistentChatHistory import GlobalChatMessageHistory
 from HistoryManager import HistoryManager
 
+from dataclasses import dataclass
 from dotenv import load_dotenv, dotenv_values, find_dotenv
 
+
+@dataclass
+class ServiceConfig:
+    """服务配置类"""
+    # 服务配置
+    host: str = "0.0.0.0"
+    port: int = 11100
+    
+    # TTS配置
+    tts_base_url: str = "http://localhost:9880"
+    tts_ref_audio_path: str = "/home/yomu/Elysia/ref.wav"
+    tts_prompt_text: str = "我的话，嗯哼，更多是靠少女的小心思吧~看看你现在的表情，好想去那里。"
+    
+    # 本地模型配置
+    ollama_base_url: str = "http://localhost:11434"
+    local_model: str = "qwen2.5"
+    local_temperature: float = 0.3
+    local_num_predict: int = 512
+    local_top_p: float = 0.9
+    local_repeat_penalty: float = 1.1
+    
+    # 云端模型配置
+    cloud_model: str = "qwen3-235b-a22b-instruct-2507"
+    cloud_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    cloud_temperature: float = 0.3
+    cloud_max_tokens: int = 2000
+    
+    def __post_init__(self):
+        """初始化后加载环境变量"""
+        load_dotenv(find_dotenv())
+        env_vars = dotenv_values(".env")
+        self.api_key = env_vars.get("QWEN3_API_KEY", "")
+        if not self.api_key:
+            raise ValueError("API key for QWEN3 is not set in the environment variables.")
 
 class Service:
     """
@@ -38,6 +73,7 @@ class Service:
         self.character_prompt_manager = CharacterPromptManager()
         self.tts_client = httpx.AsyncClient(base_url="http://localhost:9880")
         # self.rag = RAG()
+        self.config = ServiceConfig()
         
         # 立即初始化所有需要的组件
         self._initialize_all_components()
@@ -67,7 +103,7 @@ class Service:
         self.local_conversation = self.setup_local_conversation()
         print("✓ 本地对话已设置")
         
-        self.config = RunnableConfig(configurable={"session_id": "default"})
+        self.conversation_config = RunnableConfig(configurable={"session_id": "default"})
         
         # 4. 初始化 Token 管理器
         print("正在初始化 Token 管理器...")
@@ -111,36 +147,29 @@ class Service:
         return await self.history_manager.get_formatted_history()
     
 
-    def setup_cloud_conversation(self, model: str = "qwen3-235b-a22b-instruct-2507" )-> OpenAI:
-        """
-        设置云端聊天会话处理
-        即使用云端模型进行对话处理
-        """
-        self.cloud_llm_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-        self.cloud_llm_name = model
-        load_dotenv(find_dotenv())
-        self.api_key = dotenv_values(".env").get("QWEN3_API_KEY","")
-        if not self.api_key:
-            raise ValueError("API key for QWEN3 is not set in the environment variables.")
-        
+    def setup_cloud_conversation(self, model: str | None = None )-> OpenAI:
+        """设置云端聊天会话处理"""      
+        if model:
+            self.config.cloud_model = model
+
         return OpenAI(
-            api_key=self.api_key,
-            base_url=self.cloud_llm_url,
+            api_key=self.config.api_key,
+            base_url=self.config.cloud_base_url,
         )
         
           
     def setup_local_conversation(self, model: str = "qwen2.5") -> RunnableWithMessageHistory:
-        """
-        设置本地聊天会话处理
-        即使用本地Ollama模型进行对话处理
-        """
+        """设置本地聊天会话处理"""
+        if model:
+            self.config.local_model = model
+            
         llm = ChatOllama(
-            model=model,
-            base_url="http://localhost:11434",
-            temperature=0.3,
-            num_predict=512,
-            top_p=0.9,
-            repeat_penalty=1.1
+            model=self.config.local_model,
+            base_url=self.config.ollama_base_url,
+            temperature=self.config.local_temperature,
+            num_predict=self.config.local_num_predict,
+            top_p=self.config.local_top_p,
+            repeat_penalty=self.config.local_repeat_penalty
         )
         
         # 创建聊天提示模板
@@ -430,7 +459,7 @@ class Service:
         """处理云端模型的流式响应,异步生成器"""
         # 创建云端聊天完成请求(流式)
         response = self.cloud_conversation.chat.completions.create(
-            model=self.cloud_llm_name,
+            model=self.config.cloud_model,
             messages=messages,
             stream=True,
             stream_options={"include_usage": True},
@@ -475,7 +504,7 @@ class Service:
         
         async for chunk in self.local_conversation.astream(
             {"input": message}, 
-            config=self.config
+            config=self.conversation_config
         ):
             if hasattr(chunk, 'content') and chunk.content:
                 content: str = chunk.content
@@ -582,8 +611,8 @@ class Service:
     def run(self):
         """运行 FastAPI 应用"""
         self.setup_routes()
-        uvicorn.run(self.app, host="0.0.0.0", port=11100)
-        print(f"Service is running on http://0.0.0.0:11100")
+        uvicorn.run(self.app, host=self.config.host, port=self.config.port)
+        print(f"Service is running on http://{self.config.host}:{self.config.port}")
         
         
         
