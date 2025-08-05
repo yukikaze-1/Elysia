@@ -12,7 +12,7 @@ import json
 from openai.types.chat import ChatCompletionMessageParam
 from typing import Dict, List, Any, Tuple
 import datetime
-import os
+import os, re
 from openai import OpenAI
 
 from langchain.memory import ConversationBufferMemory, ConversationTokenBufferMemory, ConversationSummaryMemory, ConversationSummaryBufferMemory
@@ -29,7 +29,7 @@ from HistoryManager import HistoryManager
 from dataclasses import dataclass
 from dotenv import load_dotenv, dotenv_values, find_dotenv
 
-
+# TODO 这个dataclass能否写成单例？
 @dataclass
 class ServiceConfig:
     """服务配置类"""
@@ -64,6 +64,74 @@ class ServiceConfig:
         if not self.api_key:
             raise ValueError("API key for QWEN3 is not set in the environment variables.")
 
+
+class AudioHandler:
+    """音频处理类"""
+
+    def __init__(self, config: ServiceConfig, tts_client: httpx.AsyncClient):
+        self.tts_client = tts_client
+        self.config = config
+
+    @staticmethod
+    def clean_text_from_brackets(text: str) -> str:
+        """移除文本中的括号和标记内容"""
+        cleaned = re.sub(r'\[.*?\]', '', text)  # 移除肢体动作描写
+        cleaned = re.sub(r'<.*?>', '', cleaned)  # 移除面部表情描写
+        cleaned = re.sub(r'<<.*?>>', '', cleaned)  # 移除心情描写
+        cleaned = re.sub(r'\(.*?\)', '', cleaned)  # 移除语气标记
+        return cleaned.strip()
+    
+    async def generate_audio_stream(self, content: str):
+        """处理语音生成的通用逻辑"""
+        try:
+            yield json.dumps({"type": "audio_start", "audio_format": "ogg"}, ensure_ascii=False) + "\n"
+            
+            async for audio_chunk in self._stream_tts_audio(self.clean_text_from_brackets(content)):
+                if audio_chunk:
+                    chunk_base64 = base64.b64encode(audio_chunk).decode('utf-8')
+                    yield json.dumps({
+                        "type": "audio_chunk", 
+                        "audio_data": chunk_base64,
+                        "chunk_size": len(audio_chunk)
+                    }, ensure_ascii=False) + "\n"
+            
+            yield json.dumps({"type": "audio_end"}, ensure_ascii=False) + "\n"
+            
+        except Exception as e:
+            print(f"语音生成失败: {e}")
+            yield json.dumps({'type': 'error', 'error': f'语音生成失败: {str(e)}'}, ensure_ascii=False) + "\n"
+    
+    async def _stream_tts_audio(self, text: str):
+        """真正的流式音频生成"""
+        payload = {
+            "text": text,
+            "text_lang": "zh", 
+            "ref_audio_path": self.config.tts_ref_audio_path,
+            "prompt_lang": "zh",
+            "prompt_text": self.config.tts_prompt_text,
+            "text_split_method": "cut5",
+            "batch_size": 20,
+            "media_type": "ogg",
+            "streaming_mode": True
+        }
+        
+        try:
+            response = await self.tts_client.request(
+                "POST", "/tts", json=payload, 
+                headers={'Content-Type': 'application/json'}, 
+                timeout=60.0
+            )
+            response.raise_for_status()
+            
+            async for chunk in response.aiter_bytes(chunk_size=8192):
+                if chunk:
+                    yield chunk
+                    
+        except Exception as e:
+            print(f"TTS 流式处理失败: {e}")
+            yield None
+
+
 class Service:
     """
     Elysia 聊天服务主类
@@ -74,6 +142,8 @@ class Service:
         self.tts_client = httpx.AsyncClient(base_url="http://localhost:9880")
         # self.rag = RAG()
         self.config = ServiceConfig()
+        
+        self.audio_handler = AudioHandler(config=self.config, tts_client=self.tts_client)
         
         # 立即初始化所有需要的组件
         self._initialize_all_components()
@@ -314,43 +384,6 @@ class Service:
         @self.app.post("/chat/reload_history")
         async def reload_chat_history():
             return await self.history_manager.reload_history()
-
-    
-    async def _handle_audio_generation(self, content: str):
-        """处理语音生成的通用逻辑"""
-        def clean_text_from_brackets(text: str) -> str:
-            """移除文本中的括号和标记内容"""
-            import re
-            # 移除 [] 内容  (肢体动作描写)
-            cleaned = re.sub(r'\[.*?\]', '', text)
-            # 移除 <> 内容  (面部表情描写)
-            cleaned = re.sub(r'<.*?>', '', cleaned)
-            # 移除 <<>> 内容    (心情描写)
-            cleaned = re.sub(r'<<.*?>>', '', cleaned)
-            # 移除 () 内容  (语气标记)
-            cleaned = re.sub(r'\(.*?\)', '', cleaned)
-            return cleaned.strip()
-        
-        try:
-            # 发送音频开始标记
-            yield json.dumps({"type": "audio_start", "audio_format": "ogg"}, ensure_ascii=False) + "\n"
-            
-            # 流式音频生成
-            async for audio_chunk in self._stream_tts_audio(text=clean_text_from_brackets(content)):
-                if audio_chunk:
-                    chunk_base64 = base64.b64encode(audio_chunk).decode('utf-8')
-                    yield json.dumps({
-                        "type": "audio_chunk", 
-                        "audio_data": chunk_base64,
-                        "chunk_size": len(audio_chunk)
-                    }, ensure_ascii=False) + "\n"
-            
-            # 发送音频结束标记
-            yield json.dumps({"type": "audio_end"}, ensure_ascii=False) + "\n"
-            
-        except Exception as e:
-            print(f"语音生成失败: {e}")
-            yield json.dumps({'type': 'error', 'error': f'语音生成失败: {str(e)}'}, ensure_ascii=False) + "\n"
             
     
     async def _chat_stream_cloud(self, data: Dict):
@@ -403,7 +436,7 @@ class Service:
                     self._global_history.add_ai_message(full_content)
                     
                     # 处理语音生成
-                    async for audio_response in self._handle_audio_generation(full_content):
+                    async for audio_response in self.audio_handler.generate_audio_stream(full_content):
                         yield audio_response
                 
                 # 强制保存token统计
@@ -561,8 +594,8 @@ class Service:
                 
                 # 处理语音生成
                 if full_content:
-                    async for audio_response in self._handle_audio_generation(full_content):
-                        yield audio_response
+                    async for audio_response in self.audio_handler.generate_audio_stream(full_content):
+                         yield audio_response
                 
                 # 强制保存token统计
                 self.token_manager.force_save()
@@ -578,35 +611,6 @@ class Service:
         # 返回流式响应
         return StreamingResponse(generate(), media_type="application/x-ndjson")
     
-    
-    async def _stream_tts_audio(self, text: str):
-        """真正的流式音频生成"""
-        payload = {
-            "text": text,
-            "text_lang": "zh", 
-            "ref_audio_path": "/home/yomu/Elysia/ref.wav",
-            "prompt_lang": "zh",
-            "prompt_text": "我的话，嗯哼，更多是靠少女的小心思吧~看看你现在的表情，好想去那里。",
-            "text_split_method": "cut5",
-            "batch_size": 20,
-            "media_type": "ogg",
-            "streaming_mode": True
-        }
-        headers = {'Content-Type': 'application/json'}
-        
-        try:
-            response = await self.tts_client.request("POST", "/tts", json=payload, headers=headers, timeout=60.0)
-            response.raise_for_status()
-            
-            # 真正的流式处理 - 逐块yield音频数据
-            async for chunk in response.aiter_bytes(chunk_size=8192):
-                if chunk:
-                    yield chunk  # 直接yield音频块
-                    
-        except Exception as e:
-            print(f"TTS 流式处理失败: {e}")
-            yield None
-
    
     def run(self):
         """运行 FastAPI 应用"""
