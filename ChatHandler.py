@@ -1,11 +1,10 @@
 import json
-from typing import List, Tuple
+from typing import List, Tuple, Dict, Any
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
-import httpx
 
 from ServiceConfig import ServiceConfig
-from AudioHandler import AudioHandler
+from AudioGenerateHandler import AudioGenerateHandler
 from TokenManager import TokenManager, UsageInfo
 from CharacterPromptManager import CharacterPromptManager
 from PersistentChatHistory import GlobalChatMessageHistory
@@ -45,8 +44,7 @@ class ChatHandler:
         
         # 设置音频处理器
         print("=== 音频处理器 初始化开始 ===")
-        self.tts_client = httpx.AsyncClient(base_url=self.config.tts_base_url)
-        self.audio_handler = AudioHandler(config=self.config, tts_client=self.tts_client)
+        self.audio_handler = AudioGenerateHandler(self.config)
         print("✓ 音频处理器 初始化完成")
         
         # 设置对话处理器
@@ -61,11 +59,13 @@ class ChatHandler:
         
     def get_session_history(self, session_id: str | None = None) -> BaseChatMessageHistory:
         """获取会话历史 - 始终返回全局单例"""
-        return self.global_history  # 每次调用都返回同一实例！
+        return self.global_history  
     
     
     def _setup_local_conversation(self)-> RunnableWithMessageHistory:
         """设置本地对话处理器"""
+        self.conversation_config = RunnableConfig(configurable={"session_id": "default"})
+        
         # 本地对话
         llm = ChatOllama(
             model=self.config.local_model,
@@ -92,9 +92,7 @@ class ChatHandler:
         return conversation
     
     def _setup_cloud_conversation(self)-> OpenAI:
-        """设置对话处理器"""
-        self.conversation_config = RunnableConfig(configurable={"session_id": "default"})
-        
+        """设置云端对话处理器"""        
         conversation = OpenAI(
             api_key=self.config.api_key,
             base_url=self.config.cloud_base_url,
@@ -112,10 +110,10 @@ class ChatHandler:
                 # 计算并记录输入 tokens
                 input_tokens = self.token_manager.add_input_tokens(message)
                 
-                # 处理流式响应
                 full_content = ""
                 output_tokens = 0
                 
+                # 处理流式响应
                 async for response in self._process_local_stream(message):
                     try:
                         response_data = json.loads(response.strip())
@@ -124,17 +122,20 @@ class ChatHandler:
                             output_tokens = response_data.get("output_tokens", 0)
                             break
                         else:
+                            # 发送流式文本数据
                             yield response
                     except:
                         yield response
                 
                 # 发送 token 统计
-                token_usage = self.token_manager.generate_usage_response("local", input_tokens, output_tokens)
+                token_usage:Dict[str, Any] = self.token_manager.generate_usage_response("local", input_tokens, output_tokens)
                 yield json.dumps(token_usage, ensure_ascii=False) + "\n"
                 
                 # 处理语音生成
                 if full_content:
+                    # 流式音频生成
                     async for audio_response in self.audio_handler.generate_audio_stream(full_content):
+                        # 发送音频流式响应
                         yield audio_response
                 
                 # 强制保存token统计
@@ -156,6 +157,7 @@ class ChatHandler:
         full_content = ""
         output_tokens = 0
         
+        # 生成流式响应
         async for chunk in self.local_conversation.astream(
             {"input": message}, 
             config=self.conversation_config
@@ -189,9 +191,9 @@ class ChatHandler:
         )
         
         full_content = ""
-        estimated_output_tokens = 0
         usage_info = None
         
+        # 处理流式响应
         for chunk in response:
             if chunk.choices and len(chunk.choices) > 0:
                 delta = chunk.choices[0].delta
@@ -199,21 +201,14 @@ class ChatHandler:
                     content = delta.content
                     full_content += content
                     
-                    chunk_tokens = self.token_manager.count_tokens_approximate(content)
-                    self.token_manager.add_cloud_streaming_output_tokens(chunk_tokens)
-                    estimated_output_tokens += chunk_tokens
-                    
                     yield json.dumps({"type": "text", "content": content}, ensure_ascii=False) + "\n"
             
-            # 修复: 确保usage_info被正确捕获
             if hasattr(chunk, 'usage') and chunk.usage is not None:
                 usage_info = chunk.usage
                 print(f"捕获到usage信息: prompt_tokens={usage_info.prompt_tokens}, completion_tokens={usage_info.completion_tokens}")
         
-        # 不能在异步生成器中使用 return，改为 yield 最终结果
         yield json.dumps({"type": "stream_complete", 
                           "full_content": full_content, 
-                          "estimated_output_tokens": estimated_output_tokens, 
                           "usage_info": usage_info.model_dump() if usage_info else None
                           }, ensure_ascii=False) + "\n"
 
@@ -306,6 +301,7 @@ class ChatHandler:
             'content': self.character_prompt_manager.get_Elysia_prompt()
             }]
         
+        # TODO 需要添加压缩的记忆
         # 添加历史消息(消息类型转换)
         for msg in history.messages:
             if msg.type == "human":

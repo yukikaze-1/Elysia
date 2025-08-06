@@ -2,14 +2,14 @@ import re
 import json
 import base64
 import httpx
-from ServiceConfig import ServiceConfig  # 假设 ServiceConfig 是一个配置类，包含
+from ServiceConfig import ServiceConfig  
 
-class AudioHandler:
+class AudioGenerateHandler:
     """音频处理类"""
 
-    def __init__(self, config: ServiceConfig, tts_client: httpx.AsyncClient):
-        self.tts_client = tts_client
+    def __init__(self, config: ServiceConfig):
         self.config = config
+        self.tts_client = httpx.AsyncClient(base_url=config.tts_base_url)
 
     @staticmethod
     def clean_text_from_brackets(text: str) -> str:
@@ -20,28 +20,36 @@ class AudioHandler:
         cleaned = re.sub(r'\(.*?\)', '', cleaned)  # 移除语气标记
         return cleaned.strip()
     
+    
     async def generate_audio_stream(self, content: str):
         """处理语音生成的通用逻辑"""
         try:
+            # 发送音频开始标记
             yield json.dumps({"type": "audio_start", "audio_format": "ogg"}, ensure_ascii=False) + "\n"
             
+            # 进行流式音频生成
             async for audio_chunk in self._stream_tts_audio(self.clean_text_from_brackets(content)):
                 if audio_chunk:
+                    # 将音频块进行 Base64 编码
                     chunk_base64 = base64.b64encode(audio_chunk).decode('utf-8')
+                    # 发送音频块
                     yield json.dumps({
                         "type": "audio_chunk", 
                         "audio_data": chunk_base64,
                         "chunk_size": len(audio_chunk)
                     }, ensure_ascii=False) + "\n"
-            
+                    
+            # 发送音频结束标记
             yield json.dumps({"type": "audio_end"}, ensure_ascii=False) + "\n"
             
         except Exception as e:
             print(f"语音生成失败: {e}")
             yield json.dumps({'type': 'error', 'error': f'语音生成失败: {str(e)}'}, ensure_ascii=False) + "\n"
     
+    
     async def _stream_tts_audio(self, text: str):
         """真正的流式音频生成"""
+        # GPTSoVits 需要的请求参数
         payload = {
             "text": text,
             "text_lang": "zh", 
@@ -56,12 +64,15 @@ class AudioHandler:
         
         try:
             response = await self.tts_client.request(
-                "POST", "/tts", json=payload, 
-                headers={'Content-Type': 'application/json'}, 
+                method="POST",
+                url="/tts",
+                json=payload,
+                headers={'Content-Type': 'application/json'},
                 timeout=60.0
             )
             response.raise_for_status()
             
+            # 使用流式响应
             async for chunk in response.aiter_bytes(chunk_size=8192):
                 if chunk:
                     yield chunk

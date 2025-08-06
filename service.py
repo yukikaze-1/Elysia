@@ -8,7 +8,6 @@ from HistoryManager import HistoryManager
 from ServiceConfig import get_service_config
 from RAG import RAG
 
-from TokenHandler import TokenHandler
 from ChatHandler import ChatHandler
     
 class Service:
@@ -28,10 +27,6 @@ class Service:
         print("=== ChatHandler 初始化开始 ===")
         self.chat_handler = ChatHandler(self.config)
         print("✓ ChatHandler 初始化完成")
-
-        print("=== TokenHandler 初始化开始 ===")
-        self.token_handler = TokenHandler()
-        print("✓ TokenHandler 初始化完成")
         
         self._global_history = self.chat_handler.global_history  # 引用同一个实例
         self.history_manager = HistoryManager(self._global_history)
@@ -51,7 +46,7 @@ class Service:
             print(f"  - 聊天历史: {message_count} 条消息")
             
             # 检查 Token 管理器
-            stats = self.token_handler.token_manager.get_current_stats()
+            stats = self.chat_handler.token_manager.get_current_stats()
             print(f"  - Token 统计: 总计 {stats['total_stats']['total_tokens']} tokens")
             
             print("✓ 预热检查完成")
@@ -107,28 +102,48 @@ class Service:
         # =========================
         @self.app.get("/chat/token_stats")
         async def get_token_stats():
-            return self.token_handler.token_manager.get_current_stats()
+            return self.chat_handler.token_manager.get_current_stats()
         
         @self.app.get("/chat/token_stats/simple")
         async def get_simple_token_stats():
-            return await self.token_handler.get_simple_token_stats()
+            stats = self.chat_handler.token_manager.get_current_stats()
+            return {
+                "local_tokens": stats["local_stats"]["total_tokens"],
+                "cloud_tokens": stats["cloud_stats"]["total_tokens"],
+                "total_tokens": stats["total_stats"]["total_tokens"],
+                "session_local": stats["session_stats"]["local"]["total_tokens"],
+                "session_cloud": stats["session_stats"]["cloud"]["total_tokens"],
+                "session_total": stats["session_stats"]["total"]["total_tokens"],
+            }
 
         @self.app.post("/chat/reset_session_tokens")
         async def reset_session_tokens():
-            return await self.token_handler.reset_session_tokens()
+            self.chat_handler.token_manager.reset_session_stats()
+            return {"message": "Session token statistics reset successfully"}
         
         @self.app.post("/chat/reset_all_tokens")
         async def reset_all_tokens():
-            return await self.token_handler.reset_all_tokens()
+            self.chat_handler.token_manager.reset_all_stats()
+            return {"message": "All token statistics reset successfully"}
         
         @self.app.post("/chat/save_token_stats")
         async def save_token_stats():
-            return await self.token_handler.save_token_stats()
+            self.chat_handler.token_manager.force_save()
+            return {"message": "Token statistics saved successfully"}
         
         @self.app.post("/chat/export_token_stats")
-        async def export_token_stats(export_name: str):
-            return await self.token_handler.export_token_stats(export_name)
-        
+        async def export_token_stats(request: Request):
+            data = await request.json()
+            export_name = data.get("export_name")
+            if not export_name:
+                raise HTTPException(status_code=400, detail="Export name is required")
+            
+            try:
+                file_path = self.chat_handler.token_manager.export_stats(export_name)
+                return {"message": f"Statistics exported to {file_path}", "file_path": file_path}
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
+
         # =========================
         # 历史记录管理路由 
         # =========================
