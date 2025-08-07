@@ -134,3 +134,49 @@ class SyncMessageIDGenerator:
             if self._current_id is None:
                 self._current_id = self._load_current_id()
             return self._current_id
+        
+import time        
+class TimeTracker:
+    """时间追踪器，用于详细记录各个阶段的耗时"""
+    
+    def __init__(self):
+        self.timestamps = {}
+        self.durations = {}
+    
+    def start(self, phase_name: str):
+        """开始记录某个阶段的时间"""
+        self.timestamps[f"{phase_name}_start"] = time.time()
+    
+    def end(self, phase_name: str):
+        """结束记录某个阶段的时间"""
+        end_time = time.time()
+        self.timestamps[f"{phase_name}_end"] = end_time
+        start_time = self.timestamps.get(f"{phase_name}_start")
+        if start_time:
+            self.durations[phase_name] = end_time - start_time
+    
+    def get_duration(self, phase_name: str) -> float:
+        """获取某个阶段的耗时（秒）"""
+        return self.durations.get(phase_name, 0.0)
+    
+    def print_summary(self, total_files: int = 1, total_size: int = 0):
+        """打印时间统计摘要"""
+        print("\n   ⏱️  详细时间统计:")
+        print("   " + "-" * 40)
+        
+        for phase, duration in self.durations.items():
+            print(f"   {phase:20s}: {duration:8.3f}秒")
+        
+        total_duration = self.durations.get('total_request', 0.0)
+        if total_duration > 0:
+            print("   " + "-" * 40)
+            print(f"   {'总耗时':20s}: {total_duration:8.3f}秒")
+            
+            if total_files > 0:
+                avg_per_file = total_duration / total_files
+                print(f"   {'平均每文件':20s}: {avg_per_file:8.3f}秒")
+            
+            if total_size > 0:
+                mb_size = total_size / (1024 * 1024)
+                speed = mb_size / total_duration if total_duration > 0 else 0
+                print(f"   {'处理速度':20s}: {speed:8.3f}MB/s")
