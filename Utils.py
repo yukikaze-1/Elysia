@@ -1,6 +1,6 @@
 import os
+import time        
 import torch
-import threading
 from typing import Optional
 import asyncio
 import aiofiles
@@ -135,7 +135,6 @@ class SyncMessageIDGenerator:
                 self._current_id = self._load_current_id()
             return self._current_id
         
-import time        
 class TimeTracker:
     """时间追踪器，用于详细记录各个阶段的耗时"""
     

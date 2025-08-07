@@ -14,6 +14,9 @@ class ServiceConfig:
     tts_ref_audio_path: str = "/home/yomu/Elysia/ref.wav"
     tts_prompt_text: str = "我的话，嗯哼，更多是靠少女的小心思吧~看看你现在的表情，好想去那里。"
     
+    # STT配置
+    stt_base_url: str = "http://localhost:20042"
+    
     # 本地模型配置
     ollama_base_url: str = "http://localhost:11434"
     local_model: str = "qwen2.5"

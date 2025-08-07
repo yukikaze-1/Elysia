@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk, scrolledtext, messagebox
+from tkinter import ttk, scrolledtext, messagebox, filedialog
 import requests
 import json
 import base64
@@ -98,11 +98,14 @@ class ElysiaClient:
         self.normal_button = ttk.Button(control_frame, text="普通聊天", command=self.on_normal_chat)
         self.normal_button.grid(row=0, column=2, padx=(0, 10))
         
+        self.audio_button = ttk.Button(control_frame, text="上传音频", command=self.on_upload_audio)
+        self.audio_button.grid(row=0, column=3, padx=(0, 10))
+        
         self.history_button = ttk.Button(control_frame, text="查看历史", command=self.on_show_history)
-        self.history_button.grid(row=0, column=3, padx=(0, 10))
+        self.history_button.grid(row=0, column=4, padx=(0, 10))
         
         self.clear_button = ttk.Button(control_frame, text="清空聊天", command=self.on_clear_chat)
-        self.clear_button.grid(row=0, column=4)
+        self.clear_button.grid(row=0, column=5)
         
         # 状态栏
         self.status_var = tk.StringVar()
@@ -229,12 +232,13 @@ class ElysiaClient:
                                     content = data.get("content", "")
                                     current_response += content
                                     
-                                    # 清理可能的重复内容
-                                    clean_response = self.remove_immediate_duplicates(current_response)
+                                    # 应用更强的重复检测和清理
+                                    clean_response = self.advanced_duplicate_filter(current_response)
                                     
-                                    # 如果清理后的内容和之前相同，跳过这次更新
-                                    if hasattr(self, '_last_cloud_response') and clean_response == self._last_cloud_response:
-                                        continue
+                                    # 检查是否有实质性的内容变化
+                                    if hasattr(self, '_last_cloud_response'):
+                                        if self.is_content_similar(clean_response, self._last_cloud_response):
+                                            continue
                                     
                                     current_response = clean_response
                                     self._last_cloud_response = clean_response
@@ -349,12 +353,13 @@ class ElysiaClient:
                                     content = data.get("content", "")
                                     current_response += content
                                     
-                                    # 清理可能的重复内容
-                                    clean_response = self.remove_immediate_duplicates(current_response)
+                                    # 应用更强的重复检测和清理
+                                    clean_response = self.advanced_duplicate_filter(current_response)
                                     
-                                    # 如果清理后的内容和之前相同，跳过这次更新
-                                    if hasattr(self, '_last_local_response') and clean_response == self._last_local_response:
-                                        continue
+                                    # 检查是否有实质性的内容变化
+                                    if hasattr(self, '_last_local_response'):
+                                        if self.is_content_similar(clean_response, self._last_local_response):
+                                            continue
                                     
                                     current_response = clean_response
                                     self._last_local_response = clean_response
@@ -510,7 +515,10 @@ class ElysiaClient:
         try:
             if not final_response.strip():
                 return
-                
+            
+            # 应用最终的重复内容清理
+            clean_final_response = self.advanced_duplicate_filter(final_response)
+            
             # 获取当前聊天内容
             content = self.chat_display.get("1.0", tk.END)
             lines = content.strip().split('\n')
@@ -518,17 +526,16 @@ class ElysiaClient:
             # 查找最后一个云端响应并确保格式正确
             for i in range(len(lines) - 1, -1, -1):
                 if lines[i].strip() and "☁️Elysia:" in lines[i]:
-                    # 检查是否有重复或不完整的内容
                     current_line = lines[i]
-                    if current_line.count("呀～牵着手就像编织") > 1 or not current_line.strip().endswith(("～", "！", "。", "♪")):
+                    # 检查响应是否需要清理
+                    if self.needs_content_cleanup(current_line):
                         # 清理并重新写入正确的响应
                         line_start = f"{i + 1}.0"
-                        line_end = f"{i + 2}.0"
+                        line_end = f"{i + 1}.end"
                         self.chat_display.delete(line_start, line_end)
                         
                         timestamp = datetime.now().strftime("%H:%M:%S")
-                        clean_response = self.clean_duplicate_content(final_response)
-                        new_content = f"[{timestamp}] ☁️Elysia: {clean_response}\n"
+                        new_content = f"[{timestamp}] ☁️Elysia: {clean_final_response}"
                         self.chat_display.insert(line_start, new_content)
                         print("清理并修复了云端响应格式")
                     break
@@ -536,79 +543,15 @@ class ElysiaClient:
         except Exception as e:
             print(f"完成云端响应处理失败: {e}")
     
-    def clean_duplicate_content(self, text):
-        """清理重复的内容"""
-        try:
-            # 首先按行分割并去除明显的重复
-            lines = text.split('\n')
-            cleaned_lines = []
-            
-            for line in lines:
-                line = line.strip()
-                if not line:
-                    continue
-                
-                # 检查是否和已有行重复或是截断版本
-                should_add = True
-                for i, existing_line in enumerate(cleaned_lines):
-                    # 如果当前行是已有行的截断版本，跳过
-                    if existing_line.startswith(line) and len(line) < len(existing_line):
-                        should_add = False
-                        break
-                    # 如果当前行是已有行的完整版本，替换已有行
-                    elif line.startswith(existing_line) and len(line) > len(existing_line):
-                        cleaned_lines[i] = line
-                        should_add = False
-                        break
-                    # 如果完全相同，跳过
-                    elif line == existing_line:
-                        should_add = False
-                        break
-                
-                if should_add:
-                    cleaned_lines.append(line)
-            
-            # 特殊处理：移除重复的句式开头
-            final_lines = []
-            seen_patterns = set()
-            
-            for line in cleaned_lines:
-                # 提取句子的开头模式（前20个字符）
-                pattern = line[:20] if len(line) > 20 else line
-                
-                # 对于特定的重复模式，只保留最长的版本
-                if pattern.startswith("呀～") or pattern.startswith("[轻盈地"):
-                    # 检查是否已经有相似的模式
-                    found_similar = False
-                    for i, existing_line in enumerate(final_lines):
-                        existing_pattern = existing_line[:20] if len(existing_line) > 20 else existing_line
-                        
-                        # 如果是相同的模式开头
-                        if (pattern.startswith("呀～") and existing_pattern.startswith("呀～")) or \
-                           (pattern.startswith("[轻盈地") and existing_pattern.startswith("[轻盈地")):
-                            # 保留更长的版本
-                            if len(line) > len(existing_line):
-                                final_lines[i] = line
-                            found_similar = True
-                            break
-                    
-                    if not found_similar:
-                        final_lines.append(line)
-                else:
-                    final_lines.append(line)
-            
-            return '\n'.join(final_lines)
-            
-        except Exception as e:
-            print(f"清理重复内容失败: {e}")
-            return text
-        
     def finalize_local_response(self, final_response):
         """完成本地响应，确保格式正确"""
         try:
             if not final_response.strip():
                 return
-                
+            
+            # 应用最终的重复内容清理
+            clean_final_response = self.advanced_duplicate_filter(final_response)
+            
             # 获取当前聊天内容
             content = self.chat_display.get("1.0", tk.END)
             lines = content.strip().split('\n')
@@ -616,23 +559,48 @@ class ElysiaClient:
             # 查找最后一个本地响应并确保格式正确
             for i in range(len(lines) - 1, -1, -1):
                 if lines[i].strip() and "Elysia:" in lines[i] and not "☁️Elysia:" in lines[i]:
-                    # 检查是否有重复或不完整的内容
                     current_line = lines[i]
-                    if current_line.count("呀～牵着手就像编织") > 1 or len(current_line) < 50:  # 可能是不完整的
+                    # 检查响应是否需要清理
+                    if self.needs_content_cleanup(current_line):
                         # 清理并重新写入正确的响应
                         line_start = f"{i + 1}.0"
-                        line_end = f"{i + 2}.0"
+                        line_end = f"{i + 1}.end"
                         self.chat_display.delete(line_start, line_end)
                         
                         timestamp = datetime.now().strftime("%H:%M:%S")
-                        clean_response = self.clean_duplicate_content(final_response)
-                        new_content = f"[{timestamp}] Elysia: {clean_response}\n"
+                        new_content = f"[{timestamp}] Elysia: {clean_final_response}"
                         self.chat_display.insert(line_start, new_content)
                         print("清理并修复了本地响应格式")
                     break
                     
         except Exception as e:
             print(f"完成本地响应处理失败: {e}")
+    
+    def needs_content_cleanup(self, line):
+        """检查内容是否需要清理"""
+        try:
+            # 提取消息内容（去掉时间戳和发送者标识）
+            if "Elysia:" in line:
+                content_start = line.find("Elysia:") + 7
+                content = line[content_start:].strip()
+            else:
+                content = line
+            
+            # 检查是否有明显的重复或截断
+            lines = content.split('\n')
+            if len(lines) > 2:
+                # 检查是否有逐渐截断的行
+                for i in range(len(lines) - 1):
+                    current = lines[i].strip()
+                    next_line = lines[i + 1].strip()
+                    if current and next_line and current.startswith(next_line) and len(next_line) < len(current) * 0.8:
+                        return True
+            
+            return False
+            
+        except Exception as e:
+            print(f"检查内容清理需求失败: {e}")
+            return False
     
     def remove_immediate_duplicates(self, text):
         """移除即时重复的内容"""
@@ -692,6 +660,96 @@ class ElysiaClient:
             print(f"移除即时重复失败: {e}")
             return text
     
+    def advanced_duplicate_filter(self, text):
+        """高级重复内容过滤器"""
+        try:
+            if not text.strip():
+                return text
+            
+            # 按行分割
+            lines = text.split('\n')
+            filtered_lines = []
+            seen_line_signatures = set()
+            
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+                
+                # 创建行的签名（前30个字符或全部内容）
+                line_signature = line[:30] if len(line) > 30 else line
+                
+                # 检查是否是已存在行的截断版本
+                is_truncated = False
+                for existing_line in filtered_lines:
+                    # 如果当前行是现有行的前缀且明显更短，则跳过
+                    if existing_line.startswith(line) and len(line) < len(existing_line) * 0.8:
+                        is_truncated = True
+                        break
+                    # 如果当前行是现有行的扩展版本，替换现有行
+                    elif line.startswith(existing_line) and len(line) > len(existing_line) * 1.2:
+                        # 找到并替换
+                        for i, fl in enumerate(filtered_lines):
+                            if fl == existing_line:
+                                filtered_lines[i] = line
+                                break
+                        is_truncated = True
+                        break
+                
+                if not is_truncated and line_signature not in seen_line_signatures:
+                    filtered_lines.append(line)
+                    seen_line_signatures.add(line_signature)
+            
+            # 特殊处理：检测和移除逐渐截断的句子
+            final_lines = []
+            i = 0
+            while i < len(filtered_lines):
+                current_line = filtered_lines[i]
+                
+                # 查看后续的行是否是当前行的截断版本
+                j = i + 1
+                while j < len(filtered_lines):
+                    next_line = filtered_lines[j]
+                    # 如果下一行是当前行的开始部分且明显更短
+                    if current_line.startswith(next_line) and len(next_line) < len(current_line) * 0.9:
+                        # 这是一个截断，跳过后续的截断行
+                        j += 1
+                    else:
+                        break
+                
+                final_lines.append(current_line)
+                i = j if j > i + 1 else i + 1
+            
+            return '\n'.join(final_lines)
+            
+        except Exception as e:
+            print(f"高级重复过滤失败: {e}")
+            return text
+    
+    def is_content_similar(self, content1, content2, threshold=0.95):
+        """检查两个内容是否相似"""
+        try:
+            if not content1 or not content2:
+                return False
+            
+            # 如果完全相同
+            if content1 == content2:
+                return True
+            
+            # 如果一个是另一个的子集且差异很小
+            shorter = content1 if len(content1) < len(content2) else content2
+            longer = content2 if len(content1) < len(content2) else content1
+            
+            # 如果较短的内容是较长内容的前缀，且长度差异小于5%
+            if longer.startswith(shorter) and len(shorter) / len(longer) > threshold:
+                return True
+            
+            return False
+            
+        except Exception as e:
+            print(f"内容相似性检查失败: {e}")
+            return False
+    
     def reset_streaming_response(self):
         """重置流式响应状态"""
         self.current_streaming_response_type = None
@@ -701,6 +759,8 @@ class ElysiaClient:
             delattr(self, '_last_cloud_response')
         if hasattr(self, '_last_local_response'):
             delattr(self, '_last_local_response')
+        if hasattr(self, '_last_audio_response'):
+            delattr(self, '_last_audio_response')
         print("重置了流式响应状态")
         
     def on_normal_chat(self):
@@ -716,6 +776,444 @@ class ElysiaClient:
         thread = threading.Thread(target=self.normal_chat, args=(message,))
         thread.daemon = True
         thread.start()
+        
+    def on_upload_audio(self):
+        """上传音频文件"""
+        # 打开文件选择对话框
+        file_types = [
+            ("音频文件", "*.wav *.mp3 *.ogg *.m4a *.flac *.aac"),
+            ("WAV文件", "*.wav"),
+            ("MP3文件", "*.mp3"),
+            ("OGG文件", "*.ogg"),
+            ("所有文件", "*.*")
+        ]
+        
+        audio_file = filedialog.askopenfilename(
+            title="选择音频文件",
+            filetypes=file_types
+        )
+        
+        if not audio_file:
+            return
+        
+        # 检查文件大小（限制为50MB）
+        try:
+            file_size = os.path.getsize(audio_file)
+            max_size = 50 * 1024 * 1024  # 50MB
+            if file_size > max_size:
+                messagebox.showerror("错误", f"文件太大（{file_size / 1024 / 1024:.1f}MB），最大支持50MB")
+                return
+        except Exception as e:
+            messagebox.showerror("错误", f"无法读取文件信息: {e}")
+            return
+        
+        self.append_to_chat(f"📎 正在上传音频文件: {os.path.basename(audio_file)} ({file_size / 1024 / 1024:.1f}MB)", "用户")
+        self.status_var.set("正在上传音频文件...")
+        self.disable_buttons()
+        
+        # 在新线程中处理音频上传
+        thread = threading.Thread(target=self.upload_audio_file, args=(audio_file,))
+        thread.daemon = True
+        thread.start()
+        
+    def upload_audio_file(self, audio_file):
+        """上传音频文件到服务器"""
+        try:
+            url = f"{self.api_base_url}/chat/audio"
+            
+            print(f"上传音频文件到: {url}")
+            print(f"文件路径: {audio_file}")
+            
+            # 准备文件
+            with open(audio_file, 'rb') as f:
+                files = {'file': (os.path.basename(audio_file), f, 'audio/*')}
+                
+                # 发送请求
+                response = requests.post(url, files=files, timeout=120, stream=True)  # 启用流式响应
+                response.raise_for_status()
+                
+                print(f"收到响应: {response.status_code}")
+                
+                # 检查响应类型
+                content_type = response.headers.get('content-type', '').lower()
+                print(f"响应类型: {content_type}")
+                
+                if 'application/json' in content_type:
+                    # 如果是JSON响应，按原来的方式处理
+                    try:
+                        data = response.json()
+                        print(f"JSON响应数据: {data}")
+                        
+                        # 提取响应内容
+                        transcription = data.get("transcription", "")
+                        text_response = data.get("text", "")
+                        audio_path = data.get("audio", "")
+                        
+                        # 更新UI显示转录结果
+                        if transcription:
+                            self.root.after(0, lambda: self.append_to_chat(f"🎤 语音转录: {transcription}", "系统"))
+                        
+                        # 显示AI响应
+                        if text_response:
+                            self.root.after(0, lambda: self.append_to_chat(text_response, "Elysia"))
+                        
+                        # 播放响应音频
+                        if audio_path:
+                            self.root.after(0, lambda: self.play_audio_file(audio_path))
+                            
+                    except json.JSONDecodeError as e:
+                        print(f"JSON解析失败: {e}")
+                        # 尝试处理为流式响应
+                        self.process_audio_streaming_response(response)
+                        return
+                        
+                else:
+                    # 处理流式响应
+                    print("检测到流式响应，开始处理...")
+                    self.process_audio_streaming_response(response)
+                    return
+                
+                self.root.after(0, lambda: self.status_var.set("音频处理完成"))
+                
+        except requests.exceptions.RequestException as e:
+            error_msg = str(e)
+            print(f"音频上传网络异常: {error_msg}")
+            
+            # 检查是否是JSON解析错误
+            if "Extra data" in error_msg or "JSON" in error_msg:
+                print("检测到JSON解析错误，可能是流式响应")
+                # 重新尝试作为流式响应处理
+                try:
+                    self.upload_audio_file_as_stream(audio_file)
+                    return
+                except Exception as stream_error:
+                    print(f"流式处理也失败: {stream_error}")
+            
+            # 检查是否是超时错误
+            if "timeout" in error_msg.lower():
+                self.root.after(0, lambda: self.append_to_chat("音频处理超时，请尝试较短的音频文件", "系统"))
+            else:
+                self.root.after(0, lambda: self.append_to_chat(f"音频上传失败: {error_msg}", "系统"))
+                
+        except Exception as e:
+            error_msg = str(e)
+            print(f"音频上传异常: {error_msg}")
+            
+            # 检查是否是JSON解析错误
+            if "Extra data" in error_msg or "JSON" in error_msg:
+                print("检测到JSON解析错误，尝试流式处理")
+                try:
+                    self.upload_audio_file_as_stream(audio_file)
+                    return
+                except Exception as stream_error:
+                    print(f"流式处理也失败: {stream_error}")
+            
+            self.root.after(0, lambda: self.append_to_chat(f"音频处理失败: {error_msg}", "系统"))
+        finally:
+            self.root.after(0, self.enable_buttons)
+            
+    def process_audio_streaming_response(self, response):
+        """处理音频上传的流式响应"""
+        try:
+            print("开始处理音频流式响应...")
+            
+            # 重置流式响应状态
+            self.reset_streaming_response()
+            
+            current_response = ""
+            transcription_shown = False
+            
+            # 逐行读取流式响应
+            for line in response.iter_lines():
+                if not line:
+                    continue
+                    
+                line_text = line.decode('utf-8').strip()
+                if not line_text:
+                    continue
+                    
+                print(f"收到音频流式数据: {line_text[:100]}...")
+                
+                try:
+                    data = json.loads(line_text)
+                    
+                    # 处理转录结果
+                    if data.get("type") == "transcription" or "transcription" in data:
+                        transcription = data.get("transcription", "")
+                        if transcription and not transcription_shown:
+                            self.root.after(0, lambda t=transcription: self.append_to_chat(f"🎤 语音转录: {t}", "系统"))
+                            transcription_shown = True
+                    
+                    # 处理文本响应
+                    elif data.get("type") == "text":
+                        content = data.get("content", "")
+                        current_response += content
+                        
+                        # 应用重复检测和清理
+                        clean_response = self.advanced_duplicate_filter(current_response)
+                        
+                        # 检查是否有实质性的内容变化
+                        if hasattr(self, '_last_audio_response'):
+                            if self.is_content_similar(clean_response, self._last_audio_response):
+                                continue
+                        
+                        current_response = clean_response
+                        self._last_audio_response = clean_response
+                        
+                        # 更新UI
+                        response_copy = current_response
+                        self.root.after(0, lambda c=response_copy: self.update_current_audio_response(c))
+                    
+                    # 处理音频流
+                    elif data.get("type") == "audio_start":
+                        audio_format = data.get("audio_format", "ogg")
+                        self.root.after(0, lambda: self.init_streaming_audio(audio_format))
+                        
+                    elif data.get("type") == "audio_chunk":
+                        audio_data = data.get("audio_data", "")
+                        chunk_size = data.get("chunk_size", 0)
+                        if audio_data:
+                            self.root.after(0, lambda ad=audio_data, cs=chunk_size: self.handle_audio_chunk(ad, cs))
+                            
+                    elif data.get("type") == "audio_end":
+                        self.root.after(0, lambda: self.finalize_streaming_audio())
+                        
+                    elif data.get("type") == "done":
+                        self.root.after(0, lambda: self.status_var.set("音频处理完成"))
+                        # 确保最终响应格式正确
+                        self.root.after(0, lambda: self.finalize_audio_response(current_response))
+                        # 重置流式响应状态
+                        self.root.after(0, self.reset_streaming_response)
+                        break
+                        
+                    elif data.get("type") == "error":
+                        error_msg = data.get("error", "未知错误")
+                        self.root.after(0, lambda msg=error_msg: self.append_to_chat(f"音频处理错误: {msg}", "系统"))
+                        break
+                        
+                except json.JSONDecodeError as e:
+                    print(f"音频流式JSON解析错误: {e}, 原始数据: {line_text}")
+                    continue
+                    
+        except Exception as e:
+            print(f"处理音频流式响应异常: {e}")
+            self.root.after(0, lambda: self.append_to_chat(f"处理音频流式响应失败: {e}", "系统"))
+    
+    def upload_audio_file_as_stream(self, audio_file):
+        """使用异步方式上传音频文件并处理流式响应"""
+        thread = threading.Thread(target=self.run_async_audio_upload, args=(audio_file,))
+        thread.daemon = True
+        thread.start()
+        
+    def run_async_audio_upload(self, audio_file):
+        """在新线程中运行异步音频上传"""
+        try:
+            # 创建新的事件循环
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(self.audio_upload_async(audio_file))
+        finally:
+            loop.close()
+            
+    async def audio_upload_async(self, audio_file):
+        """异步音频上传和流式响应处理"""
+        try:
+            # 设置连接参数
+            connector = aiohttp.TCPConnector(
+                limit_per_host=100,
+                enable_cleanup_closed=True
+            )
+            timeout = aiohttp.ClientTimeout(total=120)
+            
+            async with aiohttp.ClientSession(
+                connector=connector,
+                timeout=timeout,
+                read_bufsize=2*1024*1024,
+                max_line_size=10*1024*1024,
+                max_field_size=10*1024*1024
+            ) as session:
+                url = f"{self.api_base_url}/chat/audio"
+                
+                print(f"异步上传音频文件到: {url}")
+                print(f"文件路径: {audio_file}")
+                
+                # 准备文件数据
+                with open(audio_file, 'rb') as f:
+                    file_data = aiohttp.FormData()
+                    file_data.add_field('file', f, filename=os.path.basename(audio_file), content_type='audio/*')
+                    
+                    async with session.post(url, data=file_data) as response:
+                        if response.status != 200:
+                            error_text = await response.text()
+                            self.root.after(0, lambda: self.append_to_chat(f"音频上传错误: {error_text}", "系统"))
+                            return
+                        
+                        print(f"收到异步音频响应: {response.status}")
+                        
+                        # 重置流式响应状态
+                        self.root.after(0, self.reset_streaming_response)
+                        
+                        current_response = ""
+                        transcription_shown = False
+                        
+                        # 使用 content.readline() 读取流式数据
+                        while True:
+                            try:
+                                line = await response.content.readline()
+                                if not line:
+                                    break
+                                    
+                                line_text = line.decode('utf-8').strip()
+                                if not line_text:
+                                    continue
+                                    
+                                print(f"收到异步音频数据: {line_text[:100]}...")
+                                
+                                try:
+                                    data = json.loads(line_text)
+                                    
+                                    # 处理转录结果
+                                    if data.get("type") == "transcription" or "transcription" in data:
+                                        transcription = data.get("transcription", "")
+                                        if transcription and not transcription_shown:
+                                            self.root.after(0, lambda t=transcription: self.append_to_chat(f"🎤 语音转录: {t}", "系统"))
+                                            transcription_shown = True
+                                    
+                                    # 处理文本响应
+                                    elif data.get("type") == "text":
+                                        content = data.get("content", "")
+                                        current_response += content
+                                        
+                                        # 应用重复检测和清理
+                                        clean_response = self.advanced_duplicate_filter(current_response)
+                                        
+                                        # 检查是否有实质性的内容变化
+                                        if hasattr(self, '_last_audio_response'):
+                                            if self.is_content_similar(clean_response, self._last_audio_response):
+                                                continue
+                                        
+                                        current_response = clean_response
+                                        self._last_audio_response = clean_response
+                                        
+                                        # 更新UI
+                                        response_copy = current_response
+                                        self.root.after(0, lambda c=response_copy: self.update_current_audio_response(c))
+                                    
+                                    # 处理音频流
+                                    elif data.get("type") == "audio_start":
+                                        audio_format = data.get("audio_format", "ogg")
+                                        self.root.after(0, lambda: self.init_streaming_audio(audio_format))
+                                        
+                                    elif data.get("type") == "audio_chunk":
+                                        audio_data = data.get("audio_data", "")
+                                        chunk_size = data.get("chunk_size", 0)
+                                        if audio_data:
+                                            self.root.after(0, lambda ad=audio_data, cs=chunk_size: self.handle_audio_chunk(ad, cs))
+                                            
+                                    elif data.get("type") == "audio_end":
+                                        self.root.after(0, lambda: self.finalize_streaming_audio())
+                                        
+                                    elif data.get("type") == "done":
+                                        self.root.after(0, lambda: self.status_var.set("音频处理完成"))
+                                        # 确保最终响应格式正确
+                                        self.root.after(0, lambda: self.finalize_audio_response(current_response))
+                                        # 重置流式响应状态
+                                        self.root.after(0, self.reset_streaming_response)
+                                        break
+                                        
+                                    elif data.get("type") == "error":
+                                        error_msg = data.get("error", "未知错误")
+                                        self.root.after(0, lambda msg=error_msg: self.append_to_chat(f"音频处理错误: {msg}", "系统"))
+                                        break
+                                        
+                                except json.JSONDecodeError as e:
+                                    print(f"异步音频JSON解析错误: {e}, 原始数据: {line_text}")
+                                    continue
+                                    
+                            except Exception as line_error:
+                                print(f"异步音频读取行错误: {line_error}")
+                                break
+                                
+        except Exception as e:
+            error_msg = str(e)
+            print(f"异步音频上传异常: {error_msg}")
+            self.root.after(0, lambda: self.append_to_chat(f"异步音频上传失败: {error_msg}", "系统"))
+        finally:
+            self.root.after(0, self.enable_buttons)
+    
+    def update_current_audio_response(self, response):
+        """更新当前音频响应显示"""
+        try:
+            print(f"更新音频响应，长度: {len(response)} 字符")
+            print(f"响应前50个字符: {response[:50]}...")
+            
+            # 如果这是第一次更新，创建新的响应行
+            if self.current_streaming_response_type != "audio" or self.current_streaming_response_line is None:
+                # 添加新的音频响应行
+                timestamp = datetime.now().strftime("%H:%M:%S")
+                new_content = f"[{timestamp}] 🎤Elysia: {response}\n"
+                self.chat_display.insert(tk.END, new_content)
+                
+                # 记录当前流式响应信息
+                self.current_streaming_response_type = "audio"
+                # 获取刚插入行的行号
+                content = self.chat_display.get("1.0", tk.END)
+                lines = content.strip().split('\n')
+                self.current_streaming_response_line = len(lines) - 1
+                print(f"创建了新的音频响应行: {self.current_streaming_response_line}")
+            else:
+                # 更新现有的响应行
+                line_start = f"{self.current_streaming_response_line + 1}.0"
+                line_end = f"{self.current_streaming_response_line + 1}.end"
+                
+                # 删除旧的响应行内容
+                self.chat_display.delete(line_start, line_end)
+                
+                # 插入新的完整响应
+                timestamp = datetime.now().strftime("%H:%M:%S")
+                new_content = f"[{timestamp}] 🎤Elysia: {response}"
+                self.chat_display.insert(line_start, new_content)
+                print(f"更新了第{self.current_streaming_response_line + 1}行的音频响应")
+            
+            # 确保滚动到最新内容
+            self.chat_display.see(tk.END)
+            
+        except Exception as e:
+            print(f"更新音频响应失败: {e}")
+            self.append_to_chat(f"显示更新错误: {str(e)}", "系统")
+    
+    def finalize_audio_response(self, final_response):
+        """完成音频响应，确保格式正确"""
+        try:
+            if not final_response.strip():
+                return
+            
+            # 应用最终的重复内容清理
+            clean_final_response = self.advanced_duplicate_filter(final_response)
+            
+            # 获取当前聊天内容
+            content = self.chat_display.get("1.0", tk.END)
+            lines = content.strip().split('\n')
+            
+            # 查找最后一个音频响应并确保格式正确
+            for i in range(len(lines) - 1, -1, -1):
+                if lines[i].strip() and "🎤Elysia:" in lines[i]:
+                    current_line = lines[i]
+                    # 检查响应是否需要清理
+                    if self.needs_content_cleanup(current_line):
+                        # 清理并重新写入正确的响应
+                        line_start = f"{i + 1}.0"
+                        line_end = f"{i + 1}.end"
+                        self.chat_display.delete(line_start, line_end)
+                        
+                        timestamp = datetime.now().strftime("%H:%M:%S")
+                        new_content = f"[{timestamp}] 🎤Elysia: {clean_final_response}"
+                        self.chat_display.insert(line_start, new_content)
+                        print("清理并修复了音频响应格式")
+                    break
+                    
+        except Exception as e:
+            print(f"完成音频响应处理失败: {e}")
         
     def normal_chat(self, message):
         """普通聊天请求"""
@@ -1070,6 +1568,7 @@ class ElysiaClient:
         self.stream_button.configure(state="disabled")
         self.cloud_button.configure(state="disabled")
         self.normal_button.configure(state="disabled")
+        self.audio_button.configure(state="disabled")
         self.send_button.configure(state="disabled")
         
     def enable_buttons(self):
@@ -1077,6 +1576,7 @@ class ElysiaClient:
         self.stream_button.configure(state="normal")
         self.cloud_button.configure(state="normal")
         self.normal_button.configure(state="normal")
+        self.audio_button.configure(state="normal")
         self.send_button.configure(state="normal")
         
     def run(self):

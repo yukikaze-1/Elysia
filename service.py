@@ -1,7 +1,7 @@
 import uvicorn
 import httpx
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, UploadFile, File
 from typing import Dict, List, Any, Tuple
 
 from HistoryManager import HistoryManager
@@ -96,6 +96,11 @@ class Service:
                 raise HTTPException(status_code=400, detail="Message is required")
             return await self.chat_handler.handle_cloud_chat_stream(message)
         
+        @self.app.post("/chat/audio")
+        async def chat_with_audio(file: UploadFile = File(..., description="Audio file to transcribe")):
+            if not file:
+                raise HTTPException(status_code=400, detail="Audio file is required")
+            return await self.chat_handler.handle_chat_with_audio(file)
         
         # =========================
         # Token 管理路由

@@ -1,10 +1,11 @@
 import json
 from typing import List, Tuple, Dict, Any
-from fastapi import HTTPException
+from fastapi import HTTPException, UploadFile, File
 from fastapi.responses import StreamingResponse
 
 from ServiceConfig import ServiceConfig
 from AudioGenerateHandler import AudioGenerateHandler
+from AudioRecognizeHandler import AudioRecognizeHandler
 from TokenManager import TokenManager, UsageInfo
 from CharacterPromptManager import CharacterPromptManager
 from PersistentChatHistory import GlobalChatMessageHistory
@@ -42,10 +43,15 @@ class ChatHandler:
         self.token_manager = TokenManager()
         print("✓ Token管理器 初始化完成")
         
-        # 设置音频处理器
-        print("=== 音频处理器 初始化开始 ===")
-        self.audio_handler = AudioGenerateHandler(self.config)
-        print("✓ 音频处理器 初始化完成")
+        # 设置 tts_handler
+        print("=== TTS 初始化开始 ===")
+        self.tts_handler = AudioGenerateHandler(self.config)
+        print("✓ TTS 初始化完成")
+        
+        # 设置 stt_handler
+        print("=== STT 初始化开始 ===")
+        self.stt_handler = AudioRecognizeHandler(self.config)
+        print("✓ STT 初始化完成")
         
         # 设置对话处理器
         print("=== 本地对话处理器 初始化开始 ===")
@@ -134,7 +140,7 @@ class ChatHandler:
                 # 处理语音生成
                 if full_content:
                     # 流式音频生成
-                    async for audio_response in self.audio_handler.generate_audio_stream(full_content):
+                    async for audio_response in self.tts_handler.generate_audio_stream(full_content):
                         # 发送音频流式响应
                         yield audio_response
                 
@@ -259,7 +265,7 @@ class ChatHandler:
                     self.global_history.add_ai_message(full_content)
                     
                     # 处理语音生成
-                    async for audio_response in self.audio_handler.generate_audio_stream(full_content):
+                    async for audio_response in self.tts_handler.generate_audio_stream(full_content):
                         yield audio_response
                 
                 # 强制保存token统计
@@ -311,3 +317,24 @@ class ChatHandler:
         
         # 返回估计的输入 tokens 和消息列表
         return estimated_input_tokens, messages
+    
+    
+    async def handle_chat_with_audio(self, file: UploadFile) -> StreamingResponse:
+        """处理音频聊天"""
+        if not file:
+            raise HTTPException(status_code=400, detail="Audio file is required")
+        
+        # 读取音频数据
+        audio_data = await file.read()
+        
+        # 识别音频内容
+        result = await self.stt_handler.recognize_audio(audio_data)
+        if not result:
+            raise HTTPException(status_code=500, detail="Failed to recognize audio")
+        
+        recognized_text = result.get("text", "")
+        if not recognized_text:
+            raise HTTPException(status_code=500, detail="Failed to recognize audio")
+        
+        # 处理识别后的文本
+        return await self.handle_cloud_chat_stream(recognized_text)
