@@ -2,6 +2,7 @@ import json
 from typing import List, Tuple, Dict, Any
 from fastapi import HTTPException, UploadFile, File
 from fastapi.responses import StreamingResponse
+from regex import T
 
 from ServiceConfig import ServiceConfig
 from AudioGenerateHandler import AudioGenerateHandler
@@ -9,6 +10,7 @@ from AudioRecognizeHandler import AudioRecognizeHandler
 from TokenManager import TokenManager, UsageInfo
 from CharacterPromptManager import CharacterPromptManager
 from PersistentChatHistory import GlobalChatMessageHistory
+from Utils import TimeTracker
 
 from langchain_ollama import ChatOllama
 from langchain_core.runnables import RunnableWithMessageHistory, RunnableConfig
@@ -22,7 +24,7 @@ class ChatHandler:
     
     def __init__(self, config: ServiceConfig):
         self.config = config
-        
+        self.time_tracker = TimeTracker()
         self._setup_components()
         
     
@@ -113,6 +115,9 @@ class ChatHandler:
         
         async def generate():
             try:
+                # 开始请求计时
+                self.time_tracker.start_request()
+                
                 # 计算并记录输入 tokens
                 input_tokens = self.token_manager.add_input_tokens(message)
                 
@@ -120,18 +125,19 @@ class ChatHandler:
                 output_tokens = 0
                 
                 # 处理流式响应
-                async for response in self._process_local_stream(message):
-                    try:
-                        response_data = json.loads(response.strip())
-                        if response_data.get("type") == "stream_complete":
-                            full_content = response_data.get("full_content", "")
-                            output_tokens = response_data.get("output_tokens", 0)
-                            break
-                        else:
-                            # 发送流式文本数据
+                with self.time_tracker.time_stage("llm_processing"):
+                    async for response in self._process_local_stream(message):
+                        try:
+                            response_data = json.loads(response.strip())
+                            if response_data.get("type") == "stream_complete":
+                                full_content = response_data.get("full_content", "")
+                                output_tokens = response_data.get("output_tokens", 0)
+                                break
+                            else:
+                                # 发送流式文本数据
+                                yield response
+                        except:
                             yield response
-                    except:
-                        yield response
                 
                 # 发送 token 统计
                 token_usage:Dict[str, Any] = self.token_manager.generate_usage_response("local", input_tokens, output_tokens)
@@ -140,9 +146,17 @@ class ChatHandler:
                 # 处理语音生成
                 if full_content:
                     # 流式音频生成
-                    async for audio_response in self.tts_handler.generate_audio_stream(full_content):
-                        # 发送音频流式响应
-                        yield audio_response
+                    with self.time_tracker.time_stage("tts_processing"):
+                        async for audio_response in self.tts_handler.generate_audio_stream(full_content):
+                            # 发送音频流式响应
+                            yield audio_response
+                            
+                # 发送计时信息
+                timing_summary = self.time_tracker.get_timing_summary()
+                print(f"time summary:")
+                print(timing_summary)
+                
+                yield json.dumps({"type": "timing", "timing": timing_summary}, ensure_ascii=False) + "\n"
                 
                 # 强制保存token统计
                 self.token_manager.force_save()
@@ -226,6 +240,9 @@ class ChatHandler:
         
         async def generate():
             try:
+                # 开始请求计时
+                self.time_tracker.start_request()
+                
                 # 准备请求
                 estimated_input_tokens, messages = self._prepare_cloud_request(message)
                 
@@ -234,20 +251,21 @@ class ChatHandler:
                 estimated_output_tokens = 0
                 usage_info = None
                 
-                async for response in self._process_cloud_stream(messages):
-                    try:
-                        response_data = json.loads(response.strip())
-                        if response_data.get("type") == "stream_complete":
-                            full_content = response_data.get("full_content", "")
-                            estimated_output_tokens = response_data.get("estimated_output_tokens", 0)
-                            usage_info_data = response_data.get("usage_info")
-                            if usage_info_data:
-                                usage_info = UsageInfo(usage_info_data)
-                            break
-                        else:
+                with self.time_tracker.time_stage("llm_processing"):
+                    async for response in self._process_cloud_stream(messages):
+                        try:
+                            response_data = json.loads(response.strip())
+                            if response_data.get("type") == "stream_complete":
+                                full_content = response_data.get("full_content", "")
+                                estimated_output_tokens = response_data.get("estimated_output_tokens", 0)
+                                usage_info_data = response_data.get("usage_info")
+                                if usage_info_data:
+                                    usage_info = UsageInfo(usage_info_data)
+                                break
+                            else:
+                                yield response
+                        except:
                             yield response
-                    except:
-                        yield response
                 
                 # 调整 token 统计
                 actual_input_tokens, actual_output_tokens = self.token_manager.adjust_cloud_tokens_with_actual_usage(
@@ -265,8 +283,9 @@ class ChatHandler:
                     self.global_history.add_ai_message(full_content)
                     
                     # 处理语音生成
-                    async for audio_response in self.tts_handler.generate_audio_stream(full_content):
-                        yield audio_response
+                    with self.time_tracker.time_stage("tts_processing"):
+                        async for audio_response in self.tts_handler.generate_audio_stream(full_content):
+                            yield audio_response
                 
                 # 强制保存token统计
                 self.token_manager.force_save()
@@ -324,17 +343,21 @@ class ChatHandler:
         if not file:
             raise HTTPException(status_code=400, detail="Audio file is required")
         
+        # 开始请求计时
+        self.time_tracker.start_request()
+        
         # 读取音频数据
         audio_data = await file.read()
         
         # 识别音频内容
-        result = await self.stt_handler.recognize_audio(audio_data)
-        if not result:
-            raise HTTPException(status_code=500, detail="Failed to recognize audio")
-        
-        recognized_text = result.get("text", "")
-        if not recognized_text:
-            raise HTTPException(status_code=500, detail="Failed to recognize audio")
+        with self.time_tracker.time_stage("stt_processing"):
+            result = await self.stt_handler.recognize_audio(audio_data)
+            if not result:
+                raise HTTPException(status_code=500, detail="Failed to recognize audio")
+            
+            recognized_text = result.get("text", "")
+            if not recognized_text:
+                raise HTTPException(status_code=500, detail="Failed to recognize audio")
         
         # 处理识别后的文本
         return await self.handle_cloud_chat_stream(recognized_text)

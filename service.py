@@ -1,3 +1,4 @@
+from sympy import im
 import uvicorn
 import httpx
 
@@ -9,6 +10,7 @@ from ServiceConfig import get_service_config
 from RAG import RAG
 
 from ChatHandler import ChatHandler
+from Utils import TimeTracker
     
 class Service:
     """
@@ -19,23 +21,29 @@ class Service:
         
         self.app = FastAPI()
         self.config = get_service_config()
+        self.time_tracker = TimeTracker()
         
         print("=== RAG初始化开始 ===")
+        # self.time_tracker.start(phase_name="RAG")
         # self.rag = RAG()
+        # self.time_tracker.end(phase_name="RAG")
         print("✓ RAG 初始化跳过")
         
         print("=== ChatHandler 初始化开始 ===")
         self.chat_handler = ChatHandler(self.config)
         print("✓ ChatHandler 初始化完成")
-        
+
+        print("=== HistoryManager 初始化开始 ===")
         self._global_history = self.chat_handler.global_history  # 引用同一个实例
         self.history_manager = HistoryManager(self._global_history)
+        print("✓ HistoryManager 初始化完成")
         
         # 6. 预热检查
         print("正在进行预热检查...")
         self._warmup_check()
 
         print("=== Service 初始化完成 ===")
+        
            
     
     def _warmup_check(self):

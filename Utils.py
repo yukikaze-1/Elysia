@@ -1,10 +1,11 @@
 import os
 import time        
 import torch
-from typing import Optional
+from typing import Optional, Dict, Tuple, List
 import asyncio
 import aiofiles
 from langchain_huggingface import HuggingFaceEmbeddings
+from contextlib import contextmanager
 
 def create_embedding_model(model: str = "BAAI/bge-large-en-v1.5") -> HuggingFaceEmbeddings:
     """
@@ -135,47 +136,51 @@ class SyncMessageIDGenerator:
                 self._current_id = self._load_current_id()
             return self._current_id
         
+        
 class TimeTracker:
-    """时间追踪器，用于详细记录各个阶段的耗时"""
+    """时间追踪器 - 用于监控各个阶段的耗时"""
     
     def __init__(self):
-        self.timestamps = {}
-        self.durations = {}
-    
-    def start(self, phase_name: str):
-        """开始记录某个阶段的时间"""
-        self.timestamps[f"{phase_name}_start"] = time.time()
-    
-    def end(self, phase_name: str):
-        """结束记录某个阶段的时间"""
-        end_time = time.time()
-        self.timestamps[f"{phase_name}_end"] = end_time
-        start_time = self.timestamps.get(f"{phase_name}_start")
-        if start_time:
-            self.durations[phase_name] = end_time - start_time
-    
-    def get_duration(self, phase_name: str) -> float:
-        """获取某个阶段的耗时（秒）"""
-        return self.durations.get(phase_name, 0.0)
-    
-    def print_summary(self, total_files: int = 1, total_size: int = 0):
-        """打印时间统计摘要"""
-        print("\n   ⏱️  详细时间统计:")
-        print("   " + "-" * 40)
+        self.start_time: Optional[float] = None
+        self.stage_times: Dict[str, float] = {}
+        self.stage_start: Optional[float] = None
         
-        for phase, duration in self.durations.items():
-            print(f"   {phase:20s}: {duration:8.3f}秒")
+    def start_request(self):
+        """开始一个请求的计时"""
+        self.start_time = time.time()
+        self.stage_times.clear()
         
-        total_duration = self.durations.get('total_request', 0.0)
-        if total_duration > 0:
-            print("   " + "-" * 40)
-            print(f"   {'总耗时':20s}: {total_duration:8.3f}秒")
-            
-            if total_files > 0:
-                avg_per_file = total_duration / total_files
-                print(f"   {'平均每文件':20s}: {avg_per_file:8.3f}秒")
-            
-            if total_size > 0:
-                mb_size = total_size / (1024 * 1024)
-                speed = mb_size / total_duration if total_duration > 0 else 0
-                print(f"   {'处理速度':20s}: {speed:8.3f}MB/s")
+    def start_stage(self, stage_name: str):
+        """开始一个阶段的计时"""
+        self.stage_start = time.time()
+        
+    def end_stage(self, stage_name: str):
+        """结束一个阶段的计时"""
+        if self.stage_start is not None:
+            duration = time.time() - self.stage_start
+            self.stage_times[stage_name] = duration
+            self.stage_start = None
+            return duration
+        return 0
+    
+    @contextmanager
+    def time_stage(self, stage_name: str):
+        """上下文管理器方式计时"""
+        start = time.time()
+        try:
+            yield
+        finally:
+            duration = time.time() - start
+            self.stage_times[stage_name] = duration
+    
+    def get_total_time(self) -> float:
+        """获取总耗时"""
+        if self.start_time is None:
+            return 0
+        return time.time() - self.start_time
+    
+    def get_timing_summary(self) -> Dict[str, float]:
+        """获取计时摘要"""
+        summary = self.stage_times.copy()
+        summary['total_time'] = self.get_total_time()
+        return summary

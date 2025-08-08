@@ -19,7 +19,7 @@ class ServiceConfig:
     
     # 本地模型配置
     ollama_base_url: str = "http://localhost:11434"
-    local_model: str = "qwen2.5"
+    local_model: str = "qwen2.5:1.5b"
     local_temperature: float = 0.3
     local_num_predict: int = 512
     local_top_p: float = 0.9
