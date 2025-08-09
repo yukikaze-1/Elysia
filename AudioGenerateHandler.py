@@ -20,35 +20,83 @@ class AudioGenerateHandler:
         cleaned = re.sub(r'\(.*?\)', '', cleaned)  # 移除语气标记
         return cleaned.strip()
     
+    async def generate_tts_stream(self, text: str):
+        """生成 TTS 音频流"""
+        if not text:
+            raise ValueError("Text is required")
+
+        # 清理文本
+        text = self.clean_text_from_brackets(text)
+        
+        async def relay_tts():
+            try:
+                async with self.tts_client.stream("POST", "/tts", json={
+                    "text": text,
+                    "text_lang": "zh",
+                    "ref_audio_path": self.config.tts_ref_audio_path,
+                    "prompt_lang": "zh",
+                    "prompt_text": self.config.tts_prompt_text,
+                    "top_k": 5,
+                    "top_p": 1.0,
+                    "temperature": 1.0,
+                    "text_split_method": "cut5",
+                    "batch_size": 1,
+                    "batch_threshold": 0.75,
+                    "speed_factor": 1.0,
+                    "split_bucket": True,
+                    "fragment_interval": 0.3,
+                    "seed": -1,
+                    "media_type": "wav",
+                    "streaming_mode": True,
+                    "parallel_infer": True,
+                    "repetition_penalty": 1.35
+                }) as response:
+                    response.raise_for_status()
+                    async for chunk in response.aiter_bytes(chunk_size=4096):
+                        yield chunk
+            except Exception as e:
+                print(f"TTS 中转流式失败: {e}")
+                raise e
+        
+        return relay_tts()
     
-    async def generate_audio_stream(self, content: str):
-        """处理语音生成的通用逻辑"""
+    
+    async def _stream_tts_wav(self, text: str):
+        # GPTSoVits 需要的请求参数
+        payload = {
+            "text": text,
+            "text_lang": "zh", 
+            "ref_audio_path": self.config.tts_ref_audio_path,
+            "prompt_lang": "zh",
+            "prompt_text": self.config.tts_prompt_text,
+            "top_k": 5,
+            "top_p": 1.0,
+            "temperature": 1.0,
+            "text_split_method": "cut5",
+            "batch_size": 1,
+            "batch_threshold": 0.75,
+            "speed_factor": 1.0,
+            "split_bucket": True,
+            "fragment_interval": 0.3,
+            "seed": -1,
+            "media_type": "wav",
+            "streaming_mode": True,
+            "parallel_infer": True,
+            "repetition_penalty": 1.35
+        }
+        
         try:
-            # 发送音频开始标记
-            yield json.dumps({"type": "audio_start", "audio_format": "ogg"}, ensure_ascii=False) + "\n"
-            
-            # 进行流式音频生成
-            async for audio_chunk in self._stream_tts_audio(self.clean_text_from_brackets(content)):
-                if audio_chunk:
-                    # 将音频块进行 Base64 编码
-                    chunk_base64 = base64.b64encode(audio_chunk).decode('utf-8')
-                    # 发送音频块
-                    yield json.dumps({
-                        "type": "audio_chunk", 
-                        "audio_data": chunk_base64,
-                        "chunk_size": len(audio_chunk)
-                    }, ensure_ascii=False) + "\n"
-                    
-            # 发送音频结束标记
-            yield json.dumps({"type": "audio_end"}, ensure_ascii=False) + "\n"
-            
+            async with self.tts_client.stream("POST", "/tts", json=payload) as response:
+                response.raise_for_status()
+                async for chunk in response.aiter_bytes(chunk_size=4096):
+                    yield chunk
         except Exception as e:
-            print(f"语音生成失败: {e}")
-            yield json.dumps({'type': 'error', 'error': f'语音生成失败: {str(e)}'}, ensure_ascii=False) + "\n"
-    
-    
+            print(f"TTS 流式处理失败: {e}")
+            yield None
+
+
     async def _stream_tts_audio(self, text: str):
-        """真正的流式音频生成"""
+        """流式音频生成，目前tts 服务端采用的是 wav格式"""
         # GPTSoVits 需要的请求参数
         payload = {
             "text": text,

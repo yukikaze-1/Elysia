@@ -3,6 +3,7 @@ import uvicorn
 import httpx
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File
+from fastapi.responses import StreamingResponse
 from typing import Dict, List, Any, Tuple
 
 from HistoryManager import HistoryManager
@@ -11,6 +12,7 @@ from RAG import RAG
 
 from ChatHandler import ChatHandler
 from Utils import TimeTracker
+from AudioGenerateHandler import  AudioGenerateHandler
     
 class Service:
     """
@@ -37,8 +39,11 @@ class Service:
         self._global_history = self.chat_handler.global_history  # 引用同一个实例
         self.history_manager = HistoryManager(self._global_history)
         print("✓ HistoryManager 初始化完成")
-        
-        # 6. 预热检查
+
+        print("=== TTSHandler 初始化开始 ===")
+        self.tts_handler = AudioGenerateHandler(self.config)
+        print("✓ TTSHandler 初始化完成")
+
         print("正在进行预热检查...")
         self._warmup_check()
 
@@ -88,15 +93,15 @@ class Service:
         # =========================
         # 聊天功能路由
         # =========================
-        @self.app.post("/chat/stream_text")
+        @self.app.post("/chat/text/stream/local")
         async def chat_stream_local(request: Request):
             data = await request.json()
             message = data.get("message", "")
             if not message:
                 raise HTTPException(status_code=400, detail="Message is required")
             return await self.chat_handler.handle_local_chat_stream(message)
-        
-        @self.app.post("/chat/stream_text_cloud")
+
+        @self.app.post("/chat/text/stream/cloud")
         async def chat_stream_cloud(request: Request):
             data = await request.json()
             message = data.get("message", "")
@@ -104,11 +109,34 @@ class Service:
                 raise HTTPException(status_code=400, detail="Message is required")
             return await self.chat_handler.handle_cloud_chat_stream(message)
         
-        @self.app.post("/chat/audio")
-        async def chat_with_audio(file: UploadFile = File(..., description="Audio file to transcribe")):
+        @self.app.post("/chat/audio/stream/local")
+        async def chat_with_audio_local(file: UploadFile = File(..., description="Audio file to transcribe")):
             if not file:
                 raise HTTPException(status_code=400, detail="Audio file is required")
-            return await self.chat_handler.handle_chat_with_audio(file)
+            return await self.chat_handler.handle_chat_with_audio(file, cloud=Flase)
+        
+        @self.app.post("/chat/audio/stream/cloud")
+        async def chat_with_audio_cloud(file: UploadFile = File(..., description="Audio file to transcribe")):
+            if not file:
+                raise HTTPException(status_code=400, detail="Audio file is required")
+            return await self.chat_handler.handle_chat_with_audio(file, cloud=True)
+
+        # =========================
+        # TTS 路由
+        # =========================
+        @self.app.post("/tts/generate")
+        async def generate_tts(request: Request):
+            """中转流式返回 TTS 生成的 WAV 音频"""
+            data = await request.json()
+            text = data.get("text", "")
+            if not text:
+                raise HTTPException(status_code=400, detail="Text is required")
+            try:
+                audio_stream = await self.tts_handler.generate_tts_stream(text)
+                return StreamingResponse(audio_stream, media_type="audio/wav")
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"TTS generation failed: {str(e)}")
+            
         
         # =========================
         # Token 管理路由
