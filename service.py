@@ -113,8 +113,8 @@ class Service:
         async def chat_with_audio_local(file: UploadFile = File(..., description="Audio file to transcribe")):
             if not file:
                 raise HTTPException(status_code=400, detail="Audio file is required")
-            return await self.chat_handler.handle_chat_with_audio(file, cloud=Flase)
-        
+            return await self.chat_handler.handle_chat_with_audio(file, cloud=False)
+
         @self.app.post("/chat/audio/stream/cloud")
         async def chat_with_audio_cloud(file: UploadFile = File(..., description="Audio file to transcribe")):
             if not file:

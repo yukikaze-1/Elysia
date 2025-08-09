@@ -141,15 +141,7 @@ class ChatHandler:
                 
                 # 发送 token 统计
                 token_usage:Dict[str, Any] = self.token_manager.generate_usage_response("local", input_tokens, output_tokens)
-                yield json.dumps(token_usage, ensure_ascii=False) + "\n"
-                
-                # 处理语音生成
-                if full_content:
-                    # 流式音频生成
-                    with self.time_tracker.time_stage("tts_processing"):
-                        async for audio_response in self.tts_handler.generate_audio_stream(full_content):
-                            # 发送音频流式响应
-                            yield audio_response
+                yield json.dumps(token_usage, ensure_ascii=False) + "\n"               
                             
                 # 发送计时信息
                 timing_summary = self.time_tracker.get_timing_summary()
@@ -280,12 +272,7 @@ class ChatHandler:
                 
                 # 添加到历史记录
                 if full_content:
-                    self.global_history.add_ai_message(full_content)
-                    
-                    # 处理语音生成
-                    with self.time_tracker.time_stage("tts_processing"):
-                        async for audio_response in self.tts_handler.generate_audio_stream(full_content):
-                            yield audio_response
+                    self.global_history.add_ai_message(full_content)    
                 
                 # 强制保存token统计
                 self.token_manager.force_save()
@@ -338,7 +325,7 @@ class ChatHandler:
         return estimated_input_tokens, messages
     
     
-    async def handle_chat_with_audio(self, file: UploadFile) -> StreamingResponse:
+    async def handle_chat_with_audio(self, file: UploadFile, cloud: bool = True) -> StreamingResponse:
         """处理音频聊天"""
         if not file:
             raise HTTPException(status_code=400, detail="Audio file is required")
@@ -360,4 +347,7 @@ class ChatHandler:
                 raise HTTPException(status_code=500, detail="Failed to recognize audio")
         
         # 处理识别后的文本
-        return await self.handle_cloud_chat_stream(recognized_text)
+        if cloud:
+            return await self.handle_cloud_chat_stream(recognized_text)
+        else:
+            return await self.handle_local_chat_stream(recognized_text)
