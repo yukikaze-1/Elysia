@@ -3,11 +3,8 @@
 按照用户需求简化流式显示逻辑
 """
 
-import time
 from datetime import datetime
 from typing import Optional
-import tkinter as tk
-from core.config import Config
 from utils.content_filter import ContentFilter
 
 

@@ -2,7 +2,6 @@
 主应用程序类
 整合所有模块，处理业务逻辑
 """
-
 import threading
 import asyncio
 import os
@@ -14,7 +13,6 @@ from core.audio_manager import AudioManager
 from ui.main_window import MainUI
 from handlers.network_handler import NetworkHandler
 from handlers.streaming_manager import StreamingResponseManager
-from utils.content_filter import ContentFilter
 from streaming_message_handler_new import StreamingMessageHandler
 
 
@@ -27,9 +25,8 @@ class ElysiaClient:
         self.audio_manager = AudioManager()
         self.network_handler = NetworkHandler()
         self.streaming_manager = StreamingResponseManager(self.ui, self)  # 传递自引用
-        self.content_filter = ContentFilter()
         
-        # 初始化流式消息处理器
+        # 流式消息处理器
         self.message_handler = StreamingMessageHandler(self.audio_manager)
         self._setup_message_callbacks()
         
@@ -39,12 +36,20 @@ class ElysiaClient:
         self.first_audio_received = False
         self.audio_time = None  # 存储音频响应时间
         self.request_type = None  # 请求类型标记
+        self.audio_playback_start_time = None  # 音频播放开始时间
         
         # 设置UI事件回调
         self._setup_ui_callbacks()
         
         # 设置窗口关闭事件
         self.ui.set_window_close_callback(self.on_closing)
+        
+        # 设置WAV流式播放状态回调
+        if self.audio_manager.use_wav_streaming and self.audio_manager.wav_stream_manager:
+            self.audio_manager.wav_stream_manager.set_status_callback(self.ui.set_status)
+        
+        # 设置音频播放开始回调
+        self.audio_manager.set_audio_playback_start_callback(self._on_audio_playback_start)
     
     def _setup_ui_callbacks(self):
         """设置UI事件回调"""
@@ -54,6 +59,7 @@ class ElysiaClient:
         self.ui.on_normal_chat_callback = self.on_normal_chat
         self.ui.on_upload_audio_callback = self.on_upload_audio
         self.ui.on_show_history_callback = self.on_show_history
+        self.ui.on_test_wav_stream_callback = self.on_test_wav_stream
     
     def _setup_message_callbacks(self):
         """设置流式消息处理回调 - 修复文本显示问题"""
@@ -66,10 +72,15 @@ class ElysiaClient:
                 lambda: self.streaming_manager.update_local_response(full_text))
         
         async def on_text_complete(full_text):
-            """文本完成回调"""
+            """文本完成回调 - 自动触发TTS"""
             print(f"✅ 文本完成: '{full_text}'")
             self.ui.root.after(0, 
                 lambda: self.streaming_manager.update_local_response(full_text))
+            
+            # 自动调用TTS生成音频
+            if full_text and full_text.strip():
+                print(f"🎵 文本完成后自动触发TTS...")
+                self.ui.root.after(100, lambda: self._auto_tts_after_text_complete(full_text.strip()))
         
         async def on_audio_start(message):
             """音频开始回调"""
@@ -83,7 +94,7 @@ class ElysiaClient:
         
         async def on_audio_chunk(message):
             """音频块回调"""
-            # 可以在这里添加音频块处理的UI更新
+            # 在这里可以添加音频块处理的UI更新逻辑
             pass
         
         async def on_audio_end(message):
@@ -93,7 +104,8 @@ class ElysiaClient:
         
         async def on_token_usage(message):
             """Token使用回调"""
-            pass  # 可以在这里处理token统计
+            # 在这里可以添加token统计逻辑
+            pass
         
         async def on_error(message):
             """错误处理回调"""
@@ -246,6 +258,117 @@ class ElysiaClient:
     def on_clear_chat(self):
         """清空聊天记录"""
         self.ui.clear_chat_display()
+    
+    def on_test_wav_stream(self):
+        """测试WAV流式播放"""
+        if not self.audio_manager.use_wav_streaming:
+            self.ui.show_warning("提示", "WAV流式播放功能不可用")
+            return
+        
+        # 预定义的测试文本
+        test_text = "大概率是没有的，我也希望如此，毕竟自己的故事还是应当由自己来诉说。"
+        
+        self.ui.append_to_chat(f"🎵 开始WAV流式播放测试: {test_text}", "系统")
+        self.ui.set_status("正在启动WAV流式播放测试...")
+        self.ui.disable_buttons()
+        
+        # 在新线程中运行测试
+        thread = threading.Thread(target=self._test_wav_stream, args=(test_text,))
+        thread.daemon = True
+        thread.start()
+    
+    def _test_wav_stream(self, text: str):
+        """在后台线程中执行WAV流式播放测试"""
+        try:
+            # 状态更新回调
+            def status_callback(message):
+                self.ui.root.after(0, lambda: self.ui.set_status(message))
+            
+            # 启动WAV流式播放
+            success = self.audio_manager.play_wav_stream_direct(text, status_callback)
+            
+            if success:
+                self.ui.root.after(0, 
+                    lambda: self.ui.append_to_chat("✅ WAV流式播放测试启动成功", "系统"))
+                
+                # 等待一段时间让播放完成
+                time.sleep(3)
+                
+                # 显示统计信息
+                stats = self.audio_manager.get_wav_stream_stats()
+                if stats.get("wav_stream_available", False):
+                    total_received = stats.get("total_received", 0)
+                    total_played = stats.get("total_played", 0)
+                    duration = stats.get("duration", 0)
+                    
+                    stats_msg = f"📊 播放统计: 接收 {total_received//1024}KB, 播放 {total_played//1024}KB, 时长 {duration:.2f}s"
+                    self.ui.root.after(0, 
+                        lambda: self.ui.append_to_chat(stats_msg, "系统"))
+                
+                self.ui.root.after(0, 
+                    lambda: self.ui.set_status("WAV流式播放测试完成"))
+            else:
+                self.ui.root.after(0, 
+                    lambda: self.ui.append_to_chat("❌ WAV流式播放测试启动失败", "系统"))
+                self.ui.root.after(0, 
+                    lambda: self.ui.set_status("WAV流式播放测试失败"))
+            
+        except Exception as e:
+            error_msg = f"WAV流式播放测试异常: {e}"
+            print(error_msg)
+            self.ui.root.after(0, 
+                lambda: self.ui.append_to_chat(f"❌ {error_msg}", "系统"))
+        finally:
+            self.ui.root.after(0, self.ui.enable_buttons)
+    
+    def _auto_tts_after_text_complete(self, text: str):
+        """文本完成后自动调用TTS"""
+        try:
+            print(f"🎵 开始自动TTS生成，文本: '{text[:50]}...'")
+            self.ui.set_status("🎵 正在生成语音...")
+            
+            # 直接使用现有的WAV流式播放功能
+            success = self.audio_manager.play_wav_stream_direct(text)
+            
+            if success:
+                print("✅ 自动TTS启动成功")
+                # 设置一个定时器检查播放状态
+                self.ui.root.after(1000, self._check_tts_status)
+            else:
+                print("❌ 自动TTS启动失败")
+                self.ui.set_status("❌ TTS启动失败")
+            
+        except Exception as e:
+            error_msg = f"自动TTS启动异常: {e}"
+            print(error_msg)
+            self.ui.append_to_chat(f"❌ {error_msg}", "系统")
+            self.ui.set_status("就绪")
+
+    def _check_tts_status(self):
+        """检查TTS播放状态"""
+        try:
+            if self.audio_manager.use_wav_streaming:
+                stats = self.audio_manager.get_wav_stream_stats()
+                if stats and stats.get("wav_stream_available", False):
+                    is_playing = stats.get("is_playing", False)
+                    total_received = stats.get("total_received", 0)
+                    
+                    if not is_playing and total_received > 0:
+                        # 播放完成
+                        print("✅ 自动TTS播放完成")
+                        self.ui.set_status("✅ 语音播放完成")
+                        return
+                    elif is_playing:
+                        # 继续播放中，继续检查
+                        self.ui.root.after(1000, self._check_tts_status)
+                        return
+            
+            # 默认情况下设置为完成
+            self.ui.root.after(3000, lambda: self.ui.set_status("就绪"))
+            
+        except Exception as e:
+            print(f"检查TTS状态异常: {e}")
+            self.ui.set_status("就绪")
     
     def _run_async_stream_chat(self, message: str):
         """在新线程中运行异步流式聊天"""
@@ -437,7 +560,7 @@ class ElysiaClient:
             # 处理音频流
             elif data.get("type") == "audio_start":
                 # 使用新的流式音频消息处理方法
-                message_data = {"type": "audio_start", "audio_format": data.get("audio_format", "ogg")}
+                message_data = {"type": "audio_start", "audio_format": data.get("audio_format", "wav")}
                 self.ui.root.after(0, 
                     lambda md=message_data: 
                     self.audio_manager.handle_streaming_audio_message(md, self.ui.set_status))
@@ -541,7 +664,7 @@ class ElysiaClient:
             # 处理音频流
             elif data.get("type") == "audio_start":
                 # 使用新的流式音频消息处理方法
-                message_data = {"type": "audio_start", "audio_format": data.get("audio_format", "ogg")}
+                message_data = {"type": "audio_start", "audio_format": data.get("audio_format", "wav")}
                 self.ui.root.after(0, 
                     lambda md=message_data: 
                     self.audio_manager.handle_streaming_audio_message(md, self.ui.set_status))
@@ -625,6 +748,7 @@ class ElysiaClient:
         self.request_start_time = time.time() * 1000  # 转换为毫秒
         self.first_response_received = False
         self.first_audio_received = False
+        self.audio_playback_start_time = None  # 重置音频播放开始时间
         self.request_type = None  # 记录请求类型
         print(f"开始请求计时: {self.request_start_time}")
     
@@ -633,8 +757,19 @@ class ElysiaClient:
         self.request_start_time = time.time() * 1000  # 转换为毫秒
         self.first_response_received = False
         self.first_audio_received = False
+        self.audio_playback_start_time = None  # 重置音频播放开始时间
         self.request_type = "chat"  # 标记为聊天请求
         print(f"开始聊天请求计时: {self.request_start_time}")
+    
+    def _on_audio_playback_start(self):
+        """音频播放开始回调"""
+        if self.request_start_time is not None:
+            self.audio_playback_start_time = time.time() * 1000
+            total_time = self.audio_playback_start_time - self.request_start_time
+            print(f"音频播放开始，从请求开始总耗时: {total_time:.0f}ms")
+            
+            # 在UI中显示总音频响应时间
+            self.ui.root.after(0, lambda: self.ui.show_total_audio_time(total_time))
     
     def _record_first_response(self):
         """记录第一个响应的时间"""

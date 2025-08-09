@@ -30,6 +30,7 @@ class MainUI:
         self.history_button: Optional[ttk.Button] = None
         self.clear_button: Optional[ttk.Button] = None
         self.send_button: Optional[ttk.Button] = None
+        self.test_wav_button: Optional[ttk.Button] = None
         
         # 事件回调
         self.on_send_message_callback: Optional[Callable] = None
@@ -39,6 +40,7 @@ class MainUI:
         self.on_upload_audio_callback: Optional[Callable] = None
         self.on_show_history_callback: Optional[Callable] = None
         self.on_clear_chat_callback: Optional[Callable] = None
+        self.on_test_wav_stream_callback: Optional[Callable] = None
         
         self.setup_ui()
     
@@ -105,6 +107,7 @@ class MainUI:
         control_frame = ttk.Frame(parent)
         control_frame.grid(row=3, column=0, columnspan=3, sticky="ew")
         
+        # 第一行按钮
         self.stream_button = ttk.Button(control_frame, text="流式聊天", command=self._on_stream_chat)
         self.stream_button.grid(row=0, column=0, padx=(0, 10))
         
@@ -117,11 +120,15 @@ class MainUI:
         self.audio_button = ttk.Button(control_frame, text="上传音频", command=self._on_upload_audio)
         self.audio_button.grid(row=0, column=3, padx=(0, 10))
         
+        # 第二行按钮
         self.history_button = ttk.Button(control_frame, text="查看历史", command=self._on_show_history)
-        self.history_button.grid(row=0, column=4, padx=(0, 10))
+        self.history_button.grid(row=1, column=0, padx=(0, 10), pady=(5, 0))
         
         self.clear_button = ttk.Button(control_frame, text="清空聊天", command=self._on_clear_chat)
-        self.clear_button.grid(row=0, column=5)
+        self.clear_button.grid(row=1, column=1, padx=(0, 10), pady=(5, 0))
+        
+        self.test_wav_button = ttk.Button(control_frame, text="测试WAV流播放", command=self._on_test_wav_stream)
+        self.test_wav_button.grid(row=1, column=2, padx=(0, 10), pady=(5, 0))
     
     def _setup_status_bar(self, parent):
         """设置状态栏"""
@@ -165,6 +172,11 @@ class MainUI:
         """清空聊天事件"""
         if self.on_clear_chat_callback:
             self.on_clear_chat_callback()
+    
+    def _on_test_wav_stream(self):
+        """测试WAV流式播放事件"""
+        if self.on_test_wav_stream_callback:
+            self.on_test_wav_stream_callback()
     
     # 公共方法
     def append_to_chat(self, message: str, sender: str = ""):
@@ -258,6 +270,19 @@ class MainUI:
         
         self.append_to_chat(f"🗣️ 聊天音频响应时间: {time_str}", "系统")
     
+    def show_total_audio_time(self, total_time_ms: float):
+        """显示从请求到开始播放音频的总耗时"""
+        if not Config.SHOW_TOTAL_AUDIO_TIME:
+            return
+            
+        time_s = total_time_ms / 1000.0
+        if time_s >= 1.0:
+            time_str = f"{time_s:.{Config.TOTAL_AUDIO_TIME_PRECISION}f}s"
+        else:
+            time_str = f"{total_time_ms:.0f}ms"
+        
+        self.append_to_chat(f"🎵 总音频响应时间: {time_str}", "系统")
+    
     def get_last_user_message(self) -> str:
         """获取最后一条用户消息"""
         if not self.chat_display:
@@ -291,7 +316,7 @@ class MainUI:
         """禁用按钮"""
         buttons = [
             self.stream_button, self.cloud_button, self.normal_button,
-            self.audio_button, self.send_button
+            self.audio_button, self.send_button, self.test_wav_button
         ]
         for button in buttons:
             if button:
@@ -301,7 +326,7 @@ class MainUI:
         """启用按钮"""
         buttons = [
             self.stream_button, self.cloud_button, self.normal_button,
-            self.audio_button, self.send_button
+            self.audio_button, self.send_button, self.test_wav_button
         ]
         for button in buttons:
             if button:

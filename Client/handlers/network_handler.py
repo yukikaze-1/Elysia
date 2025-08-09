@@ -44,7 +44,7 @@ class NetworkHandler:
     def upload_audio_file_sync(self, audio_file: str) -> requests.Response:
         """同步上传音频文件"""
         try:
-            url = f"{self.base_url}/chat/audio"
+            url = f"{self.base_url}/chat/audio/stream/cloud"
             
             print(f"上传音频文件到: {url}")
             print(f"文件路径: {audio_file}")
@@ -95,7 +95,7 @@ class NetworkHandler:
                 max_line_size=Config.MAX_LINE_SIZE,
                 max_field_size=Config.MAX_FIELD_SIZE
             ) as session:
-                url = f"{self.base_url}/chat/stream_text"
+                url = f"{self.base_url}/chat/text/stream/local"
                 payload = {"message": message, "user_id": user_id}
                 
                 print(f"发送流式请求到: {url}")
@@ -155,7 +155,7 @@ class NetworkHandler:
                 max_line_size=Config.MAX_LINE_SIZE,
                 max_field_size=Config.MAX_FIELD_SIZE
             ) as session:
-                url = f"{self.base_url}/chat/stream_text_cloud"
+                url = f"{self.base_url}/chat/text/stream/cloud"
                 payload = {"message": message, "user_id": user_id}
                 
                 print(f"发送云端流式请求到: {url}")
@@ -214,7 +214,7 @@ class NetworkHandler:
                 max_line_size=Config.MAX_LINE_SIZE,
                 max_field_size=Config.MAX_FIELD_SIZE
             ) as session:
-                url = f"{self.base_url}/chat/audio"
+                url = f"{self.base_url}/chat/audio/stream/cloud"
                 
                 print(f"异步上传音频文件到: {url}")
                 print(f"文件路径: {audio_file}")
@@ -293,4 +293,96 @@ class NetworkHandler:
         except Exception as e:
             print(f"处理流式响应异常: {e}")
             if on_data_received:
+                on_data_received({"type": "error", "error": str(e)})
+    
+    async def tts_stream_async(self, text: str, on_data_received: Optional[Callable] = None) -> None:
+        """异步TTS生成和流式音频播放"""
+        try:
+            # 创建会话超时配置
+            timeout = aiohttp.ClientTimeout(
+                total=Config.REQUEST_TIMEOUT,
+                connect=Config.CONNECTION_TIMEOUT,
+                sock_read=120  # 流式读取超时
+            )
+            
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                url = f"{self.base_url}/tts/generate"
+                payload = {"text": text}
+                
+                print(f"🎵 发送TTS请求到: {url}")
+                print(f"📝 文本内容: '{text[:50]}...' (长度: {len(text)})")
+                
+                async with session.post(url, json=payload) as response:
+                    if response.status != 200:
+                        error_text = await response.text()
+                        error_msg = f"TTS服务器响应错误 {response.status}: {error_text}"
+                        print(f"❌ {error_msg}")
+                        if on_data_received:
+                            on_data_received({"type": "error", "error": error_msg})
+                        return
+                    
+                    print(f"✅ 收到TTS响应: {response.status}")
+                    
+                    # 处理流式音频数据
+                    chunk_count = 0
+                    total_audio_size = 0
+                    header_skipped = False
+                    
+                    async for chunk in response.content.iter_chunked(1024):
+                        if chunk:
+                            chunk_count += 1
+                            total_audio_size += len(chunk)
+                            
+                            # 构造音频数据消息
+                            audio_message = {
+                                "type": "audio_chunk",
+                                "data": chunk,
+                                "chunk_id": chunk_count,
+                                "header_skipped": header_skipped,
+                                "total_size": total_audio_size
+                            }
+                            
+                            # 第一个chunk包含WAV头部，标记为需要处理
+                            if not header_skipped:
+                                audio_message["has_wav_header"] = True
+                                header_skipped = True
+                            
+                            # 调用回调函数处理音频数据
+                            if on_data_received and callable(on_data_received):
+                                try:
+                                    if asyncio.iscoroutinefunction(on_data_received):
+                                        await on_data_received(audio_message)
+                                    else:
+                                        on_data_received(audio_message)
+                                except Exception as e:
+                                    print(f"处理TTS音频数据异常: {e}")
+                                    continue
+                    
+                    # 发送完成信号
+                    if on_data_received and callable(on_data_received):
+                        complete_message = {
+                            "type": "audio_complete",
+                            "total_chunks": chunk_count,
+                            "total_size": total_audio_size
+                        }
+                        try:
+                            if asyncio.iscoroutinefunction(on_data_received):
+                                await on_data_received(complete_message)
+                            else:
+                                on_data_received(complete_message)
+                        except Exception as e:
+                            print(f"处理TTS完成信号异常: {e}")
+                    
+                    print(f"🎵 TTS流式音频传输完成，共{chunk_count}个chunk，总大小{total_audio_size}字节")
+                                
+        except asyncio.TimeoutError:
+            error_msg = "TTS请求超时，请检查网络连接"
+            print(f"⏰ {error_msg}")
+            if on_data_received:
+                on_data_received({"type": "error", "error": error_msg})
+        except Exception as e:
+            error_msg = f"TTS流式请求异常: {e}"
+            print(f"❌ {error_msg}")
+            if on_data_received:
+                on_data_received({"type": "error", "error": error_msg})
                 on_data_received({"type": "error", "error": str(e)})

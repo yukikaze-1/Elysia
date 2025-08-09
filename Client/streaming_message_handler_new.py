@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 重写的流式消息处理器 - 专门处理服务端发送的流式消息
-针对服务端OGG格式(32000Hz,1声道,16bit)音频流进行优化
+针对服务端WAV格式音频流进行优化
 """
 
 import json
@@ -13,7 +13,7 @@ from core.audio_manager import AudioManager
 
 
 class StreamingMessageHandler:
-    """重写的流式消息处理器 - 专门针对OGG流式音频优化"""
+    """重写的流式消息处理器 - 专门针对WAV流式音频优化"""
     
     def __init__(self, audio_manager: AudioManager):
         self.audio_manager = audio_manager
@@ -21,14 +21,14 @@ class StreamingMessageHandler:
         self.is_audio_streaming = False
         self.message_callbacks = {}
         
-        # OGG流式音频缓冲区
+        # WAV流式音频缓冲区
         self.audio_buffer = bytearray()
         
         # 流式状态管理
         self._stream_type = None  # "text" 或 "audio"
         self._last_activity_time = time.time()
         
-        print("🎵 StreamingMessageHandler初始化完成 - OGG流式音频优化版本")
+        print("🎵 StreamingMessageHandler初始化完成 - WAV流式音频优化版本")
     
     def set_callback(self, message_type: str, callback: Callable):
         """设置特定消息类型的回调函数"""
@@ -116,8 +116,21 @@ class StreamingMessageHandler:
             if audio_data:
                 # 处理传统的完整音频数据
                 audio_bytes = base64.b64decode(audio_data)
-                # 使用播放完整音频的方法
-                await self.audio_manager.play_complete_ogg_audio(audio_bytes)
+                # 创建临时文件播放
+                import tempfile
+                import os
+                
+                timestamp = int(time.time() * 1000)
+                temp_file = os.path.join(tempfile.gettempdir(), f"audio_{timestamp}.wav")
+                
+                with open(temp_file, 'wb') as f:
+                    f.write(audio_bytes)
+                
+                # 使用pygame播放
+                import pygame
+                pygame.mixer.music.load(temp_file)
+                pygame.mixer.music.play()
+                
                 return True
         except Exception as e:
             print(f"❌ 处理音频消息失败: {e}")
@@ -141,7 +154,7 @@ class StreamingMessageHandler:
         return True
     
     async def _handle_audio_chunk_new(self, message: Dict[str, Any]) -> bool:
-        """处理音频块消息 - 新的OGG优化版本"""
+        """处理音频块消息 - 新的WAV优化版本"""
         if not self.is_audio_streaming:
             print("⚠️ 收到音频块但流未开始")
             return False
@@ -177,7 +190,7 @@ class StreamingMessageHandler:
             print(f"🎵 收到音频块: {len(audio_chunk)}字节 (总计: {accumulated_size}字节)")
             
             # 只积累数据，在audio_end时统一播放
-            print(f"📝 积累OGG数据: +{len(audio_chunk)}字节 (总计: {accumulated_size}字节)")
+            print(f"📝 积累WAV数据: +{len(audio_chunk)}字节 (总计: {accumulated_size}字节)")
             
             return True
             
@@ -195,11 +208,24 @@ class StreamingMessageHandler:
             
             if final_size > 0:
                 # 使用完整的音频数据进行最终播放
-                print(f"▶️ 开始播放完整OGG音频数据 ({final_size}字节)")
-                await self.audio_manager.play_complete_ogg_audio(
-                    bytes(self.audio_buffer)
-                )
-                print(f"✅ 完整OGG音频播放完成")
+                print(f"▶️ 开始播放完整WAV音频数据 ({final_size}字节)")
+                
+                # 创建临时文件播放
+                import tempfile
+                import os
+                import pygame
+                
+                timestamp = int(time.time() * 1000)
+                temp_file = os.path.join(tempfile.gettempdir(), f"complete_audio_{timestamp}.wav")
+                
+                with open(temp_file, 'wb') as f:
+                    f.write(self.audio_buffer)
+                
+                # 使用pygame播放
+                pygame.mixer.music.load(temp_file)
+                pygame.mixer.music.play()
+                
+                print(f"✅ 完整WAV音频播放完成")
             
             # 调用音频结束回调
             if "audio_end" in self.message_callbacks:

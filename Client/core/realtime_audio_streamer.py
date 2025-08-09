@@ -234,13 +234,8 @@ class RealTimeAudioStreamer:
     def add_pcm_audio_chunk(self, pcm_data: bytes, convert_from_format: Optional[str] = None):
         """添加PCM音频数据块"""
         try:
-            if convert_from_format == "ogg_to_pcm":
-                # 如果是从OGG转换来的，可能需要特殊处理
-                # 这里简化处理，直接使用原始数据
-                self.add_raw_audio_chunk(pcm_data)
-            else:
-                # 直接添加PCM数据
-                self.add_raw_audio_chunk(pcm_data)
+            # 直接添加PCM数据
+            self.add_raw_audio_chunk(pcm_data)
         except Exception as e:
             print(f"添加PCM音频数据失败: {e}")
     
@@ -298,129 +293,7 @@ class RealTimeAudioStreamer:
 class AudioFormatConverter:
     """音频格式转换器"""
     
-    @staticmethod
-    def ogg_to_pcm(ogg_data: bytes, target_sample_rate: int = 22050, target_channels: int = 1) -> bytes:
-        """将OGG数据转换为PCM（改进版本）"""
-        try:
-            # 检查OGG数据是否完整
-            if len(ogg_data) < 10:  # 至少需要一些基本数据
-                print(f"OGG数据太小: {len(ogg_data)} 字节")
-                # 返回短暂静音数据
-                silence_samples = target_sample_rate // 20  # 0.05秒的静音
-                return np.zeros(silence_samples, dtype=np.int16).tobytes()
-            
-            # 检查是否包含OGG魔数 - 更宽松的检测
-            has_ogg_signature = False
-            if ogg_data.startswith(b'OggS'):
-                has_ogg_signature = True
-                print(f"检测到OGG头部: {len(ogg_data)} 字节")
-            elif b'OggS' in ogg_data:
-                has_ogg_signature = True
-                print(f"检测到OGG标识在数据中: {len(ogg_data)} 字节")
-            
-            if has_ogg_signature:
-                # 尝试使用pygame处理OGG数据
-                import tempfile
-                temp_file = tempfile.NamedTemporaryFile(suffix='.ogg', delete=False)
-                try:
-                    temp_file.write(ogg_data)
-                    temp_file.close()
-                    
-                    # 使用pygame加载
-                    import pygame
-                    try:
-                        # 确保pygame mixer已初始化
-                        if not pygame.mixer.get_init():
-                            pygame.mixer.pre_init(frequency=target_sample_rate, size=-16, channels=target_channels, buffer=512)
-                            pygame.mixer.init()
-                        
-                        sound = pygame.mixer.Sound(temp_file.name)
-                        raw_data = pygame.sndarray.array(sound)
-                        
-                        # 处理声道转换
-                        if raw_data.ndim > 1 and target_channels == 1:
-                            # 转为单声道（取平均值）
-                            raw_data = np.mean(raw_data, axis=1)
-                        elif raw_data.ndim == 1 and target_channels == 2:
-                            # 转为立体声（复制单声道）
-                            raw_data = np.column_stack([raw_data, raw_data])
-                        
-                        # 确保数据类型正确
-                        if raw_data.dtype != np.int16:
-                            # 归一化并转换为int16
-                            if raw_data.dtype in [np.float32, np.float64]:
-                                # 音频数据通常在[-1, 1]范围内
-                                raw_data = np.clip(raw_data, -1.0, 1.0)
-                                raw_data = (raw_data * 32767).astype(np.int16)
-                            else:
-                                raw_data = raw_data.astype(np.int16)
-                        
-                        print(f"OGG转换成功: {len(raw_data)} 样本, {raw_data.dtype}")
-                        return raw_data.tobytes()
-                    
-                    except Exception as pygame_error:
-                        print(f"pygame OGG解码失败: {pygame_error}")
-                        # 继续尝试其他方法
-                        pass
-                
-                finally:
-                    # 清理临时文件
-                    if os.path.exists(temp_file.name):
-                        try:
-                            os.unlink(temp_file.name)
-                        except:
-                            pass
-            
-            # 如果OGG处理失败，尝试作为原始音频数据处理
-            print(f"尝试作为原始音频数据处理: {len(ogg_data)} 字节")
-            
-            # 检查数据是否看起来像音频
-            if len(ogg_data) % 2 == 0:  # 16位音频应该是偶数字节
-                try:
-                    # 尝试作为PCM数据处理
-                    pcm_array = np.frombuffer(ogg_data, dtype=np.int16)
-                    
-                    # 检查数据范围是否合理（避免噪声）
-                    if len(pcm_array) > 0:
-                        max_val = np.max(np.abs(pcm_array))
-                        mean_val = np.mean(np.abs(pcm_array))
-                        
-                        print(f"音频数据分析: 最大值={max_val}, 平均值={mean_val:.1f}, 样本数={len(pcm_array)}")
-                        
-                        # 如果数据看起来像随机噪声，降低音量或生成安全的音频
-                        if max_val > 32767:
-                            # 数据超出范围，归一化
-                            pcm_array = (pcm_array.astype(np.float32) / max_val * 16383).astype(np.int16)
-                            print(f"音频数据归一化到50%音量")
-                        elif mean_val > 8000:  # 平均值过高，可能是噪声
-                            # 降低音量到安全水平
-                            pcm_array = (pcm_array.astype(np.float32) * 0.2).astype(np.int16)
-                            print(f"检测到可能的噪声，降低音量到20%")
-                        elif mean_val < 50:  # 平均值过低，可能是静音
-                            print(f"检测到低音量或静音数据")
-                        
-                        return pcm_array.tobytes()
-                
-                except Exception as pcm_error:
-                    print(f"作为PCM处理失败: {pcm_error}")
-            
-            # 最后的fallback：生成短暂的静音或低音量测试音
-            print("所有处理方法都失败，生成安全的回退音频")
-            duration_samples = min(target_sample_rate // 4, 4410)  # 最多0.25秒
-            
-            # 生成低音量的测试音而不是完全静音
-            t = np.linspace(0, duration_samples / target_sample_rate, duration_samples, False)
-            frequency = 220  # 较低的频率
-            test_wave = np.sin(frequency * 2.0 * np.pi * t) * 0.1  # 10%音量
-            test_audio = (test_wave * 32767).astype(np.int16)
-            
-            return test_audio.tobytes()
-                        
-        except Exception as e:
-            print(f"OGG到PCM转换异常: {e}")
-            # 最终的安全fallback
-            silence_samples = target_sample_rate // 10  # 0.1秒静音
-            return np.zeros(silence_samples, dtype=np.int16).tobytes()
+
     
     @staticmethod
     def resample_pcm(pcm_data: bytes, 

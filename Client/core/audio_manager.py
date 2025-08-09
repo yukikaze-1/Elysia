@@ -11,7 +11,6 @@ import os
 import time
 import threading
 import queue
-import asyncio
 from typing import List, Optional
 from .config import Config
 
@@ -25,6 +24,16 @@ except ImportError as e:
     print(f"⚠️ 实时音频模块不可用，将使用传统音频播放: {e}")
     _RealTimeAudioStreamer = None
     _AudioFormatConverter = None
+
+# 尝试导入WAV流式播放模块
+try:
+    from .wav_stream_player import WavStreamAudioManager
+    WAV_STREAM_AVAILABLE = True
+    print("✅ WAV流式播放模块已加载")
+except ImportError as e:
+    WAV_STREAM_AVAILABLE = False
+    print(f"⚠️ WAV流式播放模块不可用: {e}")
+    WavStreamAudioManager = None
 
 
 class StreamAudioBuffer:
@@ -170,7 +179,7 @@ class AudioManager:
         self.temp_audio_files: List[str] = []
         
         # 音频格式跟踪
-        self.current_audio_format = "pcm"  # 默认PCM，可以是 "ogg", "wav", "pcm"
+        self.current_audio_format = "pcm"  # 默认PCM，可以是 "wav", "mp3", "pcm"
         
         # 实时音频流播放器
         self.realtime_streamer = None
@@ -181,6 +190,14 @@ class AudioManager:
         self.stream_buffer = StreamAudioBuffer()
         self.auto_play_threshold = 4096  # 4KB自动播放阈值
         
+        # WAV流式播放器
+        self.wav_stream_manager = None
+        self.use_wav_streaming = False
+        
+        # 音频播放开始回调
+        self.on_audio_playback_start = None
+        self.audio_playback_started = False  # 标记音频是否已开始播放
+        
         if REALTIME_AUDIO_AVAILABLE and _RealTimeAudioStreamer:
             try:
                 self.realtime_streamer = _RealTimeAudioStreamer()
@@ -188,6 +205,16 @@ class AudioManager:
             except Exception as e:
                 print(f"实时音频初始化失败: {e}")
                 self.use_realtime_streaming = False
+        
+        # 初始化WAV流式播放器
+        if WAV_STREAM_AVAILABLE and WavStreamAudioManager:
+            try:
+                self.wav_stream_manager = WavStreamAudioManager(self)
+                self.use_wav_streaming = True
+                print("✅ WAV流式播放器初始化成功")
+            except Exception as e:
+                print(f"WAV流式播放器初始化失败: {e}")
+                self.use_wav_streaming = False
         
         # 初始化pygame音频
         self.init_pygame_audio()
@@ -246,6 +273,9 @@ class AudioManager:
             pygame.mixer.music.load(audio_path)
             pygame.mixer.music.play()
             
+            # 通知音频播放开始
+            self._notify_audio_playback_start()
+            
             if on_status_update:
                 on_status_update(f"🎵 播放音频: {audio_path}")
             
@@ -259,7 +289,20 @@ class AudioManager:
                 on_status_update(error_msg)
             return False
     
-    def init_streaming_audio_new(self, audio_format: str = "ogg", sample_rate: int = 32000, 
+    def set_audio_playback_start_callback(self, callback):
+        """设置音频播放开始回调"""
+        self.on_audio_playback_start = callback
+    
+    def _notify_audio_playback_start(self):
+        """通知音频播放开始"""
+        if not self.audio_playback_started and self.on_audio_playback_start:
+            self.audio_playback_started = True
+            try:
+                self.on_audio_playback_start()
+            except Exception as e:
+                print(f"音频播放开始回调执行失败: {e}")
+    
+    def init_streaming_audio_new(self, audio_format: str = "wav", sample_rate: int = 32000, 
                                 channels: int = 1, bit_depth: int = 16):
         """新的流式音频初始化 - 专门针对服务端格式优化"""
         try:
@@ -278,6 +321,7 @@ class AudioManager:
             # 重置状态
             self.audio_playing = False
             self.realtime_streaming_active = False
+            self.audio_playback_started = False  # 重置播放开始状态
             
             # 验证pygame音频设置是否匹配
             pygame_settings = pygame.mixer.get_init()
@@ -290,19 +334,67 @@ class AudioManager:
                     print(f"🔧 pygame设置不匹配，重新初始化...")
                     self._reinit_pygame_for_streaming(sample_rate, channels, bit_depth)
             
-            # 为OGG格式准备临时文件
-            if self.current_audio_format == "ogg":
+            # 为WAV格式准备临时文件
+            if self.current_audio_format == "wav":
                 timestamp = int(time.time() * 1000)
                 temp_dir = tempfile.gettempdir()
-                self.current_audio_file = os.path.join(temp_dir, f"elysia_ogg_stream_{timestamp}.ogg")
+                self.current_audio_file = os.path.join(temp_dir, f"elysia_wav_stream_{timestamp}.wav")
                 self.temp_audio_files.append(self.current_audio_file)
-                print(f"📁 OGG流式文件: {self.current_audio_file}")
+                print(f"📁 WAV流式文件: {self.current_audio_file}")
             
             print("✅ 新流式音频初始化完成")
             
         except Exception as e:
             print(f"❌ 新流式音频初始化失败: {e}")
             raise
+    
+    def play_wav_stream_direct(self, text: str, on_status_update=None) -> bool:
+        """
+        直接播放WAV流式音频 - 基于ref.py的实现
+        
+        Args:
+            text: 要转换为语音的文本
+            on_status_update: 状态更新回调函数
+            
+        Returns:
+            bool: 是否成功启动播放
+        """
+        if not self.use_wav_streaming or not self.wav_stream_manager:
+            print("WAV流式播放不可用")
+            return False
+        
+        try:
+            # 重置播放开始状态
+            self.audio_playback_started = False
+            
+            # 设置状态回调
+            if on_status_update:
+                self.wav_stream_manager.set_status_callback(on_status_update)
+            
+            # 设置播放开始回调
+            self.wav_stream_manager.set_playback_start_callback(self._notify_audio_playback_start)
+            
+            # 构建TTS URL
+            server_url = f"{Config.API_BASE_URL}/tts/generate"
+            
+            # 启动WAV流式播放
+            success = self.wav_stream_manager.handle_wav_stream_request(text, server_url)
+            
+            if success:
+                print(f"✅ WAV流式播放已启动: {text[:50]}...")
+                if on_status_update:
+                    on_status_update("🎵 WAV流式播放已启动")
+                return True
+            else:
+                print("❌ WAV流式播放启动失败")
+                return False
+                
+        except Exception as e:
+            error_msg = f"WAV流式播放失败: {e}"
+            print(error_msg)
+            if on_status_update:
+                on_status_update(f"❌ {error_msg}")
+            return False
     
     def _reinit_pygame_for_streaming(self, sample_rate: int, channels: int, bit_depth: int):
         """为流式播放重新初始化pygame"""
@@ -329,116 +421,11 @@ class AudioManager:
         except Exception as e:
             print(f"pygame重新初始化失败: {e}")
     
-    async def try_start_ogg_streaming_playback(self, audio_data: bytes, partial: bool = True):
-        """尝试开始OGG流式播放 - 修复文件权限问题"""
-        try:
-            print(f"🎵 尝试OGG流式播放: {len(audio_data)}字节, 部分数据: {partial}")
-            
-            if not self.current_audio_file:
-                print("❌ 没有OGG流式文件")
-                return False
-            
-            # 创建新的临时文件用于播放，避免权限冲突
-            timestamp = int(time.time() * 1000)
-            temp_dir = tempfile.gettempdir()
-            playback_file = os.path.join(temp_dir, f"elysia_playback_{timestamp}.ogg")
-            
-            # 写入数据到播放文件
-            with open(playback_file, 'wb') as f:
-                f.write(audio_data)
-            
-            # 添加到临时文件列表
-            self.temp_audio_files.append(playback_file)
-            
-            # 验证文件大小
-            file_size = os.path.getsize(playback_file)
-            print(f"📁 OGG播放文件大小: {file_size}字节")
-            
-            # 尝试pygame播放
-            if file_size >= 16384:  # 至少16KB
-                try:
-                    # 停止当前播放
-                    pygame.mixer.music.stop()
-                    
-                    pygame.mixer.music.load(playback_file)
-                    pygame.mixer.music.play()
-                    self.audio_playing = True
-                    print("✅ OGG流式播放已开始")
-                    return True
-                except Exception as play_error:
-                    print(f"pygame播放失败: {play_error}")
-                    return False
-            
-            return False
-            
-        except Exception as e:
-            print(f"OGG流式播放失败: {e}")
-            return False
+
     
-    async def update_ogg_streaming_playback(self, complete_audio_data: bytes):
-        """更新OGG流式播放数据 - 为播放更完整的音频"""
-        try:
-            print(f"🔄 更新OGG播放文件: {len(complete_audio_data)}字节")
-            
-            # 停止当前播放
-            try:
-                pygame.mixer.music.stop()
-            except:
-                pass
-            
-            # 创建新的播放文件
-            timestamp = int(time.time() * 1000)
-            temp_dir = tempfile.gettempdir()
-            updated_playback_file = os.path.join(temp_dir, f"elysia_updated_{timestamp}.ogg")
-            
-            # 写入完整数据
-            with open(updated_playback_file, 'wb') as f:
-                f.write(complete_audio_data)
-            
-            # 添加到临时文件列表
-            self.temp_audio_files.append(updated_playback_file)
-            
-            # 验证文件大小
-            file_size = os.path.getsize(updated_playback_file)
-            print(f"📁 更新后播放文件大小: {file_size}字节")
-            
-            # 重新开始播放
-            try:
-                pygame.mixer.music.load(updated_playback_file)
-                pygame.mixer.music.play()
-                print("✅ OGG更新播放已启动")
-                return True
-            except Exception as play_error:
-                print(f"更新播放失败: {play_error}")
-                return False
-                
-        except Exception as e:
-            print(f"更新OGG播放失败: {e}")
-            return False
+
     
-    async def append_ogg_streaming_data(self, audio_chunk: bytes):
-        """追加OGG流式数据 - 修复文件写入问题"""
-        try:
-            if not self.current_audio_file:
-                print("❌ 没有活动的OGG流式文件")
-                return
-            
-            # 检查文件是否被占用，如果被占用就跳过写入
-            try:
-                with open(self.current_audio_file, 'ab') as f:
-                    f.write(audio_chunk)
-                
-                file_size = os.path.getsize(self.current_audio_file)
-                print(f"📝 OGG数据追加: +{len(audio_chunk)}字节, 总计: {file_size}字节")
-            except PermissionError:
-                print(f"⚠️ 文件被占用，跳过数据追加: {len(audio_chunk)}字节")
-                # 文件被占用时，仍然添加到内存缓冲区
-                self.audio_buffer.extend(audio_chunk)
-            
-        except Exception as e:
-            print(f"OGG数据追加失败: {e}")
-            # 确保数据至少保存在内存中
-            self.audio_buffer.extend(audio_chunk)
+
     
     async def process_pcm_chunk_streaming(self, audio_chunk: bytes):
         """处理PCM块流式播放"""
@@ -469,9 +456,7 @@ class AudioManager:
         try:
             print(f"🎵 完成流式音频: {audio_format}, {chunks_received}块, {total_bytes}字节")
             
-            if audio_format.lower() == "ogg":
-                await self._finalize_ogg_streaming(audio_data, chunks_received, total_bytes)
-            else:
+            if audio_format.lower() != "wav":
                 await self._finalize_pcm_streaming(audio_data, chunks_received, total_bytes)
             
             # 重置状态
@@ -484,49 +469,7 @@ class AudioManager:
         except Exception as e:
             print(f"完成流式音频失败: {e}")
     
-    async def _finalize_ogg_streaming(self, audio_data: bytes, chunks_received: int, total_bytes: int):
-        """完成OGG流式处理"""
-        try:
-            if not self.current_audio_file:
-                # 创建完整的OGG文件
-                timestamp = int(time.time() * 1000)
-                temp_dir = tempfile.gettempdir()
-                complete_file = os.path.join(temp_dir, f"elysia_complete_ogg_{timestamp}.ogg")
-                
-                with open(complete_file, 'wb') as f:
-                    f.write(audio_data)
-                
-                self.current_audio_file = complete_file
-                self.temp_audio_files.append(complete_file)
-                print(f"📁 创建完整OGG文件: {complete_file}")
-            else:
-                # 确保文件包含所有数据
-                with open(self.current_audio_file, 'wb') as f:
-                    f.write(audio_data)
-                print(f"📁 更新OGG文件: {self.current_audio_file}")
-            
-            # 最终播放尝试
-            file_size = os.path.getsize(self.current_audio_file)
-            print(f"📊 最终OGG文件大小: {file_size}字节")
-            
-            if not self.audio_playing and file_size > 0:
-                try:
-                    pygame.mixer.music.load(self.current_audio_file)
-                    pygame.mixer.music.play()
-                    self.audio_playing = True
-                    print("🎵 最终OGG播放已开始")
-                except Exception as final_play_error:
-                    print(f"最终OGG播放失败: {final_play_error}")
-                    # 尝试系统播放器
-                    if platform.system() == "Windows":
-                        try:
-                            os.startfile(self.current_audio_file)
-                            print("🎵 使用系统播放器播放OGG")
-                        except Exception as sys_error:
-                            print(f"系统播放器播放失败: {sys_error}")
-            
-        except Exception as e:
-            print(f"OGG流式完成处理失败: {e}")
+
     
     async def _finalize_pcm_streaming(self, audio_data: bytes, chunks_received: int, total_bytes: int):
         """完成PCM流式处理"""
@@ -562,7 +505,7 @@ class AudioManager:
         except Exception as e:
             print(f"PCM流式完成处理失败: {e}")
     
-    def init_streaming_audio(self, audio_format: str = "ogg", on_status_update=None):
+    def init_streaming_audio(self, audio_format: str = "wav", on_status_update=None):
         """初始化流式音频播放 - 增强版"""
         try:
             print(f"初始化流式音频播放，格式: {audio_format}")
@@ -574,6 +517,7 @@ class AudioManager:
             self.audio_buffer = bytearray()
             self.audio_playing = False
             self.realtime_streaming_active = False
+            self.audio_playback_started = False  # 重置播放开始状态
             
             # 清空流式缓冲区
             self.stream_buffer.clear()
@@ -599,7 +543,7 @@ class AudioManager:
             temp_dir = tempfile.gettempdir()
             
             # 根据格式选择文件扩展名
-            file_extension = ".ogg" if audio_format.lower() == "ogg" else ".wav" if audio_format.lower() == "wav" else ".ogg"
+            file_extension = ".wav" if audio_format.lower() == "wav" else ".mp3"
             
             self.current_audio_file = os.path.join(temp_dir, f"elysia_stream_{timestamp}{file_extension}")
             print(f"创建流式音频文件: {self.current_audio_file}")
@@ -620,7 +564,7 @@ class AudioManager:
             
             if message_type == "audio_start":
                 # 开始音频流
-                audio_format = message_data.get("audio_format", "ogg")
+                audio_format = message_data.get("audio_format", "wav")
                 print(f"🎵 开始接收TTS音频流，格式: {audio_format}")
                 self.init_streaming_audio(audio_format, on_status_update)
                 
@@ -767,11 +711,6 @@ class AudioManager:
         if not (self.use_realtime_streaming and self.realtime_streaming_active and self.realtime_streamer):
             return False
         
-        # 对于OGG格式，跳过逐块实时播放，等待完整数据
-        if self.current_audio_format == "ogg":
-            print("🔄 OGG格式：跳过逐块播放，等待完整数据处理")
-            return False
-        
         try:
             # 从配置获取参数
             config = Config.STREAM_BUFFER_CONFIG
@@ -834,16 +773,9 @@ class AudioManager:
     def _process_audio_chunk_for_realtime(self, audio_chunk):
         """处理音频块用于实时播放"""
         try:
-            # 对于OGG格式，不应该逐块处理，因为OGG头部信息只在第一个块
-            if self.current_audio_format == "ogg":
-                # OGG格式需要完整解码，不适合逐块处理
-                # 直接返回None，让系统积累完整数据后统一处理
-                print(f"🔄 OGG格式块暂存: {len(audio_chunk)} 字节 (等待完整数据)")
-                return None
-            
             # 只对PCM格式进行逐块处理
             # PCM格式直接使用，但需要声道转换
-            elif len(audio_chunk) % 2 == 0 and len(audio_chunk) > 100:
+            if len(audio_chunk) % 2 == 0 and len(audio_chunk) > 100:
                 return self._convert_audio_channels(audio_chunk)
             
             return None
@@ -905,6 +837,9 @@ class AudioManager:
                         pygame.mixer.music.play()
                         self.audio_playing = True
                         
+                        # 通知音频播放开始
+                        self._notify_audio_playback_start()
+                        
                         if on_status_update:
                             on_status_update("🎵 开始播放...")
                         
@@ -940,6 +875,10 @@ class AudioManager:
                 pygame.mixer.music.load(self.current_audio_file)
                 pygame.mixer.music.play()
                 self.audio_playing = True
+                
+                # 通知音频播放开始
+                self._notify_audio_playback_start()
+                
                 if on_status_update:
                     on_status_update("🎵 开始流式播放...")
                 print("流式播放已开始")
@@ -960,30 +899,9 @@ class AudioManager:
                 # 处理剩余的音频数据
                 if len(self.audio_buffer) > 0:
                     try:
-                        # 根据音频格式处理
-                        if self.current_audio_format == "ogg" and REALTIME_AUDIO_AVAILABLE and _AudioFormatConverter:
-                            # 获取pygame实际设置以确定输出声道
-                            import pygame
-                            pygame_settings = pygame.mixer.get_init()
-                            target_channels = pygame_settings[2] if pygame_settings else 2
-                            
-                            # ⚠️ 重要：服务端使用32000Hz，必须匹配解码采样率
-                            # 使用pygame的采样率确保匹配服务端
-                            target_sample_rate = pygame_settings[0] if pygame_settings else 32000
-                            
-                            # OGG格式：使用正确的采样率解码，匹配服务端32000Hz
-                            pcm_data = _AudioFormatConverter.ogg_to_pcm(
-                                bytes(self.audio_buffer),
-                                target_sample_rate=target_sample_rate,  # 匹配服务端32000Hz
-                                target_channels=target_channels
-                            )
-                            print(f"🎵 OGG完整解码: {len(self.audio_buffer)} -> {len(pcm_data)} 字节 ({target_sample_rate}Hz {target_channels}声道)")
-                            
-                            # ✅ 采样率匹配服务端，确保正确语速
-                        else:
-                            # PCM格式：直接使用，进行声道转换
-                            pcm_data = self._convert_audio_channels(bytes(self.audio_buffer))
-                            print(f"🎵 PCM格式处理: {len(self.audio_buffer)} -> {len(pcm_data)} 字节")
+                        # PCM格式：直接使用，进行声道转换
+                        pcm_data = self._convert_audio_channels(bytes(self.audio_buffer))
+                        print(f"🎵 PCM格式处理: {len(self.audio_buffer)} -> {len(pcm_data)} 字节")
                         
                         # 添加到实时播放器
                         if self.realtime_streamer and pcm_data:
@@ -1045,7 +963,7 @@ class AudioManager:
         try:
             timestamp = int(time.time() * 1000)
             temp_dir = tempfile.gettempdir()
-            complete_audio_file = os.path.join(temp_dir, f"elysia_complete_{timestamp}.ogg")
+            complete_audio_file = os.path.join(temp_dir, f"elysia_complete_{timestamp}.wav")
             
             # 将完整的缓冲区写入新文件
             with open(complete_audio_file, 'wb') as f:
@@ -1066,6 +984,8 @@ class AudioManager:
                 success = self._play_complete_audio(complete_audio_file, on_status_update)
                 
                 if success:
+                    # 通知音频播放开始
+                    self._notify_audio_playback_start()
                     self.temp_audio_files.append(complete_audio_file)
                     return complete_audio_file
                 else:
@@ -1132,8 +1052,19 @@ class AudioManager:
         except Exception as e:
             print(f"停止音频播放失败: {e}")
         
+        # 重置播放开始状态
+        self.audio_playback_started = False
+        
         # 停止实时流播放
         self._stop_realtime_streaming()
+        
+        # 停止WAV流式播放
+        if self.use_wav_streaming and self.wav_stream_manager:
+            try:
+                self.wav_stream_manager.stop_all()
+                print("WAV流式播放已停止")
+            except Exception as e:
+                print(f"停止WAV流式播放失败: {e}")
         
         # 清空缓冲区
         self.stream_buffer.clear()
@@ -1161,6 +1092,16 @@ class AudioManager:
             self.use_realtime_streaming = False
             print("实时流播放不可用，使用传统音频播放")
     
+    def toggle_wav_streaming(self, enable: bool):
+        """切换WAV流式播放模式"""
+        if WAV_STREAM_AVAILABLE and self.wav_stream_manager:
+            self.use_wav_streaming = enable
+            self.wav_stream_manager.enable_wav_streaming(enable)
+            print(f"WAV流式播放模式: {'启用' if enable else '禁用'}")
+        else:
+            self.use_wav_streaming = False
+            print("WAV流式播放不可用")
+    
     def get_realtime_stats(self) -> dict:
         """获取实时播放统计信息"""
         stats = {"playing": False, "buffer_stats": None}
@@ -1173,75 +1114,28 @@ class AudioManager:
         
         return stats
     
+    def get_wav_stream_stats(self) -> dict:
+        """获取WAV流式播放统计信息"""
+        if self.use_wav_streaming and self.wav_stream_manager:
+            return self.wav_stream_manager.get_stats()
+        return {"wav_stream_available": False}
+    
     def get_stream_buffer_info(self) -> dict:
         """获取流式缓冲区详细信息"""
-        return {
+        info = {
             "buffer_stats": self.stream_buffer.get_stats(),
             "total_received": len(self.audio_buffer),
             "realtime_active": self.realtime_streaming_active,
-            "traditional_active": self.audio_playing
+            "traditional_active": self.audio_playing,
+            "wav_stream_available": self.use_wav_streaming
         }
-    
-    async def play_complete_ogg_audio(self, audio_data: bytes):
-        """播放完整的OGG音频数据 - 用于audio_end时的最终播放"""
-        print(f"🎵 开始播放完整OGG音频: {len(audio_data)}字节")
         
-        try:
-            # 停止之前的播放
-            self.stop_all_audio()
-            
-            # 创建唯一的临时文件名
-            timestamp = int(time.time() * 1000000)
-            temp_dir = tempfile.gettempdir()
-            temp_file = os.path.join(temp_dir, f"complete_ogg_{timestamp}.ogg")
-            
-            # 写入完整音频数据
-            with open(temp_file, 'wb') as f:
-                f.write(audio_data)
-            
-            print(f"📁 完整OGG文件已保存: {temp_file}")
-            
-            # 直接使用pygame播放OGG文件
-            pygame.mixer.music.load(temp_file)
-            pygame.mixer.music.play()
-            self.audio_playing = True
-            
-            print(f"▶️ 完整OGG音频播放已启动")
-            
-            # 等待播放完成（可选）
-            import asyncio
-            while pygame.mixer.music.get_busy():
-                await asyncio.sleep(0.1)
-            
-            print(f"✅ 完整OGG音频播放完成")
-            
-        except Exception as e:
-            print(f"❌ 完整OGG音频播放失败: {e}")
-        finally:
-            self.audio_playing = False
-            # 延迟清理临时文件，等待文件释放
-            if 'temp_file' in locals() and os.path.exists(temp_file):
-                asyncio.create_task(self._delayed_cleanup(temp_file))
+        # 添加WAV流式播放统计
+        if self.use_wav_streaming and self.wav_stream_manager:
+            info["wav_stream_stats"] = self.wav_stream_manager.get_stats()
+        
+        return info
     
-    async def _delayed_cleanup(self, temp_file: str):
-        """延迟清理临时文件"""
-        try:
-            # 等待一段时间让文件完全释放
-            await asyncio.sleep(1.0)
-            
-            # 尝试删除文件，最多重试3次
-            for attempt in range(3):
-                try:
-                    if os.path.exists(temp_file):
-                        os.remove(temp_file)
-                        print(f"🗑️ 临时文件已清理: {temp_file}")
-                        break
-                except (PermissionError, OSError) as e:
-                    if attempt < 2:  # 如果不是最后一次尝试
-                        await asyncio.sleep(2.0)  # 等待更长时间
-                    else:
-                        print(f"⚠️ 临时文件清理最终失败: {e}")
-                        # 记录文件路径，稍后手动清理
-                        print(f"📝 需要手动清理的文件: {temp_file}")
-        except Exception as e:
-            print(f"❌ 延迟清理异常: {e}")
+
+    
+

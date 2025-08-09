@@ -12,10 +12,9 @@ class Config:
     AUDIO_CHUNK_SIZE = 16384  # 16KB
     MAX_AUDIO_FILE_SIZE = 50 * 1024 * 1024  # 50MB
     SUPPORTED_AUDIO_FORMATS = [
-        ("音频文件", "*.wav *.mp3 *.ogg *.m4a *.flac *.aac"),
+        ("音频文件", "*.wav *.mp3 *.m4a *.flac *.aac"),
         ("WAV文件", "*.wav"),
         ("MP3文件", "*.mp3"),
-        ("OGG文件", "*.ogg"),
         ("所有文件", "*.*")
     ]
     
@@ -24,7 +23,7 @@ class Config:
         'sample_rate': 32000,     # 服务端固定采样率
         'channels': 1,            # 服务端固定单声道
         'bit_depth': 16,          # 服务端固定16位
-        'format': 'ogg',          # 服务端输出格式
+        'format': 'wav',          # 服务端输出格式
         'chunk_size': 8192        # 服务端固定块大小
     }
     
@@ -46,9 +45,9 @@ class Config:
         'latency': 'low'          # 延迟设置
     }
     
-    # 新增：OGG流式处理配置
-    OGG_STREAMING_CONFIG = {
-        'accumulation_threshold': 32768,    # OGG数据积累阈值 (32KB)
+    # WAV流式处理配置
+    WAV_STREAMING_CONFIG = {
+        'accumulation_threshold': 32768,    # WAV数据积累阈值 (32KB)
         'initial_chunks_wait': 4,           # 初始等待的块数
         'chunk_processing_batch': 5,        # 每次处理的块数
         'playback_retry_delay': 0.5,        # 播放重试延迟(秒)
@@ -59,11 +58,11 @@ class Config:
     # 流式音频缓冲区配置（类似 MediaSource API）
     STREAM_BUFFER_CONFIG = {
         'max_buffer_size': 1024 * 1024,    # 1MB最大缓冲区
-        'auto_play_threshold': 32768,       # 32KB自动播放阈值(适合OGG)
+        'auto_play_threshold': 32768,       # 32KB自动播放阈值(适合WAV)
         'max_chunks_per_cycle': 5,          # 每次最多处理的块数
         'buffer_utilization_target': 0.7,   # 目标缓冲区利用率
         'status_update_interval': 5,        # 状态更新间隔（块数，降低频率）
-        'ogg_minimum_data': 16384           # OGG最小数据要求
+        'wav_minimum_data': 16384           # WAV最小数据要求
     }
     
     # 网络配置
@@ -88,6 +87,8 @@ class Config:
     CHAT_AUDIO_TIME_PRECISION = 2 # 聊天音频时间显示精度
     SHOW_AUDIO_TIME = True   # 是否显示普通音频响应时间（向后兼容）
     AUDIO_TIME_PRECISION = 2 # 普通音频时间显示精度（向后兼容）
+    SHOW_TOTAL_AUDIO_TIME = True   # 是否显示从请求到开始播放的总耗时
+    TOTAL_AUDIO_TIME_PRECISION = 2 # 总音频耗时显示精度
     
     # 内容过滤配置
     SIMILARITY_THRESHOLD = 0.95
