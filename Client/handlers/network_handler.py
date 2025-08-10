@@ -18,6 +18,28 @@ class NetworkHandler:
     def __init__(self, base_url: Optional[str] = None):
         self.base_url = base_url or Config.API_BASE_URL
     
+    def _create_aiohttp_session(self, timeout_type: str = "normal"):
+        """创建aiohttp会话配置"""
+        connector = aiohttp.TCPConnector(
+            limit_per_host=100,
+            enable_cleanup_closed=True
+        )
+        
+        if timeout_type == "connection":
+            timeout = aiohttp.ClientTimeout(total=Config.CONNECTION_TIMEOUT)
+        elif timeout_type == "request":
+            timeout = aiohttp.ClientTimeout(total=Config.REQUEST_TIMEOUT)
+        else:  # normal
+            timeout = aiohttp.ClientTimeout(total=Config.CONNECTION_TIMEOUT)
+        
+        return aiohttp.ClientSession(
+            connector=connector,
+            timeout=timeout,
+            read_bufsize=Config.STREAM_BUFFER_SIZE,
+            max_line_size=Config.MAX_LINE_SIZE,
+            max_field_size=Config.MAX_FIELD_SIZE
+        )
+    
     def normal_chat_request(self, message: str, user_id: str = "test_user") -> Dict[str, Any]:
         """普通聊天请求"""
         try:
@@ -42,7 +64,12 @@ class NetworkHandler:
             raise
     
     def upload_audio_file_sync(self, audio_file: str) -> requests.Response:
-        """同步上传音频文件"""
+        """
+        同步上传音频文件
+        
+        注意：保留此同步方法作为备用方案，虽然主要使用异步版本，
+        但在某些错误恢复场景中仍可能被调用
+        """
         try:
             url = f"{self.base_url}/chat/audio/stream/cloud"
             
@@ -81,20 +108,7 @@ class NetworkHandler:
                                on_data_received: Optional[Callable] = None) -> None:
         """异步流式聊天 - 重写版本，直接传递消息行"""
         try:
-            # 设置连接参数
-            connector = aiohttp.TCPConnector(
-                limit_per_host=100,
-                enable_cleanup_closed=True
-            )
-            timeout = aiohttp.ClientTimeout(total=Config.CONNECTION_TIMEOUT)
-            
-            async with aiohttp.ClientSession(
-                connector=connector,
-                timeout=timeout,
-                read_bufsize=Config.STREAM_BUFFER_SIZE,
-                max_line_size=Config.MAX_LINE_SIZE,
-                max_field_size=Config.MAX_FIELD_SIZE
-            ) as session:
+            async with self._create_aiohttp_session("connection") as session:
                 url = f"{self.base_url}/chat/text/stream/local"
                 payload = {"message": message, "user_id": user_id}
                 
@@ -141,20 +155,7 @@ class NetworkHandler:
                               on_data_received: Optional[Callable] = None) -> None:
         """异步云端流式聊天 - 重写版本，直接传递消息行"""
         try:
-            # 设置连接参数
-            connector = aiohttp.TCPConnector(
-                limit_per_host=100,
-                enable_cleanup_closed=True
-            )
-            timeout = aiohttp.ClientTimeout(total=Config.REQUEST_TIMEOUT)  # 云端可能需要更长时间
-            
-            async with aiohttp.ClientSession(
-                connector=connector,
-                timeout=timeout,
-                read_bufsize=Config.STREAM_BUFFER_SIZE,
-                max_line_size=Config.MAX_LINE_SIZE,
-                max_field_size=Config.MAX_FIELD_SIZE
-            ) as session:
+            async with self._create_aiohttp_session("request") as session:  # 云端可能需要更长时间
                 url = f"{self.base_url}/chat/text/stream/cloud"
                 payload = {"message": message, "user_id": user_id}
                 
@@ -200,20 +201,7 @@ class NetworkHandler:
     async def audio_upload_async(self, audio_file: str, on_data_received: Optional[Callable] = None) -> None:
         """异步音频上传和流式响应处理"""
         try:
-            # 设置连接参数
-            connector = aiohttp.TCPConnector(
-                limit_per_host=100,
-                enable_cleanup_closed=True
-            )
-            timeout = aiohttp.ClientTimeout(total=Config.REQUEST_TIMEOUT)
-            
-            async with aiohttp.ClientSession(
-                connector=connector,
-                timeout=timeout,
-                read_bufsize=Config.STREAM_BUFFER_SIZE,
-                max_line_size=Config.MAX_LINE_SIZE,
-                max_field_size=Config.MAX_FIELD_SIZE
-            ) as session:
+            async with self._create_aiohttp_session("request") as session:
                 url = f"{self.base_url}/chat/audio/stream/cloud"
                 
                 print(f"异步上传音频文件到: {url}")
@@ -266,7 +254,12 @@ class NetworkHandler:
                 on_data_received({"type": "error", "error": error_msg})
     
     def process_streaming_response(self, response: requests.Response, on_data_received: Optional[Callable] = None):
-        """处理流式响应"""
+        """
+        处理流式响应
+        
+        注意：此方法主要在音频上传的错误恢复场景中使用，
+        正常情况下优先使用异步版本的流式处理
+        """
         try:
             print("开始处理流式响应...")
             
@@ -349,14 +342,7 @@ class NetworkHandler:
                             
                             # 调用回调函数处理音频数据
                             if on_data_received and callable(on_data_received):
-                                try:
-                                    if asyncio.iscoroutinefunction(on_data_received):
-                                        await on_data_received(audio_message)
-                                    else:
-                                        on_data_received(audio_message)
-                                except Exception as e:
-                                    print(f"处理TTS音频数据异常: {e}")
-                                    continue
+                                await self._safe_call_callback(on_data_received, audio_message, "TTS音频数据")
                     
                     # 发送完成信号
                     if on_data_received and callable(on_data_received):
@@ -365,13 +351,7 @@ class NetworkHandler:
                             "total_chunks": chunk_count,
                             "total_size": total_audio_size
                         }
-                        try:
-                            if asyncio.iscoroutinefunction(on_data_received):
-                                await on_data_received(complete_message)
-                            else:
-                                on_data_received(complete_message)
-                        except Exception as e:
-                            print(f"处理TTS完成信号异常: {e}")
+                        await self._safe_call_callback(on_data_received, complete_message, "TTS完成信号")
                     
                     print(f"🎵 TTS流式音频传输完成，共{chunk_count}个chunk，总大小{total_audio_size}字节")
                                 
@@ -385,4 +365,13 @@ class NetworkHandler:
             print(f"❌ {error_msg}")
             if on_data_received:
                 on_data_received({"type": "error", "error": error_msg})
-                on_data_received({"type": "error", "error": str(e)})
+    
+    async def _safe_call_callback(self, callback: Callable, message: Any, context: str) -> None:
+        """安全调用回调函数，处理异步和同步两种情况"""
+        try:
+            if asyncio.iscoroutinefunction(callback):
+                await callback(message)
+            else:
+                callback(message)
+        except Exception as e:
+            print(f"处理{context}异常: {e}")

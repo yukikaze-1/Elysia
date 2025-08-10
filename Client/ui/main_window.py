@@ -22,7 +22,8 @@ class MainUI:
         self.message_entry: Optional[ttk.Entry] = None
         self.status_var: Optional[tk.StringVar] = None
         
-        # 按钮组件
+        # 按钮组件统一管理
+        self._control_buttons = []  # 统一管理控制按钮
         self.stream_button: Optional[ttk.Button] = None
         self.cloud_button: Optional[ttk.Button] = None
         self.normal_button: Optional[ttk.Button] = None
@@ -31,6 +32,9 @@ class MainUI:
         self.clear_button: Optional[ttk.Button] = None
         self.send_button: Optional[ttk.Button] = None
         self.test_wav_button: Optional[ttk.Button] = None
+        
+        # UI更新标志
+        self._update_pending = False
         
         # 事件回调
         self.on_send_message_callback: Optional[Callable] = None
@@ -43,6 +47,22 @@ class MainUI:
         self.on_test_wav_stream_callback: Optional[Callable] = None
         
         self.setup_ui()
+        self.setup_shortcuts()
+    
+    def setup_shortcuts(self):
+        """设置键盘快捷键"""
+        # Ctrl+Enter 触发流式聊天
+        self.root.bind('<Control-Return>', lambda e: self._on_stream_chat())
+        # Ctrl+H 查看历史
+        self.root.bind('<Control-h>', lambda e: self._on_show_history())
+        # Ctrl+L 清空聊天
+        self.root.bind('<Control-l>', lambda e: self._on_clear_chat())
+        # Escape 聚焦到输入框
+        self.root.bind('<Escape>', lambda e: self.message_entry.focus_set() if self.message_entry else None)
+        # Ctrl+U 上传音频
+        self.root.bind('<Control-u>', lambda e: self._on_upload_audio())
+        # Ctrl+T 测试WAV流播放
+        self.root.bind('<Control-t>', lambda e: self._on_test_wav_stream())
     
     def setup_ui(self):
         """设置用户界面"""
@@ -107,28 +127,27 @@ class MainUI:
         control_frame = ttk.Frame(parent)
         control_frame.grid(row=3, column=0, columnspan=3, sticky="ew")
         
-        # 第一行按钮
-        self.stream_button = ttk.Button(control_frame, text="流式聊天", command=self._on_stream_chat)
-        self.stream_button.grid(row=0, column=0, padx=(0, 10))
+        # 按钮配置：(文本, 回调, 属性名, 行, 列)
+        button_configs = [
+            ("流式聊天", self._on_stream_chat, "stream_button", 0, 0),
+            ("云端聊天", self._on_cloud_chat, "cloud_button", 0, 1),
+            ("普通聊天", self._on_normal_chat, "normal_button", 0, 2),
+            ("上传音频", self._on_upload_audio, "audio_button", 0, 3),
+            ("查看历史", self._on_show_history, "history_button", 1, 0),
+            ("清空聊天", self._on_clear_chat, "clear_button", 1, 1),
+            ("测试WAV流播放", self._on_test_wav_stream, "test_wav_button", 1, 2),
+        ]
         
-        self.cloud_button = ttk.Button(control_frame, text="云端聊天", command=self._on_cloud_chat)
-        self.cloud_button.grid(row=0, column=1, padx=(0, 10))
-        
-        self.normal_button = ttk.Button(control_frame, text="普通聊天", command=self._on_normal_chat)
-        self.normal_button.grid(row=0, column=2, padx=(0, 10))
-        
-        self.audio_button = ttk.Button(control_frame, text="上传音频", command=self._on_upload_audio)
-        self.audio_button.grid(row=0, column=3, padx=(0, 10))
-        
-        # 第二行按钮
-        self.history_button = ttk.Button(control_frame, text="查看历史", command=self._on_show_history)
-        self.history_button.grid(row=1, column=0, padx=(0, 10), pady=(5, 0))
-        
-        self.clear_button = ttk.Button(control_frame, text="清空聊天", command=self._on_clear_chat)
-        self.clear_button.grid(row=1, column=1, padx=(0, 10), pady=(5, 0))
-        
-        self.test_wav_button = ttk.Button(control_frame, text="测试WAV流播放", command=self._on_test_wav_stream)
-        self.test_wav_button.grid(row=1, column=2, padx=(0, 10), pady=(5, 0))
+        for text, command, attr_name, row, col in button_configs:
+            button = ttk.Button(control_frame, text=text, command=command)
+            button.grid(row=row, column=col, padx=(0, 10), 
+                       pady=(5, 0) if row > 0 else 0)
+            
+            # 设置按钮属性引用
+            setattr(self, attr_name, button)
+            # 添加到统一管理列表（除了发送按钮）
+            if attr_name != "send_button":
+                self._control_buttons.append(button)
     
     def _setup_status_bar(self, parent):
         """设置状态栏"""
@@ -190,7 +209,15 @@ class MainUI:
         if self.chat_display:
             self.chat_display.insert(tk.END, formatted_message)
             self.chat_display.see(tk.END)
-            self.root.update_idletasks()
+            # 批量更新，减少重绘次数
+            if not self._update_pending:
+                self._update_pending = True
+                self.root.after_idle(self._do_update)
+    
+    def _do_update(self):
+        """延迟更新UI"""
+        self.root.update_idletasks()
+        self._update_pending = False
     
     def get_message_text(self) -> str:
         """获取输入框中的消息"""
@@ -287,23 +314,31 @@ class MainUI:
         """获取最后一条用户消息"""
         if not self.chat_display:
             return ""
+        
+        try:
+            # 避免获取全部内容，只获取最后几行
+            end_line = int(self.chat_display.index(tk.END).split('.')[0])
+            start_line = max(1, end_line - 20)  # 只检查最后20行
             
-        content = self.chat_display.get("1.0", tk.END)
-        lines = content.split('\n')
+            content = self.chat_display.get(f"{start_line}.0", tk.END)
+            lines = content.split('\n')
+            
+            print(f"检查最后 {len(lines)} 行内容")
+            
+            for line in reversed(lines):
+                print(f"检查行: {line}")
+                if "用户:" in line:
+                    # 提取消息内容
+                    parts = line.split("用户:", 1)
+                    if len(parts) > 1:
+                        message = parts[1].strip()
+                        print(f"找到用户消息: {message}")
+                        return message
+            print("未找到用户消息")
+            
+        except Exception as e:
+            print(f"获取用户消息失败: {e}")
         
-        print(f"聊天内容: {content}")
-        print(f"分割后的行数: {len(lines)}")
-        
-        for line in reversed(lines):
-            print(f"检查行: {line}")
-            if "用户:" in line:
-                # 提取消息内容
-                parts = line.split("用户:", 1)
-                if len(parts) > 1:
-                    message = parts[1].strip()
-                    print(f"找到用户消息: {message}")
-                    return message
-        print("未找到用户消息")
         return ""
     
     def clear_chat_display(self):
@@ -314,23 +349,25 @@ class MainUI:
     
     def disable_buttons(self):
         """禁用按钮"""
-        buttons = [
-            self.stream_button, self.cloud_button, self.normal_button,
-            self.audio_button, self.send_button, self.test_wav_button
-        ]
-        for button in buttons:
+        # 禁用所有控制按钮
+        for button in self._control_buttons:
             if button:
                 button.configure(state="disabled")
+        
+        # 单独处理发送按钮
+        if self.send_button:
+            self.send_button.configure(state="disabled")
     
     def enable_buttons(self):
         """启用按钮"""
-        buttons = [
-            self.stream_button, self.cloud_button, self.normal_button,
-            self.audio_button, self.send_button, self.test_wav_button
-        ]
-        for button in buttons:
+        # 启用所有控制按钮
+        for button in self._control_buttons:
             if button:
                 button.configure(state="normal")
+        
+        # 单独处理发送按钮
+        if self.send_button:
+            self.send_button.configure(state="normal")
     
     def show_file_dialog(self, title: str = "选择音频文件") -> str:
         """显示文件选择对话框"""
@@ -353,27 +390,28 @@ class MainUI:
             return
             
         try:
+            # 验证行号有效性
+            total_lines = int(self.chat_display.index(tk.END).split('.')[0]) - 1
+            if line_number < 0 or line_number >= total_lines:
+                print(f"行号 {line_number} 超出范围，直接添加新行")
+                self.append_to_chat(f"[更新] {content}", "系统")
+                return
+            
             # 使用1基的行号系统（Tkinter使用1基）
             line_start = f"{line_number + 1}.0"
             line_end = f"{line_number + 1}.end"
             
-            # 获取当前内容以验证行号有效性
-            try:
-                current_content = self.chat_display.get(line_start, line_end)
-                if not current_content:
-                    print(f"警告：行 {line_number + 1} 为空或不存在")
-                    return
-            except Exception as e:
-                print(f"无法访问行 {line_number + 1}: {e}")
-                return
-            
-            # 删除旧内容并插入新内容
+            # 原子操作：删除旧内容并插入新内容
             self.chat_display.delete(line_start, line_end)
             self.chat_display.insert(line_start, content)
             
             # 确保滚动到最新内容
             self.chat_display.see("end")
             
+        except tk.TclError as e:
+            print(f"Tkinter 错误: {e}")
+            # 作为fallback，在末尾添加新行
+            self.append_to_chat(f"[更新失败，补充] {content}", "系统")
         except Exception as e:
             print(f"更新聊天行失败: {e}")
             # 作为fallback，在末尾添加新行

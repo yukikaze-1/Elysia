@@ -27,24 +27,6 @@ class Config:
         'chunk_size': 8192        # 服务端固定块大小
     }
     
-    # pygame音频初始化参数 - 匹配服务端配置 (32000Hz, 1声道, 16位)
-    PYGAME_AUDIO_CONFIG = {
-        'frequency': 32000,       # 匹配服务端采样率
-        'size': -16,              # 16位采样位宽 (负数表示有符号)
-        'channels': 1,            # 单声道，匹配服务端
-        'buffer': 1024
-    }
-    
-    # 实时音频流配置 - 匹配服务端配置
-    REALTIME_AUDIO_CONFIG = {
-        'sample_rate': 32000,     # 采样率 - 匹配服务端32000Hz
-        'channels': 1,            # 声道数 - 匹配服务端单声道
-        'chunk_size': 1024,       # 每次播放的块大小
-        'min_buffer_size': 4096,  # 最小缓冲区大小
-        'max_buffer_size': 32768, # 最大缓冲区大小
-        'latency': 'low'          # 延迟设置
-    }
-    
     # WAV流式处理配置
     WAV_STREAMING_CONFIG = {
         'accumulation_threshold': 32768,    # WAV数据积累阈值 (32KB)
@@ -53,16 +35,6 @@ class Config:
         'playback_retry_delay': 0.5,        # 播放重试延迟(秒)
         'enable_partial_playback': True,    # 启用部分数据播放
         'buffer_safety_margin': 0.8         # 缓冲区安全边界
-    }
-    
-    # 流式音频缓冲区配置（类似 MediaSource API）
-    STREAM_BUFFER_CONFIG = {
-        'max_buffer_size': 1024 * 1024,    # 1MB最大缓冲区
-        'auto_play_threshold': 32768,       # 32KB自动播放阈值(适合WAV)
-        'max_chunks_per_cycle': 5,          # 每次最多处理的块数
-        'buffer_utilization_target': 0.7,   # 目标缓冲区利用率
-        'status_update_interval': 5,        # 状态更新间隔（块数，降低频率）
-        'wav_minimum_data': 16384           # WAV最小数据要求
     }
     
     # 网络配置

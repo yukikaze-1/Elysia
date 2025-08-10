@@ -471,6 +471,17 @@ class WavStreamAudioManager:
         """停止所有WAV流式播放"""
         self.wav_client.stop()
     
+    def is_playing(self) -> bool:
+        """检查是否正在播放"""
+        try:
+            # 检查客户端是否活跃且播放器正在播放
+            return (self.wav_client.is_active and 
+                    self.wav_client.player.is_streaming and 
+                    self.wav_client.player.is_playing)
+        except AttributeError:
+            # 如果属性不存在，返回False
+            return False
+    
     def get_stats(self) -> Dict[str, Any]:
         """获取统计信息"""
         return self.wav_client.get_stats()

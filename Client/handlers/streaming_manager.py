@@ -3,6 +3,8 @@
 按照用户需求简化流式显示逻辑
 """
 
+import traceback
+
 from datetime import datetime
 from typing import Optional
 from utils.content_filter import ContentFilter
@@ -23,6 +25,13 @@ class StreamingResponseManager:
         # 响应内容缓存
         self._current_text = ""
         
+        # 响应类型前缀映射
+        self._type_prefixes = {
+            "cloud": "☁️Elysia",
+            "audio": "🎤Elysia",
+            "local": "Elysia"
+        }
+        
     def reset_streaming_response(self):
         """重置流式响应状态"""
         self.current_response_line_start = None
@@ -41,13 +50,8 @@ class StreamingResponseManager:
             self.current_response_type = response_type
             self.is_streaming = True
             
-            # 根据类型设置前缀
-            if response_type == "cloud":
-                prefix = "☁️Elysia"
-            elif response_type == "audio":
-                prefix = "🎤Elysia"
-            else:  # local
-                prefix = "Elysia"
+            # 获取前缀
+            prefix = self._type_prefixes.get(response_type, "Elysia")
             
             # 创建新的响应行
             timestamp = datetime.now().strftime("%H:%M:%S")
@@ -66,9 +70,7 @@ class StreamingResponseManager:
                 print(f"开始{response_type}流式响应，位置: {self.current_response_line_start}")
             
         except Exception as e:
-            print(f"开始流式响应失败: {e}")
-            import traceback
-            traceback.print_exc()
+            self._handle_error(f"开始流式响应失败: {e}")
     
     def append_streaming_text(self, new_text: str):
         """追加流式文本（逐字显示）"""
@@ -106,9 +108,7 @@ class StreamingResponseManager:
                 print(f"追加文本: {filtered_text[:10]}... (总长度: {len(self._current_text)})")
             
         except Exception as e:
-            print(f"追加流式文本失败: {e}")
-            import traceback
-            traceback.print_exc()
+            self._handle_error(f"追加流式文本失败: {e}")
     
     def complete_streaming_response(self):
         """完成流式响应"""
@@ -123,98 +123,70 @@ class StreamingResponseManager:
             
             print(f"完成{self.current_response_type}流式响应，总长度: {len(self._current_text)}")
             
-            # 如果有客户端引用且有音频时间，现在显示它
-            if self.client and hasattr(self.client, 'audio_time'):
-                print(f"检查音频时间: {self.client.audio_time}, 请求类型: {getattr(self.client, 'request_type', None)}")
-                if self.client.audio_time is not None:
-                    # 捕获当前的音频时间值，避免lambda延迟执行时值被清空
-                    audio_time_value = self.client.audio_time
-                    if self.client.request_type == "chat":
-                        # 聊天请求的音频响应时间
-                        self.ui_manager.root.after(0, lambda t=audio_time_value: self.ui_manager.show_chat_audio_time(t))
-                    else:
-                        # 普通音频响应时间
-                        self.ui_manager.root.after(0, lambda t=audio_time_value: self.ui_manager.show_audio_time(t))
-                    
-                    # 清除音频时间，避免重复显示
-                    self.client.audio_time = None
-                else:
-                    print("音频时间为None，跳过显示")
+            # 处理音频时间显示
+            self._handle_audio_time_display()
             
             # 重置状态
             self.reset_streaming_response()
             
         except Exception as e:
-            print(f"完成流式响应失败: {e}")
-            import traceback
-            traceback.print_exc()
+            self._handle_error(f"完成流式响应失败: {e}")
+    
+    def update_response(self, response_type: str, response: str):
+        """统一的响应更新方法"""
+        try:
+            if not response:
+                return
+            
+            # 如果还没开始流式响应，先开始
+            if not self.is_streaming:
+                self.start_streaming_response(response_type)
+            
+            # 计算新增的文本（只添加新的部分）
+            if len(response) > len(self._current_text):
+                new_text = response[len(self._current_text):]
+                self.append_streaming_text(new_text)
+            
+        except Exception as e:
+            self._handle_error(f"更新{response_type}响应失败: {e}")
     
     def update_local_response(self, response: str):
         """更新本地响应显示"""
-        try:
-            if not response:
-                return
-            
-            # 如果还没开始流式响应，先开始
-            if not self.is_streaming:
-                self.start_streaming_response("local")
-            
-            # 计算新增的文本（只添加新的部分）
-            if len(response) > len(self._current_text):
-                new_text = response[len(self._current_text):]
-                self.append_streaming_text(new_text)
-            
-        except Exception as e:
-            print(f"更新本地响应失败: {e}")
-            import traceback
-            traceback.print_exc()
+        self.update_response("local", response)
     
     def update_cloud_response(self, response: str):
         """更新云端响应显示"""
-        try:
-            if not response:
-                return
-            
-            # 如果还没开始流式响应，先开始
-            if not self.is_streaming:
-                self.start_streaming_response("cloud")
-            
-            # 计算新增的文本（只添加新的部分）
-            if len(response) > len(self._current_text):
-                new_text = response[len(self._current_text):]
-                self.append_streaming_text(new_text)
-            
-        except Exception as e:
-            print(f"更新云端响应失败: {e}")
-            import traceback
-            traceback.print_exc()
+        self.update_response("cloud", response)
     
     def update_audio_response(self, response: str):
         """更新音频响应显示"""
-        try:
-            if not response:
-                return
-            
-            # 如果还没开始流式响应，先开始
-            if not self.is_streaming:
-                self.start_streaming_response("audio")
-            
-            # 计算新增的文本（只添加新的部分）
-            if len(response) > len(self._current_text):
-                new_text = response[len(self._current_text):]
-                self.append_streaming_text(new_text)
-            
-        except Exception as e:
-            print(f"更新音频响应失败: {e}")
-            import traceback
-            traceback.print_exc()
+        self.update_response("audio", response)
     
-    def finalize_response(self, response_type: str, final_response: str):
-        """完成响应"""
-        try:
-            print(f"正在完成{response_type}响应")
-            self.complete_streaming_response()
-        except Exception as e:
-            print(f"完成响应失败: {e}")
-            import traceback
-            traceback.print_exc()
+    def _handle_audio_time_display(self):
+        """处理音频时间显示"""
+        if not self.client or not hasattr(self.client, 'audio_time'):
+            return
+        
+        print(f"检查音频时间: {self.client.audio_time}, 请求类型: {getattr(self.client, 'request_type', None)}")
+        
+        if self.client.audio_time is not None:
+            # 捕获当前的音频时间值，避免lambda延迟执行时值被清空
+            audio_time_value = self.client.audio_time
+            
+            if getattr(self.client, 'request_type', None) == "chat":
+                # 聊天请求的音频响应时间
+                self.ui_manager.root.after(0, lambda t=audio_time_value: self.ui_manager.show_chat_audio_time(t))
+            else:
+                # 普通音频响应时间
+                self.ui_manager.root.after(0, lambda t=audio_time_value: self.ui_manager.show_audio_time(t))
+            
+            # 清除音频时间，避免重复显示
+            self.client.audio_time = None
+        else:
+            print("音频时间为None，跳过显示")
+    
+    def _handle_error(self, error_msg: str):
+        """统一的错误处理"""
+        print(error_msg)
+        traceback.print_exc()
+

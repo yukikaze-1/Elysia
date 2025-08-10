@@ -10,6 +10,11 @@ from core.config import Config
 class ContentFilter:
     """内容过滤器 - 针对流式输出优化"""
     
+    # 常量定义，避免硬编码
+    SIMILARITY_THRESHOLD_HIGH = 0.9  # 高相似度阈值
+    SIMILARITY_THRESHOLD_MEDIUM = 0.7  # 中等相似度阈值
+    MIN_CHECK_LENGTH = 20  # 重复检查的最小长度
+    
     @staticmethod
     def process_streaming_chunk(new_chunk: str, accumulated_text: str) -> str:
         """处理流式输出的新块（针对真正的流式输出优化）"""
@@ -37,89 +42,6 @@ class ContentFilter:
             return new_chunk
     
     @staticmethod
-    def is_streaming_mode_suitable(response_pattern: str) -> bool:
-        """判断是否适合使用流式模式（基于响应模式）"""
-        try:
-            # 检查是否有明显的重复模式
-            lines = response_pattern.split('\n')
-            if len(lines) <= 2:
-                return True  # 短内容适合流式
-            
-            # 检查是否有逐渐截断的迹象
-            truncation_count = 0
-            for i in range(len(lines) - 1):
-                current = lines[i].strip()
-                next_line = lines[i + 1].strip()
-                if current and next_line and current.startswith(next_line) and len(next_line) < len(current) * 0.8:
-                    truncation_count += 1
-            
-            # 如果截断模式很多，说明不适合当前的处理方式
-            return truncation_count < len(lines) * 0.3
-            
-        except Exception as e:
-            print(f"判断流式模式适用性失败: {e}")
-            return True
-    
-    @staticmethod
-    def remove_immediate_duplicates(text: str) -> str:
-        """移除即时重复的内容"""
-        try:
-            # 按行分割
-            lines = text.split('\n')
-            cleaned_lines = []
-            
-            for line in lines:
-                line = line.strip()
-                if not line:
-                    continue
-                    
-                # 检查是否和前一行重复
-                if cleaned_lines and line == cleaned_lines[-1]:
-                    continue
-                
-                # 检查是否是不完整的重复或截断
-                if cleaned_lines:
-                    last_line = cleaned_lines[-1]
-                    
-                    # 如果当前行是上一行的前缀（截断），跳过当前行
-                    if last_line.startswith(line) and len(line) < len(last_line):
-                        continue
-                    
-                    # 如果当前行是上一行的扩展，替换上一行
-                    elif line.startswith(last_line) and len(line) > len(last_line):
-                        cleaned_lines[-1] = line
-                        continue
-                    
-                    # 检查是否是相似的开头但内容不同（可能是重复的句式）
-                    # 对于特定的重复句式，只保留第一个完整的
-                    if line.startswith("呀～") and last_line.startswith("呀～"):
-                        # 如果两行都是以"呀～"开头，保留更完整的那个
-                        if len(line) <= len(last_line):
-                            continue  # 跳过较短的
-                        else:
-                            cleaned_lines[-1] = line  # 替换为较长的
-                            continue
-                
-                cleaned_lines.append(line)
-            
-            # 最后再做一次检查，移除重复的段落
-            final_lines = []
-            seen_content: Set[str] = set()
-            
-            for line in cleaned_lines:
-                # 对于长句子，检查是否已经有相似的内容
-                line_key = line[:Config.DUPLICATE_CHECK_LENGTH] if len(line) > Config.DUPLICATE_CHECK_LENGTH else line
-                if line_key not in seen_content:
-                    final_lines.append(line)
-                    seen_content.add(line_key)
-            
-            return '\n'.join(final_lines)
-            
-        except Exception as e:
-            print(f"移除即时重复失败: {e}")
-            return text
-    
-    @staticmethod
     def advanced_duplicate_filter(text: str) -> str:
         """高级重复内容过滤器"""
         try:
@@ -145,8 +67,8 @@ class ContentFilter:
                 # 检查是否已经有相似的行
                 is_duplicate = False
                 for existing_sig in seen_signatures:
-                    # 如果两个签名非常相似（>90%）
-                    if ContentFilter._signature_similarity(signature, existing_sig) > 0.9:
+                    # 如果两个签名非常相似（使用高相似度阈值）
+                    if ContentFilter._signature_similarity(signature, existing_sig) > ContentFilter.SIMILARITY_THRESHOLD_HIGH:
                         is_duplicate = True
                         break
                 
@@ -161,32 +83,44 @@ class ContentFilter:
             return text
     
     @staticmethod
-    def _signature_similarity(sig1: str, sig2: str) -> float:
-        """计算两个签名的相似度"""
+    def _calculate_similarity(str1: str, str2: str, normalize: bool = False) -> float:
+        """统一的相似度计算方法"""
         try:
-            if not sig1 or not sig2:
+            if not str1 or not str2:
                 return 0.0
             
-            # 如果一个是另一个的前缀或后缀
-            shorter = sig1 if len(sig1) < len(sig2) else sig2
-            longer = sig2 if len(sig1) < len(sig2) else sig1
+            # 如果需要标准化（用于内容比较）
+            if normalize:
+                str1 = ''.join(c for c in str1.lower() if c.isalnum())
+                str2 = ''.join(c for c in str2.lower() if c.isalnum())
+                if not str1 or not str2:
+                    return 0.0
             
-            if longer.startswith(shorter) or longer.endswith(shorter):
+            # 检查前缀匹配
+            shorter = str1 if len(str1) < len(str2) else str2
+            longer = str2 if len(str1) < len(str2) else str1
+            
+            if longer.startswith(shorter) or (not normalize and longer.endswith(shorter)):
                 return len(shorter) / len(longer)
             
-            # 计算字符级相似度
-            common_chars = 0
-            for i in range(min(len(sig1), len(sig2))):
-                if sig1[i] == sig2[i]:
-                    common_chars += 1
+            # 计算最长公共前缀
+            common_prefix = 0
+            for i in range(min(len(str1), len(str2))):
+                if str1[i] == str2[i]:
+                    common_prefix += 1
                 else:
                     break
             
-            return common_chars / max(len(sig1), len(sig2))
+            return common_prefix / max(len(str1), len(str2))
             
         except Exception as e:
-            print(f"计算签名相似度失败: {e}")
+            print(f"计算相似度失败: {e}")
             return 0.0
+    
+    @staticmethod
+    def _signature_similarity(sig1: str, sig2: str) -> float:
+        """计算两个签名的相似度（保留用于签名特定逻辑）"""
+        return ContentFilter._calculate_similarity(sig1, sig2, normalize=False)
     
     @staticmethod
     def remove_progressive_truncation(text: str) -> str:
@@ -213,9 +147,9 @@ class ContentFilter:
                 matched_group = None
                 for existing_core in content_groups:
                     # 检查是否是同一内容的不同版本
-                    if (core_content.startswith(existing_core[:20]) or 
-                        existing_core.startswith(core_content[:20]) or
-                        ContentFilter._content_similarity(core_content, existing_core) > 0.7):
+                    if (core_content.startswith(existing_core[:ContentFilter.MIN_CHECK_LENGTH]) or 
+                        existing_core.startswith(core_content[:ContentFilter.MIN_CHECK_LENGTH]) or
+                        ContentFilter._calculate_similarity(core_content, existing_core, normalize=True) > ContentFilter.SIMILARITY_THRESHOLD_MEDIUM):
                         matched_group = existing_core
                         break
                 
@@ -240,121 +174,3 @@ class ContentFilter:
         except Exception as e:
             print(f"移除逐渐截断失败: {e}")
             return text
-    
-    @staticmethod
-    def _content_similarity(content1: str, content2: str) -> float:
-        """计算两个内容的相似度"""
-        try:
-            if not content1 or not content2:
-                return 0.0
-            
-            # 简化内容（只保留字母数字）
-            simple1 = ''.join(c for c in content1.lower() if c.isalnum())
-            simple2 = ''.join(c for c in content2.lower() if c.isalnum())
-            
-            if not simple1 or not simple2:
-                return 0.0
-            
-            # 计算最长公共子序列的比例
-            shorter = simple1 if len(simple1) < len(simple2) else simple2
-            longer = simple2 if len(simple1) < len(simple2) else simple1
-            
-            if longer.startswith(shorter):
-                return len(shorter) / len(longer)
-            
-            # 计算字符重叠度
-            common = 0
-            for i in range(min(len(simple1), len(simple2))):
-                if simple1[i] == simple2[i]:
-                    common += 1
-                else:
-                    break
-            
-            return common / max(len(simple1), len(simple2))
-            
-        except Exception as e:
-            print(f"计算内容相似度失败: {e}")
-            return 0.0
-    
-    @staticmethod
-    def _calculate_similarity(str1: str, str2: str) -> float:
-        """计算两个字符串的相似度"""
-        try:
-            if not str1 or not str2:
-                return 0.0
-            
-            # 简单的相似度计算：基于公共子串
-            shorter = str1 if len(str1) < len(str2) else str2
-            longer = str2 if len(str1) < len(str2) else str1
-            
-            if longer.startswith(shorter):
-                return len(shorter) / len(longer)
-            
-            # 计算最长公共前缀
-            common_prefix = 0
-            for i in range(min(len(str1), len(str2))):
-                if str1[i] == str2[i]:
-                    common_prefix += 1
-                else:
-                    break
-            
-            return common_prefix / max(len(str1), len(str2))
-            
-        except Exception as e:
-            print(f"计算相似度失败: {e}")
-            return 0.0
-    
-    @staticmethod
-    def is_content_similar(content1: str, content2: str, threshold: Optional[float] = None) -> bool:
-        """检查两个内容是否相似"""
-        try:
-            if threshold is None:
-                threshold = Config.SIMILARITY_THRESHOLD
-                
-            if not content1 or not content2:
-                return False
-            
-            # 如果完全相同
-            if content1 == content2:
-                return True
-            
-            # 如果一个是另一个的子集且差异很小
-            shorter = content1 if len(content1) < len(content2) else content2
-            longer = content2 if len(content1) < len(content2) else content1
-            
-            # 如果较短的内容是较长内容的前缀，且长度差异小于阈值
-            if longer.startswith(shorter) and len(shorter) / len(longer) > threshold:
-                return True
-            
-            return False
-            
-        except Exception as e:
-            print(f"内容相似性检查失败: {e}")
-            return False
-    
-    @staticmethod
-    def needs_content_cleanup(line: str) -> bool:
-        """检查内容是否需要清理"""
-        try:
-            # 提取消息内容（去掉时间戳和发送者标识）
-            if "Elysia:" in line:
-                content_start = line.find("Elysia:") + 7
-                content = line[content_start:].strip()
-            else:
-                content = line
-            
-            # 检查是否有明显的重复或截断
-            lines = content.split('\n')
-            if len(lines) > 2:
-                # 检查是否有逐渐截断的行
-                for i in range(len(lines) - 1):
-                    current = lines[i].strip()
-                    next_line = lines[i + 1].strip()
-                    if current and next_line and current.startswith(next_line) and len(next_line) < len(current) * 0.8:
-                        return True
-            
-            return False
-            
-        except Exception as e:
-            print(f"检查内容清理需求失败: {e}")
-            return False
