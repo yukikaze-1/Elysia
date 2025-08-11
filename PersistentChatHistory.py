@@ -219,7 +219,7 @@ class GlobalChatMessageHistory(BaseChatMessageHistory):
         
         # 清空内存
         self.memory_history.clear()
-        print("✓ 内存中的聊天历史已清空")
+        print("✅ 内存中的聊天历史已清空")
         
         # 清空数据库
         try:
@@ -244,9 +244,9 @@ class GlobalChatMessageHistory(BaseChatMessageHistory):
                 
                 # 刷新以确保删除操作完成
                 self.milvus_client.flush(collection_name=self.collection_name)
-                print(f"✓ Milvus中的 {db_count} 条记录已删除")
+                print(f"✅ Milvus中的 {db_count} 条记录已删除")
             else:
-                print("✓ Milvus中没有需要删除的记录")
+                print("✅ Milvus中没有需要删除的记录")
                 
             print("聊天历史记录清除完成")
             

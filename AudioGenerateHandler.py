@@ -94,37 +94,3 @@ class AudioGenerateHandler:
             print(f"TTS 流式处理失败: {e}")
             yield None
 
-
-    async def _stream_tts_audio(self, text: str):
-        """流式音频生成，目前tts 服务端采用的是 wav格式"""
-        # GPTSoVits 需要的请求参数
-        payload = {
-            "text": text,
-            "text_lang": "zh", 
-            "ref_audio_path": self.config.tts_ref_audio_path,
-            "prompt_lang": "zh",
-            "prompt_text": self.config.tts_prompt_text,
-            "text_split_method": "cut5",
-            "batch_size": 20,
-            "media_type": "ogg",
-            "streaming_mode": True
-        }
-        
-        try:
-            response = await self.tts_client.request(
-                method="POST",
-                url="/tts",
-                json=payload,
-                headers={'Content-Type': 'application/json'},
-                timeout=60.0
-            )
-            response.raise_for_status()
-            
-            # 使用流式响应
-            async for chunk in response.aiter_bytes(chunk_size=8192):
-                if chunk:
-                    yield chunk
-                    
-        except Exception as e:
-            print(f"TTS 流式处理失败: {e}")
-            yield None

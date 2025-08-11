@@ -1,4 +1,9 @@
+from email import message
 import json
+from tkinter.filedialog import Open
+from attr import has
+import httpx
+from openai import OpenAI
 from typing import List, Tuple, Dict, Any
 from fastapi import HTTPException, UploadFile, File
 from fastapi.responses import StreamingResponse
@@ -25,6 +30,7 @@ class ChatHandler:
     def __init__(self, config: ServiceConfig):
         self.config = config
         self.time_tracker = TimeTracker()
+        self.client = httpx.AsyncClient()
         self._setup_components()
         
     
@@ -32,44 +38,137 @@ class ChatHandler:
         """内部设置组件"""
         print("=== 角色提示管理器 初始化开始 ===")
         self.character_prompt_manager = CharacterPromptManager()
-        print("✓ 角色提示管理器 初始化完成")
+        print("✅ 角色提示管理器 初始化完成")
         
         print("=== 全局历史初始化开始 ===")
         # 使用全局单例模式，确保全局只有一个 GlobalChatMessageHistory 实例
         self.global_history = GlobalChatMessageHistory()
-        print("✓ 全局历史初始化完成")
+        print("✅ 全局历史初始化完成")
         
         # 设置Token管理器
         print("=== Token管理器 初始化开始 ===")
         # 使用单例模式，确保全局只有一个 TokenManager 实例
         self.token_manager = TokenManager()
-        print("✓ Token管理器 初始化完成")
+        print("✅ Token管理器 初始化完成")
         
         # 设置 tts_handler
         print("=== TTS 初始化开始 ===")
         self.tts_handler = AudioGenerateHandler(self.config)
-        print("✓ TTS 初始化完成")
+        print("✅ TTS 初始化完成")
         
         # 设置 stt_handler
         print("=== STT 初始化开始 ===")
         self.stt_handler = AudioRecognizeHandler(self.config)
-        print("✓ STT 初始化完成")
+        print("✅ STT 初始化完成")
         
         # 设置对话处理器
         print("=== 本地对话处理器 初始化开始 ===")
         self.local_conversation = self._setup_local_conversation()
-        print("✓ 本地对话处理器 初始化完成")
+        print("✅ 本地对话处理器 初始化完成")
         
         print("=== 云端对话处理器 初始化开始 ===")
         self.cloud_conversation = self._setup_cloud_conversation()
-        print("✓ 云端对话处理器 初始化完成")
+        print("✅ 云端对话处理器 初始化完成")
         
         
     def get_session_history(self, session_id: str | None = None) -> BaseChatMessageHistory:
         """获取会话历史 - 始终返回全局单例"""
         return self.global_history  
     
-    
+    async def warmup_local_model(self):
+        """预热本地llm"""
+        # 调用一次本地llm，看看通不通，返回是否正常
+        try:
+            payload = {
+                "model": self.config.local_model,
+                "stream": False,
+                "messages": [
+                    {"role": "user", "content": "你好"}
+                ]
+            }
+            url = self.config.ollama_base_url + "/api/chat"
+            response = await self.client.post(url=url, json=payload, timeout=30)
+            response.raise_for_status()  # 确保请求成功
+            if response.status_code == 200:
+                res = response.json()
+                print(f"✅ 本地模型预热成功: {res['message']['content']}")
+            else:
+                print(f"⚠️ 本地模型预热失败: {response.status_code}")
+        except Exception as e:
+            print(f"⚠️ 本地模型预热失败: {e}")
+
+    async def warmup_cloud_model(self):
+        """预热云端llm"""
+        # 调用一次云端llm，看看通不通，返回是否正常
+        try:
+            client = OpenAI(
+                api_key=self.config.api_key,
+                base_url=self.config.cloud_base_url,
+                timeout=30
+            )
+            response =  client.chat.completions.create(
+                model=self.config.cloud_model,
+                messages=[{"role": "user", "content": "你好"}],
+                stream=False,
+            )
+            if response and response.choices:
+                print(f"✅ 云端模型预热响应: {response.choices[0].message.content}")
+            else:
+                print("⚠️ 云端模型预热失败: 未返回响应")
+        except Exception as e:
+            print(f"⚠️ 云端模型预热失败: {e}")
+            
+
+    async def warmup_stt(self):
+        """预热stt服务"""
+        # 调用一次stt服务，看看通不通，返回是否正常
+        try:
+            audio_path = self.config.tts_ref_audio_path
+            with open(audio_path, 'rb') as audio_file:
+                audio_data = audio_file.read()
+            response = await self.stt_handler.recognize_audio(audio_data)
+            if response and isinstance(response, dict) and 'text' in response:
+                print(f"✅ STT预热成功: {response['text']}")
+            else:
+                print("⚠️ STT预热失败: 未能识别音频")
+        except Exception as e:
+            print(f"⚠️ STT预热失败: {e}")
+            
+            
+    async def warmup_tts(self):
+        """预热tts服务"""
+        # 调用一次tts服务，看看通不通，返回是否正常
+        try:
+            payload = {
+                        "text": "你好",
+                        "text_lang": "zh",
+                        "ref_audio_path": self.config.tts_ref_audio_path,
+                        "prompt_lang": "zh",
+                        "prompt_text": self.config.tts_prompt_text,
+                        "top_k": 5,
+                        "top_p": 1.0,
+                        "temperature": 1.0,
+                        "text_split_method": "cut5",
+                        "batch_size": 1,
+                        "batch_threshold": 0.75,
+                        "speed_factor": 1.0,
+                        "split_bucket": True,
+                        "fragment_interval": 0.3,
+                        "seed": -1,
+                        "media_type": "wav",
+                        "streaming_mode": False,
+                        "parallel_infer": True,
+                        "repetition_penalty": 1.35
+            }
+            response = await self.client.post(url=self.config.tts_base_url + "/tts", json=payload, timeout=60)
+            if response.status_code == 200:
+                print(f"✅ 音频生成成功")
+            else:
+                print(f"⚠️ TTS 预热失败: {response.status_code if response else '无响应'}")
+        except Exception as e:
+            print(f"⚠️ TTS 预热异常: {e}")
+            
+
     def _setup_local_conversation(self)-> RunnableWithMessageHistory:
         """设置本地对话处理器"""
         self.conversation_config = RunnableConfig(configurable={"session_id": "default"})
@@ -98,6 +197,7 @@ class ChatHandler:
             history_messages_key="history",
         )
         return conversation
+    
     
     def _setup_cloud_conversation(self)-> OpenAI:
         """设置云端对话处理器"""        
@@ -145,9 +245,6 @@ class ChatHandler:
                             
                 # 发送计时信息
                 timing_summary = self.time_tracker.get_timing_summary()
-                print(f"time summary:")
-                print(timing_summary)
-                
                 yield json.dumps({"type": "timing", "timing": timing_summary}, ensure_ascii=False) + "\n"
                 
                 # 强制保存token统计
@@ -186,7 +283,7 @@ class ChatHandler:
                 # 发送流式文本数据
                 yield json.dumps({"type": "text", "content": content}, ensure_ascii=False) + "\n"
         
-        # 不能在异步生成器中使用 return，改为 yield 最终结果
+        # yield 最终结果
         yield json.dumps({"type": "stream_complete", "full_content": full_content, "output_tokens": output_tokens}, ensure_ascii=False) + "\n"
     
     
@@ -213,12 +310,14 @@ class ChatHandler:
                     content = delta.content
                     full_content += content
                     
+                    # 返回流式文本数据
                     yield json.dumps({"type": "text", "content": content}, ensure_ascii=False) + "\n"
             
             if hasattr(chunk, 'usage') and chunk.usage is not None:
                 usage_info = chunk.usage
                 print(f"捕获到usage信息: prompt_tokens={usage_info.prompt_tokens}, completion_tokens={usage_info.completion_tokens}")
-        
+
+        # 发送流式响应完成标记
         yield json.dumps({"type": "stream_complete", 
                           "full_content": full_content, 
                           "usage_info": usage_info.model_dump() if usage_info else None

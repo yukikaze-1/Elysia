@@ -1,3 +1,4 @@
+from regex import E
 from sympy import im
 import uvicorn
 import httpx
@@ -29,27 +30,55 @@ class Service:
         # self.time_tracker.start(phase_name="RAG")
         # self.rag = RAG()
         # self.time_tracker.end(phase_name="RAG")
-        print("✓ RAG 初始化跳过")
+        print("✅ RAG 初始化跳过")
         
         print("=== ChatHandler 初始化开始 ===")
         self.chat_handler = ChatHandler(self.config)
-        print("✓ ChatHandler 初始化完成")
+        print("✅ ChatHandler 初始化完成")
 
         print("=== HistoryManager 初始化开始 ===")
         self._global_history = self.chat_handler.global_history  # 引用同一个实例
         self.history_manager = HistoryManager(self._global_history)
-        print("✓ HistoryManager 初始化完成")
+        print("✅ HistoryManager 初始化完成")
 
         print("=== TTSHandler 初始化开始 ===")
         self.tts_handler = AudioGenerateHandler(self.config)
-        print("✓ TTSHandler 初始化完成")
-
-        print("正在进行预热检查...")
-        self._warmup_check()
-
+        print("✅ TTSHandler 初始化完成")
+        
+        print("正在进行预热")
+        self.warmup()
+        
         print("=== Service 初始化完成 ===")
         
-           
+    def warmup(self):
+        import asyncio
+        asyncio.run(self._warmup()) 
+     
+    async def _warmup(self):
+        """预热"""
+        try:
+            print("正在进行预热检查...")
+            self._warmup_check()
+            
+            # 预热本地llm
+            print("正在预热本地模型...")
+            await self.chat_handler.warmup_local_model()
+            
+            # 预热云端llm
+            print("正在预热云端模型...")
+            await self.chat_handler.warmup_cloud_model()
+            
+            # 预热tts
+            print("正在预热 TTS...")
+            await self.chat_handler.warmup_tts()
+            
+            # 预热stt
+            print("正在预热 STT...")
+            await self.chat_handler.warmup_stt()
+            
+            print("✅ 预热完成")
+        except Exception as e:
+            print(f"预热失败: {e}")       
     
     def _warmup_check(self):
         """预热检查 - 确保所有组件正常工作"""
@@ -62,7 +91,7 @@ class Service:
             stats = self.chat_handler.token_manager.get_current_stats()
             print(f"  - Token 统计: 总计 {stats['total_stats']['total_tokens']} tokens")
             
-            print("✓ 预热检查完成")
+            print("✅ 预热检查完成")
             
         except Exception as e:
             print(f"✗ 预热检查失败: {e}")    
@@ -95,6 +124,7 @@ class Service:
         # =========================
         @self.app.post("/chat/text/stream/local")
         async def chat_stream_local(request: Request):
+            """使用本地模型(ollama)进行流式聊天"""
             data = await request.json()
             message = data.get("message", "")
             if not message:
@@ -103,6 +133,7 @@ class Service:
 
         @self.app.post("/chat/text/stream/cloud")
         async def chat_stream_cloud(request: Request):
+            """使用云端大模型(目前测试的是qwen3)进行流式聊天"""
             data = await request.json()
             message = data.get("message", "")
             if not message:
@@ -111,12 +142,14 @@ class Service:
         
         @self.app.post("/chat/audio/stream/local")
         async def chat_with_audio_local(file: UploadFile = File(..., description="Audio file to transcribe")):
+            """使用本地大模型(ollama)进行音频流式聊天"""
             if not file:
                 raise HTTPException(status_code=400, detail="Audio file is required")
             return await self.chat_handler.handle_chat_with_audio(file, cloud=False)
 
         @self.app.post("/chat/audio/stream/cloud")
         async def chat_with_audio_cloud(file: UploadFile = File(..., description="Audio file to transcribe")):
+            """使用云端大模型(目前测试的是qwen3)进行音频流式聊天"""
             if not file:
                 raise HTTPException(status_code=400, detail="Audio file is required")
             return await self.chat_handler.handle_chat_with_audio(file, cloud=True)
@@ -126,7 +159,7 @@ class Service:
         # =========================
         @self.app.post("/tts/generate")
         async def generate_tts(request: Request):
-            """中转流式返回 TTS 生成的 WAV 音频"""
+            """中转流式返回 TTS 生成的 WAV 音频(目前使用的是GPTSoVits)"""
             data = await request.json()
             text = data.get("text", "")
             if not text:
@@ -143,10 +176,12 @@ class Service:
         # =========================
         @self.app.get("/chat/token_stats")
         async def get_token_stats():
+            """获取当前会话的 Token 详细统计信息"""
             return self.chat_handler.token_manager.get_current_stats()
         
         @self.app.get("/chat/token_stats/simple")
         async def get_simple_token_stats():
+            """获取当前会话的简化 Token 统计信息"""
             stats = self.chat_handler.token_manager.get_current_stats()
             return {
                 "local_tokens": stats["local_stats"]["total_tokens"],

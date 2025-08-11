@@ -14,7 +14,8 @@ class AudioRecognizeHandler:
         try:
             response = await self.stt_client.post(
                 url="/predict/sentence", 
-                files={"file": audio_data}
+                files={"file": audio_data},
+                timeout=60
             )
             response.raise_for_status()
             result = response.json()
