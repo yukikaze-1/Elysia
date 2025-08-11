@@ -9,3 +9,4 @@ token_stats.json
 .env
 chat_history_backup/*
 message_id_counter.txt
+Log/*
