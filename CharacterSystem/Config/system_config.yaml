@@ -1,0 +1,50 @@
+# 系统架构配置
+architecture:
+  enable_environment_perception: true  # 🆕 启用环境感知
+  enable_learning: true
+  enable_context_tracking: true
+  enable_response_processing: true
+
+# 环境感知配置 🆕
+environment_perception:
+  modules:
+    visual:
+      enabled: true
+      camera_device: 0
+      model_provider: "openai"  # openai, anthropic, local
+      analysis_interval: 2  # 每2秒分析一次
+    audio:
+      enabled: true
+      microphone_device: "default"
+      noise_threshold: 0.3
+      emotion_analysis: true
+    temporal:
+      enabled: true
+      timezone: "Asia/Shanghai"
+    spatial:
+      enabled: false  # 暂未实现
+  
+  change_detection:
+    sensitivity: "medium"  # low, medium, high
+    significant_change_threshold: 0.4
+    max_history_records: 100
+  
+  proactive_response:
+    enabled: true
+    response_probability: 0.7  # 70%概率主动回应
+    cooldown_seconds: 30  # 主动回应冷却时间
+
+# 性能配置
+performance:
+  max_short_term_memory: 10
+  emotion_decay_rate: 0.1
+  context_retention_hours: 24
+  environment_cache_size: 50  # 🆕 环境状态缓存大小
+
+# 安全配置
+safety:
+  content_filter_level: "medium"
+  enable_consistency_check: true
+  max_response_length: 500
+  camera_privacy_mode: false  # 🆕 隐私模式：仅分析不保存图像
+  audio_privacy_mode: false   # 🆕 隐私模式：仅分析不保存音频

@@ -15,69 +15,12 @@ from CharacterSystem.Level0.SpatialPerceptionModule import SpatialPerceptionModu
 from CharacterSystem.Level0.TemporalPerceptionModule import TemporalPerceptionModule
 from CharacterSystem.Level0.VisualPerceptionModule import VisualPerceptionModule
 
+from CharacterSystem.Level0.SocialEnvironment import SocialEnvironment
+from CharacterSystem.Level0.PhysicalEnvironment import PhysicalEnvironment
+
 from Logger import setup_logger
 
-class PhysicalEnvironment:
-    """物理环境"""
-    # TODO 待修改
-    def __init__(self):
-        self.lighting: str = "自然光"
-        self.noise_level: str = "安静"
-        self.temperature: str = "舒适"
-        self.location_type: str = "室内"
 
-    def get_current_lighting_state_from_sensor(self):
-        """从传感器获取自然光参数"""
-        pass
-
-    def get_current_noise_level_from_sensor(self):
-        """从传感器获取噪音水平参数"""
-        pass
-
-    def get_current_temperature_from_sensor(self):
-        """从传感器获取温度参数"""
-        pass
-    
-    def get_location_type_from_sensor(self):
-        """从传感器获取位置类型参数"""
-        pass
-
-    def get_current_state(self):
-        """获取当前物理环境状态"""
-        return {
-            "lighting": self.lighting,
-            "noise_level": self.noise_level,
-            "temperature": self.temperature,
-            "location_type": self.location_type
-        }
-
-
-class SocialEnvironment:
-    """社交环境"""
-    def __init__(self):
-        self.people_present: int = 1
-        self.user_emotion: str = "平静"
-        self.interaction_type: str = "私人对话"
-        
-    def get_current_people_present_from_sensor(self):
-        """从传感器获取当前在场人数"""
-        pass
-
-    def get_current_user_emotion_from_sensor(self):
-        """从传感器获取当前用户情绪"""
-        pass
-
-    def get_current_interaction_type_from_sensor(self):
-        """从传感器获取当前互动类型"""
-        pass
-
-    def get_current_state(self):
-        """获取当前社交环境状态"""
-        return {
-            "people_present": self.people_present,
-            "user_emotion": self.user_emotion,
-            "interaction_type": self.interaction_type
-        }
 
 class TemporalEnvironment:
     """时间环境"""
