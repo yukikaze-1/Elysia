@@ -1,11 +1,13 @@
 """
 物理环境负责  “外在、客观、可感知”  的一切
 """
+from typing import Dict, List
 
 class PhysicalEnvironment:
     """物理环境"""
     # TODO 待修改
     def __init__(self):
+        self.persons_manager = GlobalPersonManager() # 全局人员管理
         self.lighting: str = "自然光"
         self.noise_level: str = "安静"
         self.temperature: str = "舒适"

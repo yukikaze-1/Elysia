@@ -10,3 +10,4 @@ token_stats.json
 chat_history_backup/*
 message_id_counter.txt
 Log/*
+CharacterSystem/demo.py

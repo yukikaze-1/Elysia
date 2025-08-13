@@ -1,5 +1,5 @@
 from sympy import im
-from Level0.EnvironmentPerception import EnvironmentPerception
+from CharacterSystem.Level0.EnvironmentPerception import EnvironmentPerception
 from Level1.CharacterPromptManager import CharacterPromptManager
 from Level2.VirtualCharacter import VirtualCharacter
 from Level3.ConversationContext import ConversationContext

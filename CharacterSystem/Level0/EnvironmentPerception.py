@@ -10,58 +10,10 @@
 import time
 from datetime import datetime
 
-from CharacterSystem.Level0.AudioPerceptionModule import AudioPerceptionModule
-from CharacterSystem.Level0.SpatialPerceptionModule import SpatialPerceptionModule
-from CharacterSystem.Level0.TemporalPerceptionModule import TemporalPerceptionModule
-from CharacterSystem.Level0.VisualPerceptionModule import VisualPerceptionModule
-
-from CharacterSystem.Level0.SocialEnvironment import SocialEnvironment
-from CharacterSystem.Level0.PhysicalEnvironment import PhysicalEnvironment
+from CharacterSystem.Level0.PreceptionModule import AudioPerceptionModule, SpatialPerceptionModule, TemporalPerceptionModule, VisualPerceptionModule
+from CharacterSystem.Level0.Environment import SocialEnvironment, PhysicalEnvironment, DigitalEnvironment, TemporalEnvironment
 
 from Logger import setup_logger
-
-
-
-class TemporalEnvironment:
-    """时间环境"""
-    def __init__(self):
-        self.current_time: datetime = datetime.now()
-        self.time_period: str = "下午"
-        self.season: str = "春天"
-        
-    def get_current_time(self)->datetime:
-        return datetime.now()
-
-    def get_current_time_period(self):
-        pass
-    
-    def get_current_season(self):
-        pass
-
-    def get_current_state(self):
-        """获取当前时间环境状态"""
-        return {
-            "current_time": self.current_time,
-            "time_period": self.time_period,
-            "season": self.season
-        }
-
-
-class DigitalEnvironment:
-    """数字环境"""
-    def __init__(self):
-        self.background_music: str = ""
-        self.screen_content: str = ""
-        self.notification_status: str = "无打扰"
-
-    def get_current_state(self):
-        """获取当前数字环境状态"""
-        return {
-            "background_music": self.background_music,
-            "screen_content": self.screen_content,
-            "notification_status": self.notification_status
-        }
-
 
 class EnvironmentPerception:
     def __init__(self):

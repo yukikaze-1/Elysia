@@ -10,116 +10,9 @@ import rustworkx as rx
 import copy
 
 from CharacterSystem.Level0.PhysicalEntity import Item, Person
+from CharacterSystem.Level0.GlobalClass import GlobalPersonManager, GlobalRelationshipManager
 
 from Logger import setup_logger
-
-# ================================
-# 全局Person管理器
-# ================================
-class GlobalPersonManager:
-    """全局Person管理器"""
-    _instance = None
-    _persons: List[Person | None] = []
-    logger: Logger = None
-
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._persons = []
-            cls.logger = setup_logger("GlobalPersonManager")
-        return cls._instance
-    
-    def add_person(self, person: Person) -> int:
-        """添加Person并返回ID"""
-        person_id = len(self._persons)
-        person.person_id = person_id
-        self._persons.append(person)
-        return person_id
-    
-    def get_person(self, person_id: int) -> Optional[Person]:
-        """通过ID获取Person"""
-        if 0 <= person_id < len(self._persons):
-            return self._persons[person_id]
-        return None
-
-# ================================
-# 关系图Node和Edge定义
-# ================================
-
-class RelationType(StrEnum):
-    """关系类型"""
-    FRIEND = "朋友"
-    FAMILY = "家人"
-    COLLEAGUE = "同事"
-    STRANGER = "陌生人"
-    ACQUAINTANCE = "熟人"
-    PARTNER = "伴侣"
-    
-@dataclass
-class RelationshipEdge:
-    """关系边，描述两个实体之间的关系"""
-    # from_entity: int    # 实体id(就是Person中的person_id)
-    # to_entity: int      # 实体id
-    relation_type: RelationType
-    intimacy_level: float  # 0-1 亲密度
-    trust_level: float     # 0-1 信任度
-    interaction_frequency: int  # 交互频率
-    last_interaction: Optional[datetime] = None
-
-# ================================
-# 全局关系图管理器
-# ================================
-class GlobalRelationshipManager:
-    """全局关系图管理器 - 单例模式"""
-    _instance = None
-    _relationship_graph: rx.PyDiGraph = None
-    
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._relationship_graph = rx.PyDiGraph()
-        return cls._instance
-    
-    @property
-    def graph(self) -> rx.PyDiGraph:
-        """获取关系图"""
-        return self._relationship_graph
-    
-    def sub_view(self, nodes: List[int]):
-        """获取子图"""
-        return self._relationship_graph.subgraph(nodes)
-    
-    def get_relationship(self, from_entity: int, to_entity: int) -> Optional[RelationshipEdge]:
-        """获取关系"""
-        return self._relationship_graph.get_edge_data(from_entity, to_entity)
-
-    def add_person(self, person_id: int):
-        """添加实体"""
-        self._relationship_graph.add_node(person_id)
-       
-    def add_relationship(self, from_entity: int, to_entity: int, relation: RelationshipEdge):
-        """添加关系"""
-        # 验证节点是否存在
-        if not self._relationship_graph.has_node(from_entity):
-            self.add_person(from_entity)
-        if not self._relationship_graph.has_node(to_entity):
-            self.add_person(to_entity)
-        self._relationship_graph.add_edge(from_entity, to_entity, relation)
-
-    def update_relationship(self, from_entity: int, to_entity: int, relation: RelationshipEdge):
-        """更新关系"""
-        self._relationship_graph.update_edge(from_entity, to_entity, relation)
-    
-    def get_all_in_relationships_for(self, person_id: int) -> List[Tuple[int, RelationshipEdge]]:
-        """获取某个实体的所有的入关系"""
-        in_edges = self._relationship_graph.in_edges(person_id)
-        return [(ei, self._relationship_graph.get_edge_data(ei, eo)) for ei, eo, __ in in_edges]
-    
-    def get_all_out_relationships_for(self, person_id: int) -> List[Tuple[int, RelationshipEdge]]:
-        """获取某个实体的所有的出关系"""
-        out_edges = self._relationship_graph.out_edges(person_id)
-        return [(eo, self._relationship_graph.get_edge_data(ei, eo)) for ei, eo, __ in out_edges]
-
 
 class SocialSceneType(StrEnum):
     """社交场景类型"""
@@ -203,6 +96,7 @@ class InteractionObject:
 class SocialEnvironment:
     """社交环境"""
     def __init__(self):
+        self.logger = setup_logger("SocialEnvironment")
         # 基本信息
         self.me_id: int = 0  # 我(Elysia)是谁
         self.relationship_graph =  GlobalRelationshipManager() # 全局人员关系图引用
@@ -309,9 +203,10 @@ class SocialEnvironment:
     
     def get_social_statistics(self) -> Dict:
         """获取当前社交环境的统计信息"""
+        relations = self.relationship_graph.get_all_out_relationships_for(self.me_id)
         return {
             "total_people": len(self.people_present),
-            "my_relationships": len(self.relationship_graph.get_all_out_relationships_for(self.me_id)),
+            "my_relationships": len(relations) if relations else 0,
             "scene_type": self.social_scene.scene,
             "atmosphere": self.social_scene.atmosphere,
             "emotion": self.emotion_states.emotion
@@ -340,6 +235,7 @@ class SocialEnvironment:
 
 
 if __name__ == "__main__":
+    """测试"""
     serv = SocialEnvironment()
     print("Current")
     print(serv.build_social_context_prompt())
