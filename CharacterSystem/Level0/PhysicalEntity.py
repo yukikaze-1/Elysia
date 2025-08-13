@@ -4,13 +4,16 @@
 from dataclasses import dataclass
 from enum import StrEnum
 import math
+from turtle import pos
+
+from sympy import posify
 
 @dataclass
 class Direction:
     """方向 - 使用单位向量表示"""
-    x: float = 0
-    y: float = 0
-    z: float = 0
+    x: float = 1
+    y: float = 1
+    z: float = 1
     
     def __post_init__(self):
         """确保是单位向量"""
@@ -37,6 +40,14 @@ class Location:
 
     position: Position | None = None#绝对位置
 
+    def __post_init__(self):
+        """确保有一个坐标"""
+        if not self.position:
+            self.position = Position()
+        elif not self.reference_entity_position and not self.direction and not self.distance:
+            self.reference_entity_position = Position()
+            self.direction = Direction()
+            self.distance = 0.0
 
 @dataclass
 class Person:
@@ -74,15 +85,15 @@ class Person:
     build: str | None = "标准"     # 体型：瘦弱/标准/健壮/肥胖
     
     # 位置和朝向
-    sight_direction: Direction | None = Direction(0.0, 1.0, 0.0)  # 视线方向，单位向量
-    location: Location | None = Location()  # 位置
+    sight_direction: Direction | None = None  # 视线方向，单位向量
+    location: Location | None = None  # 位置
 
     # 状态
     posture: str | None = "站立"  # 站立/坐着/躺着/行走等
     expression : str | None = "微笑"  # 面部表情
     
     # 服装
-    clothing: Clothing = Clothing()
+    clothing: Clothing | None = None
     
     # 整体描述
     description: str | None = "这是一个人"
@@ -121,7 +132,7 @@ class Item:
     category: str = "文具" # 类别
     owner_id: int | None = 1  # 所有者
     motion_states: str | None = "静止"  # 静止、移动
-    location: Location | None = Location()  # 位置
+    location: Location | None = None # 位置
     # 总的描述
     description: str | None = "这是一本书"
 
