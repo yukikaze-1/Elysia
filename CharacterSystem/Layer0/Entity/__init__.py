@@ -1,4 +1,4 @@
-from .InfoEntity import Direction, Position, Location
+from .InfoEntity import Direction, Position, Location, Temperature, Humidity, AirPressure, Speed, Weather
 from .ItemEntity import Item
 from .PersonEntity import Person
 
@@ -8,5 +8,10 @@ __all__ =[
     'Position',
     'Location',
     'Item',
-    'Person'
+    'Person',
+    'Temperature',
+    'Humidity',
+    'AirPressure',
+    'Speed',
+    'Weather'
 ]

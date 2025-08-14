@@ -4,38 +4,23 @@
 from typing import Dict, List
 
 from CharacterSystem.Layer0.GlobalClass import GlobalPersonManager, get_global_person_manager
+from CharacterSystem.Layer0.Entity import *
 
 class PhysicalEnvironment:
     """物理环境"""
     # TODO 待修改
     def __init__(self):
         self.persons_manager: GlobalPersonManager = get_global_person_manager() # 全局人员管理
-        self.lighting: str = "自然光"
-        self.noise_level: str = "安静"
-        self.temperature: str = "舒适"
-        self.location_type: str = "室内"
 
-    def get_current_lighting_state_from_sensor(self):
-        """从传感器获取自然光参数"""
-        pass
+        self.map = "<3D地图数据>"
+        self.temperature_map = "<温度地图数据>"
 
-    def get_current_noise_level_from_sensor(self):
-        """从传感器获取噪音水平参数"""
-        pass
+        self.temperature: Temperature = Temperature()  # 默认温度
+        self.humidity: Humidity = Humidity()  # 默认湿度
+        self.air_pressure: AirPressure = AirPressure()  # 默认气压
+        self.wind_speed: Speed = Speed()  # 默认风速
 
-    def get_current_temperature_from_sensor(self):
-        """从传感器获取温度参数"""
-        pass
-    
-    def get_location_type_from_sensor(self):
-        """从传感器获取位置类型参数"""
-        pass
 
     def get_current_state(self):
         """获取当前物理环境状态"""
-        return {
-            "lighting": self.lighting,
-            "noise_level": self.noise_level,
-            "temperature": self.temperature,
-            "location_type": self.location_type
-        }
+        pass

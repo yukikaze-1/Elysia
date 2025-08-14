@@ -16,6 +16,7 @@ from CharacterSystem.Layer0.Environment import SocialEnvironment, PhysicalEnviro
 from Logger import setup_logger
 
 class EnvironmentPerception:
+    """环境感知"""
     def __init__(self):
         self.logger = setup_logger("EnvironmentPerception")
         # 感知模块管理

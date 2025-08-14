@@ -1,5 +1,42 @@
 """
-    方向、位置、距离等信息
+
+"""
+from dataclasses import dataclass
+
+@dataclass
+class Temperature:
+    """温度信息"""
+    value: float = 0.0  # 温度值
+    unit: str = "C"  # 温度单位，默认为摄氏度
+
+@dataclass
+class Humidity:
+    """湿度信息"""
+    value: float = 0.0  # 湿度值
+    unit: str = "%"  # 湿度单位，默认为百分比
+    
+@dataclass
+class AirPressure:
+    """气压信息"""
+    value: float = 1013.25  # 气压值，单位百帕
+    unit: str = "hPa"  # 气压单位，默认为百帕
+
+@dataclass
+class Speed:
+    """速度信息"""
+    value: float = 0.0  # 速度值
+    unit: str = "m/s"  # 速度单位，默认为米每秒
+
+@dataclass
+class Weather:
+    """天气信息"""
+    temperature: Temperature | None = None
+    humidity: Humidity | None = None
+    wind_speed: Speed | None = None  # 风速信息
+
+
+"""
+    方向、位置、距离等定义
 """
 
 from dataclasses import dataclass

@@ -12,10 +12,10 @@ class VisualPerceptionModule:
         """检查视觉感知模块是否可用"""
         return self.camera is not None and self.vision_model is not None
 
-    def perceive(self):
+    async def perceive(self):
         """视觉感知主函数"""
         if not self.camera or not self.camera.is_available():
-            return self._get_default_visual_data()
+            return False
             
         # 获取图像
         image = self.camera.capture()

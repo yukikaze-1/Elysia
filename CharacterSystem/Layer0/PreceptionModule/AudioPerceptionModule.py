@@ -13,7 +13,7 @@ class AudioPerceptionModule:
         """检查音频感知模块是否可用"""
         return self.microphone is not None and self.audio_model is not None
 
-    def perceive(self):
+    async def perceive(self):
         """听觉感知主函数"""
         if not self.microphone or not self.microphone.is_available():
             return self._get_default_audio_data()

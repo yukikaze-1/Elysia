@@ -1,7 +1,10 @@
 """
 物理实体，会被物理环境层和社交场景层所引用
 """
+from typing import List
 from dataclasses import dataclass
+
+from sqlalchemy import desc
 from CharacterSystem.Layer0.Entity import Direction, Location
 
 @dataclass
@@ -25,6 +28,23 @@ class Person:
         shoes_description: str | None = "白色运动鞋"  
         # 手部
         other_description: str | None = "手表"
+    
+    @dataclass
+    class AudioFeature:
+        """声音特征"""
+        feature_vector: List[float] | None = None  # 声音特征向量
+        
+    # @dataclass
+    # class Personality:
+    #     """性格特征"""
+    #     description: str | None = "开朗、乐观、善良"
+    
+    # TODO 这两个不是物理特征。应该放在其他的地方
+        
+    # @dataclass
+    # class BehavioralHabits:
+    #     """行为习惯"""
+    #     description: str | None = "喜欢阅读、爱好音乐"
         
         
     # 基本信息    
@@ -50,6 +70,15 @@ class Person:
     # 服装
     clothing: Clothing | None = None
     
+    # 声音特征
+    audio_feature: AudioFeature | None = None
+    
+    # 性格特征
+    # personality: Personality | None = None
+    
+    # 行为习惯
+    # behavioral_habits: BehavioralHabits | None = None
+
     # 整体描述
     description: str | None = "这是一个人"
 

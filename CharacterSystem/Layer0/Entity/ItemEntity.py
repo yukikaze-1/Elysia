@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from turtle import speed
 from CharacterSystem.Layer0.Entity import Location
 
 
@@ -10,6 +11,7 @@ class Item:
     category: str = "文具" # 类别
     owner_id: int | None = 1  # 所有者
     motion_states: str | None = "静止"  # 静止、移动
+    speed: float | None = 0.0  # 物品移动速度
     location: Location | None = None # 位置
     # 总的描述
     description: str | None = "这是一本书"

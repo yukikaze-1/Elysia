@@ -156,7 +156,6 @@ def get_global_relationship_manager() -> GlobalRelationshipManager:
     """获取全局关系图管理器实例"""
     return GlobalRelationshipManager()
 
-
 if __name__ == "__main__":
     p_manager = get_global_person_manager()
     r_manager = get_global_relationship_manager()
