@@ -10,8 +10,8 @@
 import time
 from datetime import datetime
 
-from CharacterSystem.Level0.PreceptionModule import AudioPerceptionModule, SpatialPerceptionModule, TemporalPerceptionModule, VisualPerceptionModule
-from CharacterSystem.Level0.Environment import SocialEnvironment, PhysicalEnvironment, DigitalEnvironment, TemporalEnvironment
+from CharacterSystem.Layer0.PreceptionModule import AudioPerceptionModule, SpatialPerceptionModule, TemporalPerceptionModule, VisualPerceptionModule
+from CharacterSystem.Layer0.Environment import SocialEnvironment, PhysicalEnvironment, DigitalEnvironment, TemporalEnvironment
 
 from Logger import setup_logger
 

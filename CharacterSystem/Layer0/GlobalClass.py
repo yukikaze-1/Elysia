@@ -3,11 +3,10 @@ from typing import Optional, Dict, List, Tuple
 from logging import Logger
 from enum import StrEnum
 from dataclasses import dataclass
-from regex import T
 import rustworkx as rx
 
 from Logger import setup_logger
-from CharacterSystem.Level0.PhysicalEntity import Person
+from CharacterSystem.Layer0.Entity.PersonEntity import Person
 
 
 # ================================

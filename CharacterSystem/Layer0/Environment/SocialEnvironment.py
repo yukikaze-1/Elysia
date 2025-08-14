@@ -6,11 +6,10 @@ from enum import Enum, IntEnum, StrEnum
 from typing import List, Dict, Optional, Set, Tuple
 from datetime import datetime
 from logging import Logger
-import rustworkx as rx
 import copy
 
-from CharacterSystem.Level0.PhysicalEntity import Item, Person
-from CharacterSystem.Level0.GlobalClass import GlobalPersonManager, GlobalRelationshipManager
+from CharacterSystem.Layer0.Entity import Item, Person
+from CharacterSystem.Layer0.GlobalClass import GlobalPersonManager, GlobalRelationshipManager
 
 from Logger import setup_logger
 

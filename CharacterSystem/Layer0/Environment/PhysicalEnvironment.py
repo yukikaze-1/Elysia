@@ -3,11 +3,13 @@
 """
 from typing import Dict, List
 
+from CharacterSystem.Layer0.GlobalClass import GlobalPersonManager, get_global_person_manager
+
 class PhysicalEnvironment:
     """物理环境"""
     # TODO 待修改
     def __init__(self):
-        self.persons_manager = GlobalPersonManager() # 全局人员管理
+        self.persons_manager: GlobalPersonManager = get_global_person_manager() # 全局人员管理
         self.lighting: str = "自然光"
         self.noise_level: str = "安静"
         self.temperature: str = "舒适"
