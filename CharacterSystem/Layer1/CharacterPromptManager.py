@@ -6,9 +6,13 @@
 """
 
 from typing import Dict, Any, List
+from langchain.prompts import PromptTemplate
 
 from CharacterSystem.Layer1.Principle import principle, principle_template, character_template
 from CharacterSystem.Layer1.DefaultPrompt import default_values, Elysia_values
+
+# 该层负责填充的部分
+from CharacterSystem.Layer1.TemplatePrompt import CharacterBasicSettings
 
 
 class Character:
@@ -32,9 +36,7 @@ class CharacterPromptManager():
     """角色prompt管理器，用于创建、管理和维护角色配置"""
     
     def __init__(self) -> None:
-        self.template = character_template
-        self.principle = principle
-        self.principle_template = principle_template
+        self.character_setting_template: PromptTemplate = CharacterBasicSettings
         self.characters: List[Character] = [Character(1, "爱莉希雅 (Elysia)", self.get_Elysia_prompt())]
     
     def create_character_prompt(self, **kwargs):
@@ -50,7 +52,7 @@ class CharacterPromptManager():
             if key not in kwargs:
                 kwargs[key] = default_value
         
-        return self.template.format(**kwargs)
+        return self.character_setting_template.format(**kwargs)
     
     def add_character(self, character_id: int, name: str, **config) -> Character:
         """添加新角色"""

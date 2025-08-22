@@ -1,6 +1,11 @@
+"""
+负责更新虚拟角色的情绪状态、短期和长期记忆，并生成完整的角色 Prompt。
+"""
+
 import json
-import random
 from datetime import datetime, timedelta
+
+from CharacterSystem.Layer1.TemplatePrompt import CharacterBasicSettings
 
 # 角色数据（可保存到 JSON 文件）
 class VirtualCharacter:

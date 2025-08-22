@@ -48,7 +48,7 @@ class Person:
         
         
     # 基本信息    
-    person_id: int = 1
+    id: int 
     name: str | None = "elysia"
     age: int | None = 18
     gender: str | None = "女"
