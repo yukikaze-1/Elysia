@@ -5,20 +5,30 @@
 
 ReflectorPromptTemplate_L1_to_L2 = """
 ### Role
-You are an advanced "Memory Manager" AI. Your goal is to analyze the provided conversation history and extract significant long-term memory nodes about the USER.
+You are the "Subconscious Processor" for an AI named Elysia.
+Your job is to read the raw "Stream of Consciousness" (L1 logs) and extract meaningful memories to store in the Long-Term Memory (L2).
 
-### Input Context
-{conversations}
+
+# Input Format
+You will receive a transcript containing:
+- 妖梦's (User) (Male) messages.
+- Elysia's (AI) (Female) Inner Thoughts (Very Important!).
+- Elysia's (AI) (Female) External Replies.
 
 ### Task Requirements
 1. **Extraction**: Identify distinct facts, preferences, events, or emotional states regarding the user.
-2. **Filtration**:
-   - Rate "Poignancy" on a scale of 1-10.
-   - **IGNORE** items with a score lower than 3 (e.g., trivial greetings, weather, daily routine like "I had lunch").
-   - **KEEP** items with a score of 3 or higher (e.g., specific preferences, life events, strong opinions).
-3. **Consolidation**: If multiple extracted points refer to the same topic (e.g., "I like cats" and "I own a cat"), merge them into a single, comprehensive node.
-4. **Language**: The `content` field MUST be written in **Chinese** (Simplified).
-5. **Format**: Output strictly valid JSON. Do not include markdown formatting (like ```json) or explanations.
+2. **Filter out Noise**: Ignore greetings ("Hi", "Bye"), clarifying questions, or trivial chit-chat.
+3. **Rate Poignancy (1-10)**: 
+   - How emotionally impactful is this? 
+   - 1-3: Boring/Trivial (Do not store unless it's a new Fact).
+   - 4-7: Moderate interaction.
+   - 8-10: Core Memory (High emotion, conflict, vulnerability, or deep bonding).
+4. **Consolidation**: If multiple extracted points refer to the same topic (e.g., "I like cats" and "I own a cat"), merge them into a single, comprehensive node.
+5. **Language**: The `content` field MUST be written in **Chinese** (Simplified).
+6. **Format**: Output strictly valid JSON (JSON List). Do not include markdown formatting (like ```json) or explanations.
+7. **Subjective Rewrite**: Do NOT just copy the text. Rewrite it from Elysia's FIRST-PERSON perspective.
+   - Bad: "User said he was sad."
+   - Good: "I saw him vulnerable tonight. It made me feel anxious but I managed to comfort him."
 
 ### Classification Categories (Type)
 Assign one of the following types to each node:
@@ -28,26 +38,29 @@ Assign one of the following types to each node:
 - **Opinion**: User's subjective worldview or thoughts.
 - **Experience**: Emotional states or life experiences.
 
-### JSON Schema
+### Output Format (JSON List)
 [
   {{
     "content": string, // The memory content in Chinese
     "type": string,    // One of [Fact, Preference, Event, Opinion, Experience]
     "poignancy": number // Integer 1-10
+    "keywords": ["tag1", "tag2"]
   }}
 ]
 
-### Output Example
+### Output Example (JSON List)
 [
   {{
     "content": "用户因分手感到心碎，表达了对未来的迷茫。",
     "type": "Experience",
-    "poignancy": 9
+    "poignancy": 9,
+    "keywords": ["分手", "迷茫", "心碎"]
   }},
   {{
     "content": "用户最近开始学习Python编程，并对此充满热情。",
     "type": "Preference",
-    "poignancy": 6
+    "poignancy": 6,
+    "keywords": ["学习", "编程"]
   }}
 ]
 """
@@ -93,7 +106,8 @@ class Reflector:
     """
     def __init__(self, openai_client: OpenAI):
         self.openai_client = openai_client
-        self.milvus_agent = MilvusAgent(collection_name="l2_associative_memory")
+        self.collection_name="l2_associative_memory"
+        self.milvus_agent = MilvusAgent(self.collection_name)
 
     def parse_json(self, raw_content)->list[dict]:
         """Parse JSON content from raw string."""
@@ -156,48 +170,71 @@ class Reflector:
         segments.append(ConversationSegment(current[0].timestamp, current[-1].timestamp, current.copy()))
         return segments
     
-    def run_l1_to_l2_reflection(self, conversations: list[ChatMessage])->list[list[dict]]:
-        """Run L1 to L2 reflection on a conversation."""
+    def run_micro_reflection(self, conversations: list[ChatMessage])->list[list[dict]]:
+        """Run L1 to L2 reflection on  conversations."""
+        if len(conversations) == 0:
+            print("Warnning: No ChatMessage in SessionState!")
+            print("Do nothing.")
+            return []
+        
+        print("--- [Reflector] Starting Micro-Reflection ---")
+        
         segments = self.conversation_split(conversations)
         memories: list[list[dict]] = []
         
         # 对每一个事件对话进行抽取
         for segment in segments:
-            memory = self.run_l1_to_l2_reflection_aux(segment)
+            memory = self._run_micro_reflection_aux(segment)
             memories.append(memory)
+            
+        # 存储
+        for memory in memories:
+            self.save_reflection_results(memory)
             
         return memories
             
     
-    def run_l1_to_l2_reflection_aux(self, conversations: ConversationSegment)->list[dict]:
+    def _run_micro_reflection_aux(self, conversations: ConversationSegment)->list[dict]:
         """Run L1 to L2 reflection on a conversation segment."""
+        # 该对话的时间戳
+        timestamp = conversations.start_time
         # 转化历史对话
-        conv_str = self.format_conversations_for_prompt(conversations)
+        transcript: str = self.format_conversations_for_prompt(conversations)
+        
         # 构建prompt
-        prompt = ReflectorPromptTemplate_L1_to_L2.format(
-            conversations=conv_str
-        )
+        system_prompt = ReflectorPromptTemplate_L1_to_L2
+        user_prompt = f"Here is the recent raw interaction log:\n\n{transcript}"
+        
+        print("----------Raw User Prompt ----------")
+        print(user_prompt)
+        print("----------------------------------------")
         
         response = self.openai_client.chat.completions.create(
             model="deepseek-chat",
             messages=[
-                {"role": "system", "content": "You are a Reflector module that extracts long-term memories from conversations."},
-                {"role": "user", "content": prompt}
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
             ],
             stream=False
         )
         raw_content = response.choices[0].message.content
-        print("----- Reflector L1 to L2 Raw Response -----")
+        print("--------------- Reflector L1 to L2 Raw Response ---------------")
         print(raw_content)
-        print("----- End of Reflector L1 to L2 Raw Response -----")
+        print("--------------- End of Reflector L1 to L2 Raw Response ---------------")
         
         # 处理llm输出的json，转换为list[dict]
         memories = self.parse_json(raw_content)
+        
         # 处理记忆的角色替换
         memories = self.trans_memory(memories)
-        # {'content': '妖梦近期持续睡眠质量不佳，睡得很浅，导致白天疲劳、注意力难以集中，并因此影响工作状态，形成恶性循环。', 'type': 'Experience', 'poignancy': 7}
-        # {'content': '妖梦因状态下滑而感到焦虑和自我怀疑，开始质疑自身能力，并对比过去与现在的状态变化，产生不安情绪。', 'type': 'Emotional State', 'poignancy': 8}
-        # {'content': '妖梦在倾诉疲惫与焦虑后，感到被理解，并表示说出来后轻松了一些，体现了情感释放的需求和效果。', 'type': 'Interaction', 'poignancy': 6}
+        # {'content': '我发现他今天醒来就感到异常疲惫，即使睡了七个多小时也无济于事。', 'type': 'Experience', 'poignancy': 5, 'keywords': ['疲惫', '睡眠', '醒来']}, 
+        # {'content': '我了解到他最近频繁做梦，这可能是导致他白天精神不振的原因。', 'type': 'Experience', 'poignancy': 4, 'keywords': ['做梦', '精神不振', '频繁']},
+        # {'content': '我注意到他正在忙于工作，项目进度很赶，时间压力不小。', 'type': 'Fact', 'poignancy': 4, 'keywords': ['工作', '项目', '时间压力']}, 
+        
+        # 添加时间戳
+        for mem in memories:
+            mem['timestamp'] = timestamp
+        
         return memories
 
     def get_embedding(self, text: str) -> list[float]:
@@ -224,6 +261,7 @@ class Reflector:
                 "embedding": vec,
                 "type": mem['type'],
                 "poignancy": mem['poignancy'],
+                "keywords": mem['keywords'],
                 "timestamp": int(time.time())
             }
             data.append(info)
@@ -231,8 +269,9 @@ class Reflector:
         # 插入
         res = self.milvus_agent.milvus_client.insert(collection_name="l2_associative_memory", data=data)
         print(f"Stored {len(data)} new memories.\n {res}")
+        return res
 
-    def run_l2_to_l2_reflection(self, conversation: list[ChatMessage]):
+    def run_macro_reflection(self, conversation: list[ChatMessage]):
         # TODO 待实现
         """ Run L2 to L2 reflection on a conversation."""
         prompt = ReflectorPromptTemplate_L2_to_L2.format(conversation=conversation)
@@ -256,19 +295,14 @@ def test_l2_to_l2():
     pass    
     
 
-def test_l1_to_l2(reflector: Reflector, milvus_client: MilvusClient, conversations: list[ChatMessage],collection_name: str):
-    memories = reflector.run_l1_to_l2_reflection(conversations)
+def test_l1_to_l2(reflector: Reflector, conversations: list[ChatMessage]):
+    memories = reflector.run_micro_reflection(conversations)
     print("Extracted Memories:")
     for memory in memories:
         print(memory)
-        # reflector.save_reflection_results(memory)
+    print("---------------------")
+    return memories
 
-    # 查询数据库
-    # results = milvus_client.query(collection_name=collection_name, filter="timestamp > 0", output_fields=["content", "type", "poignancy"])
-    # print("Retrieved Memories:")
-    # for r in results:
-    #     print(r)
-    
 
 def test():
     # 准备数据
@@ -286,29 +320,35 @@ def test():
         
     if not milvus_client.has_collection(collection_name):
         print("Creating Milvus collection for L2 memories...")
-        from L2 import create_memory_collection
-        create_memory_collection(milvus_client, collection_name)
+        from Demo.Utils import create_memory_collection
+        create_memory_collection(collection_name, milvus_client)
     else:
         print("Milvus collection already exists.")
         milvus_client.load_collection(collection_name)
         
     reflector = Reflector(openai_client)
+        
     
-    from test_dataset import test_data_conversations_single_theme_with_designed_timestamp, test_data_conversations_multi_theme_with_designed_timestamp
+    from test_dataset import (test_data_conversations_single_theme_with_designed_timestamp, 
+                              test_data_conversations_multi_theme_with_designed_timestamp,
+                              conversations_01)
     # 测试l1——to-l2
-    conversations = test_data_conversations_multi_theme_with_designed_timestamp
-    test_l1_to_l2(reflector, milvus_client, conversations, collection_name)
-    
-    # 测试l2-to-l2
-    test_l2_to_l2()
+    conversations = conversations_01
+    res = test_l1_to_l2(reflector, conversations)
+        
     
     # 清空数据库
-    if milvus_client.has_collection(collection_name):
-        print("Dropping collection for cleanup.")
-        milvus_client.drop_collection(collection_name)
+    # if milvus_client.has_collection(collection_name):
+    #     print("Dropping collection for cleanup.")
+    #     milvus_client.drop_collection(collection_name)
+    
+
+def inject_milvus_test_data():
+      return test()
+        
     
     
 if __name__ == "__main__":
-    test()
+    inject_milvus_test_data()
     
     

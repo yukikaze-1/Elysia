@@ -35,31 +35,77 @@ import numpy as np
 from pymilvus import MilvusClient
 
 
+def create_memory_collection(collection_name: str, milvus_client: MilvusClient):
+    """  创建用于存储长期记忆的 Milvus Collection  """
+    # 如果存在先删除 (测试用，生产环境请注释)
+    if milvus_client.has_collection(collection_name):
+        milvus_client.drop_collection(collection_name)
+        
+    from pymilvus import DataType
+        
+    schema = milvus_client.create_schema(
+        collection_name=collection_name,
+        auto_id=True,
+        enable_dynamic_field=True
+    )
+    schema.add_field(field_name="id", datatype=DataType.INT64, is_primary=True, auto_id=True)
+    schema.add_field(field_name="embedding", datatype=DataType.FLOAT_VECTOR, dim=1024)
+    schema.add_field(field_name="content", datatype=DataType.VARCHAR, max_length=65535)
+    schema.add_field(field_name="type", datatype=DataType.VARCHAR, max_length=20)
+    schema.add_field(field_name="poignancy", datatype=DataType.INT8)
+    schema.add_field(field_name="timestamp", datatype=DataType.INT64)
+    schema.add_field(field_name="keywords", datatype=DataType.ARRAY, element_type=DataType.VARCHAR, max_length=128,max_capacity=50)
+    
+    milvus_client.create_collection(collection_name=collection_name, schema=schema)
+    
+    # 创建索引 (加快检索)
+    index_params = milvus_client.prepare_index_params()
+    index_params.add_index(
+        field_name="embedding",
+        index_type="IVF_FLAT",
+        metric_type="L2",
+        params={"nlist": 1024}
+    )
+    milvus_client.create_index(
+        collection_name=collection_name, 
+        index_params=index_params
+    )
+    milvus_client.load_collection(collection_name=collection_name) # 加载到内存
+    print(f"Collection {collection_name} ready.")
+
+
 class MilvusAgent:
     """milvus的接口类"""
     def __init__(self, collection_name: str = "l2_associative_memory"):
         self.milvus_client = MilvusClient(uri="http://localhost:19530", token="root:Milvus")
         self.collection_name = collection_name
+        if not self.milvus_client.has_collection(self.collection_name):
+            print(f"Warnning: No collection named {self.collection_name}!")
+            create_memory_collection(self.collection_name, self.milvus_client)
+        else:
+            # 预加载
+            self.milvus_client.load_collection(self.collection_name)
         self.embedding_model = create_embedding_model()
         
-    def retrieve(self, query_text: str, top_k: int = 5):
+    def retrieve(self, query_text: str, top_k: int = 5)->list[dict]:
         """检索记忆"""
         vector = self.embedding_model.embed_documents([query_text])
         
         results = self.milvus_client.search(
             collection_name=self.collection_name,
             anns_field="embedding",
-            data=[vector],
+            data=vector,
             limit=20,
             search_params={"metric_type": "L2"},
             output_fields=["content", "poignancy", "timestamp"]
         )
         result: list[dict] = results[0]
         # 重排
-        result = self.rerank(result, top_k) 
+        result = self.rerank(result, top_k)
+        return result 
         
         
-    def rerank(self, results: list[dict], top_k: int = 5):
+    def rerank(self, results: list[dict], top_k: int = 5)->list[dict]:
         """重排记忆"""
         candidates = []
         current_time = int(time.time())
@@ -90,3 +136,16 @@ class MilvusAgent:
         # 4. 按最终分数排序并切片
         candidates.sort(key=lambda x: x["score"], reverse=True)
         return candidates[:top_k]
+    
+    def forget_trivial(self, threshold: int):
+        """清理部分不重要的记忆"""
+        # TODO 后续实现
+        pass
+    
+    def dump_states(self):
+        """查看现在存了多少记忆"""
+        res = self.milvus_client.query(
+            collection_name=self.collection_name,
+            output_fields=["count(*)"],
+            )
+        print(f"Total memories: {res}")

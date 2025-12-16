@@ -1,6 +1,7 @@
 
 import json
 from datetime import datetime
+import time
 import os
 from openai import OpenAI
 
@@ -27,7 +28,7 @@ class UserMessage:
     def __init__(self, content: str):
         self.user_id: str = os.getenv("USER_ID", "default_user")
         self.content: str = content
-        self.client_timestamp: float = datetime.now().timestamp()
+        self.client_timestamp: float = time.time()
         self.input_event = InputEventInfo()
 
     def to_dict(self) -> dict:
@@ -44,7 +45,7 @@ class UserMessage:
         
 
 class L0_Sensory_Processor:
-    def __init__(self, last_message_timestamp: float = 0.0):
+    def __init__(self, last_message_timestamp: float = time.time()-1000):
         self.last_timestamp = last_message_timestamp
 
     def analyze_time_context(self, current_timestamp):
@@ -270,7 +271,7 @@ class L0_Module:
         # Instruction Generator
         self.instruction_generator = InstructionGenerator()
 
-    def process_user_message(self, user_message: UserMessage) -> L0_Output:
+    def run(self, user_message: UserMessage) -> L0_Output:
         # 1. L0 Sensory Processing
         current_timestamp = datetime.now().timestamp()
         time_context, time_description = self.sensory_processor.analyze_time_context(current_timestamp)
@@ -302,7 +303,7 @@ def test():
     print("----- Testing L0 Module -----")
     print("User Message Input: 我睡不着。")
     user_message = UserMessage("我睡不着。")
-    x = l0.process_user_message(user_message)
+    x = l0.run(user_message)
     sensory_prompt, tags, instructions = x.sensory_data, x.tags, x.instructions
     print("Sensory Processor Output:")
     print(sensory_prompt)

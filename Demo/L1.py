@@ -9,14 +9,16 @@ SystemPromptTemplate = """
 # Role Definition 
 {l3_persona_block}
 
-# L0 Sensory Input 
+# Sensory Input 
 {l0_sensory_block} 
 
-# L2 Memory Context 
+# Memory Context 
 {l2_memory_block}
+(These memories just popped into your mind based on what user said.)
 
 # Current State
-{current_state}
+Current mood:   {current_mood}
+Short-term goal:   {short_term_goal}
 
 # The Dual-Track Thinking Protocol (CRITICAL)
 You must strictly follow this 2-step process for every response:
@@ -35,8 +37,8 @@ Step 2: External Response (The "Public Track")
 # Output Format
 You MUST respond in JSON:
 {{
-"inner_voice": "(Write what you actually say to the user here...)",
-"reply": "(Write what you actually say to the user here...)"
+"inner_voice": "Write what you actually say to the user here...",
+"reply": "Write what you actually say to the user here..."
 }}
 
 Do not output anything outside the JSON object.
@@ -50,54 +52,113 @@ Core Belief: "Trust is hard to earn but easy to lose."
 """
 
 class ChatMessage:
-    def __init__(self, role: str, content: str, timestamp: float = time.time()):
+    def __init__(self, role: str, content: str, inner_voice: str = "", timestamp: float = time.time()):
         self.role: str = role
         self.content: str = content
+        self.inner_voice: str = inner_voice
         self.timestamp: float = timestamp
     
     def to_dict(self) -> dict:
         return {
             "role": self.role,
             "content": self.content,
+            "inner_voice":self.inner_voice,
             "timestamp": self.timestamp
         }
-    
-    def embed_in_prompt(self):
-        return {
-            "role": self.role,
-            "content": self.content,
-        }    
         
 
 class SessionState:
-    def __init__(self):
+    """会话状态（包含当前聊天的部分上下文）"""
+    def __init__(self, max_limit: int = 20):
+        self.max_limit: int = max_limit
         self.conversations: list[ChatMessage] = []
-        self.last_interaction_time = 0.0
+        self.last_interaction_time: float = time.time()
         self.short_term_goals: str = "Just chatting"
         self.current_mood: str = "Neutral"
 
+    def add_messages(self, messages: list[ChatMessage]):
+        if messages is not None and len(messages) == 0:
+            return
+        for msg in messages:
+            self.conversations.append(msg)
+        self.update_last_interaction_time()
+        
+    def update_goal(self, goal: str):
+        if not goal:
+            print("Error! New goal is invalid!")
+        self.short_term_goals = goal
+        
+    def update_mood(self, mood: str):
+        if not mood:
+            print("Error! New mood is invalid!")
+        self.current_mood = mood
+        
+    def update_last_interaction_time(self)->float:
+        """更新最后交互时间（以最后一条消息为准）"""
+        if len(self.conversations) == 0 :
+            print("Error, SessionSate has empty conversations!")
+            return 0.0
+        self.last_interaction_time = self.conversations[-1].timestamp
+        return self.last_interaction_time
+    
+    def prune_history(self, conversation_limit=3, max_limits=20):
+        # 假设 history 结构是 [msg1, msg2, msg3, ...]
+        # 我们保留最近 6 条消息 (3轮) 的完整内容
+        # 对于更早的消息，只保留回复部分，去掉 Inner Thought
+        # 对更早的消息，用正则把 (Meta-Context: ...) 部分清洗掉
+        # 对于非常老的消息，直接丢弃，保持总长度不超过 max_limits
+        # TODO 待配套完善
+        
+        # 丢弃老消息
+        if len(self.conversations) > max_limits:
+            history = self.conversations[-max_limits:]
+        
+        # 清洗inner thought
+        threshold_index = len(history) - 2 * conversation_limit
+        if threshold_index > 0:
+            for i in range(threshold_index):
+                if history[i].role == "assistant":
+                    # 清洗掉 Inner Thought，只留 Reply
+                    history[i].inner_voice = ""
+                    
+        self.conversations.clear()
+        self.conversations = history
+    
+    
     def debug(self):
-        print("----- SessionState Debug Info -----")
+        print("-------------------- SessionState Debug Info --------------------")
         print(f"Time: {datetime.fromtimestamp(time.time())}")
         print(f"  Last Interaction Time: {self.last_interaction_time}")
         print(f"  Short Term Goals: {self.short_term_goals}")
         print(f"  Current Mood: {self.current_mood}")
         print("  Conversation History:")
         for msg in self.conversations:
-            print(f"    {msg.role} at {msg.timestamp}: {msg.content}")
-        print("----- End of Debug Info -----")
+            if msg.inner_voice == "":
+                print(f"    {msg.role} at {msg.timestamp}: {msg.content}")
+            else:
+                print(f"    {msg.role} at {msg.timestamp}: {msg.content} \n \t \t(inner_voice): {msg.inner_voice}")
 
+        print("-------------------- End of Debug Info --------------------")
+
+
+from Demo.Utils import MilvusAgent
 
 class L1_Module:
-    def __init__(self,client: OpenAI):
-        self.client = client
+    def __init__(self,openai_client: OpenAI):
+        self.openai_client = openai_client
+        self.milvus_agent = MilvusAgent(collection_name="l2_associative_memory")
 
-    def run_l1_turn(self, session_state: SessionState, user_input: UserMessage, l0_context: L0_Output):
+    def run(self, session_state: SessionState, user_input: UserMessage, l0_context: L0_Output):
         # 1. 拼装 Prompt
-        messages: list = self.construct_prompt(session_state, user_input, l0_context, l3_persona_example)
-
-        # 2. 调用 LLM (假设用 OpenAI API)
-        response = self.client.chat.completions.create(
+        messages: list = self.construct_prompt(session_state, user_input, l0_context)
+        
+        print("-----------------------------DEBUG Final Prompt without system prompt-----------------------------")
+        print(messages[1:])
+        print("---------------------------------------------------------------------------------------------")
+        
+        
+        # 2. 调用 LLM 
+        response = self.openai_client.chat.completions.create(
             model="deepseek-chat",
             messages=messages,
             response_format={
@@ -117,38 +178,24 @@ class L1_Module:
         # 4. 更新 L1 状态 (关键步骤！)
         # 我们不仅存“说的话”，还要存“想的话”，以便让 AI 记得自己的思路
         session_state.conversations.append(
-            ChatMessage(role="user", content=user_input.content)
+            ChatMessage(role="妖梦", content=user_input.content)
         )
         
         # 技巧：存入历史时，我们可以选择是否把 inner_voice 塞进去给 LLM 看
         # 为了连贯性，建议将 inner_voice 作为一个特殊的 context 存入，
         # 但在发给 LLM 时标记清楚这是"上一轮的想法"。
         session_state.conversations.append(
-            ChatMessage(role="assistant", content=f"{public_reply}\n(Meta-Context: My previous thought was: {inner_thought})")
+            # ChatMessage(role="Elysia", content=f"{public_reply}\n(Meta-Context: My previous thought was: {inner_thought})")
+            ChatMessage(role="Elysia", content=public_reply, inner_voice=inner_thought)
         )
         session_state.debug()
         return public_reply, inner_thought
 
-    def prune_history(self, history: list[ChatMessage], conversation_limit=3, max_limits=20) -> list[ChatMessage]:
-        # 假设 history 结构是 [msg1, msg2, msg3, ...]
-        # 我们保留最近 6 条消息 (3轮) 的完整内容
-        # 对于更早的消息，只保留回复部分，去掉 Inner Thought
-        # 对更早的消息，用正则把 (Meta-Context: ...) 部分清洗掉
-        # 对于非常老的消息，直接丢弃，保持总长度不超过 max_limits
-        
-        if len(history) > max_limits:
-            history = history[-max_limits:]
-        
-        threshold_index = len(history) - 2 * conversation_limit
-        if threshold_index > 0:
-            for i in range(threshold_index):
-                if history[i].role == "assistant":
-                    # 清洗掉 Inner Thought，只留 Reply
-                    clean_content = history[i].content.split("\n(Meta-Context:")[0]
-                    history[i] = ChatMessage(role=history[i].role, content=clean_content, timestamp=history[i].timestamp)
-        return history
+    
+    
     
     def parse_llm_response(self, llm_raw_output) -> tuple[str, str]:
+        """解析llm的输出"""
         data = json.loads(llm_raw_output)
         inner_voice = data.get("inner_voice", "...")
         reply_text = data.get("reply", "...")
@@ -156,26 +203,58 @@ class L1_Module:
         return inner_voice, reply_text
 
 
-    def construct_prompt(self, session_state: SessionState, user_input: UserMessage, l0_data: L0_Output, l3_persona: str) -> list[dict]:
-        # 拼装 Prompt
-        related_memories = []
-        current_state = []
+    def construct_prompt(self, session_state: SessionState, user_input: UserMessage, l0_data: L0_Output) -> list[dict]:
+        """ 拼装 Prompt """
+        # 检索记忆
+        related_memories: list[dict] = self.milvus_agent.retrieve(query_text=user_input.content)
+        
+        print("--------------------DEBUG Related Memories--------------------")
+        for r in related_memories:
+            print(r)
+        print("-------------------------------------------------------------------")
+        
+        l2_related_memories = []
+        for memory in related_memories:
+            l2_related_memories.append(f'  {memory['content']}')
+        l2_related_memories = "[\n" + "\n".join(l2_related_memories) + "\n]"
+        
+        # 获取L3 人格设定
+        l3_persona: str = l3_persona_example
+        
         system_prompt = SystemPromptTemplate.format(
             l3_persona_block=l3_persona,
             l0_sensory_block=l0_data.sensory_data,
-            l2_memory_block=session_state.short_term_goals + "\n" + session_state.current_mood,
-            current_state=current_state 
+            l2_memory_block=l2_related_memories,
+            current_mood=session_state.current_mood,
+            short_term_goal=session_state.short_term_goals
         )
+        print("-------------------------------------------")
+        print("Debug Info:")
+        print(system_prompt)
+        print("-------------------------------------------")
         
         messages = [{"role": "system", "content": system_prompt}]
         
-        # 注入历史记录 (注意：这里有一个策略点，下文会讲)
+        # 注入历史记录 
         # TODO 目前是全部装进去了，并没有修剪，后面再考虑
         if session_state.conversations is not None and len(session_state.conversations) > 0:
             for message in session_state.conversations: 
-                messages.append({"role": f"{message.role}", "content": message.content})
+                role: str = ""
+                if message.role == "妖梦":
+                    role = "user"
+                elif message.role == "Elysia":
+                    role = "assistant"
+                else:
+                    role = "system"
+                messages.append({"role": role, "content": message.content})
 
         messages.append({"role": "user", "content": user_input.content})
+        
+        # print("-------------------------------------------")
+        # print("Debug Info:")
+        # for msg in messages:
+        #     print(msg)
+        # print("-------------------------------------------")
 
         return messages 
 
@@ -195,9 +274,9 @@ def test():
     while(True):
         user_input = UserMessage(input("User: "))
         
-        l0_output = l0.process_user_message(user_input)
+        l0_output = l0.run(user_input)
         
-        reply, inner_thought = l1.run_l1_turn(session_state, user_input, l0_output)
+        reply, inner_thought = l1.run(session_state, user_input, l0_output)
         
         print(f"Elysia (Inner Thought): {inner_thought}")
         print(f"Elysia (Reply): {reply}")
