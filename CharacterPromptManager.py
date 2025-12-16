@@ -309,7 +309,7 @@ class CharacterPromptManager():
         
         return warnings
     
-    def get_Elysia_prompt(self):
+    def get_Elysia_prompt(self)->str:
         """获取爱莉希雅的角色设定"""
         elysia_config = {
             # 身份定位

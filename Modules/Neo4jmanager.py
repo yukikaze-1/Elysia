@@ -1,8 +1,7 @@
-import re
 from neo4j import GraphDatabase, Query
 from dotenv import load_dotenv, find_dotenv
 import os
-
+from typing import Optional, Literal
 
 class Neo4jManager:
     """Neo4j数据库管理器"""
