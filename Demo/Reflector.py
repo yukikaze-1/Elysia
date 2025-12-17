@@ -1,73 +1,4 @@
 
-# 从L1到L2的Reflector提示模板
-# 提取出 “值得记住的瞬间”，并计算出 Poignancy (情绪深刻度)
-# TODO 细化该prompt,该prompt目前有问题：1.输出不够凝练
-
-ReflectorPromptTemplate_L1_to_L2 = """
-### Role
-You are the "Subconscious Processor" for an AI named Elysia.
-Your job is to read the raw "Stream of Consciousness" (L1 logs) and extract meaningful memories to store in the Long-Term Memory (L2).
-
-
-# Input Format
-You will receive a transcript containing:
-- 妖梦's (User) (Male) messages.
-- Elysia's (AI) (Female) Inner Thoughts (Very Important!).
-- Elysia's (AI) (Female) External Replies.
-
-### Task Requirements
-1. **Extraction**: Identify distinct facts, preferences, events, or emotional states regarding the user.
-2. **Filter out Noise**: Ignore greetings ("Hi", "Bye"), clarifying questions, or trivial chit-chat.
-3. **Rate Poignancy (1-10)**: 
-   - How emotionally impactful is this? 
-   - 1-3: Boring/Trivial (Do not store unless it's a new Fact).
-   - 4-7: Moderate interaction.
-   - 8-10: Core Memory (High emotion, conflict, vulnerability, or deep bonding).
-4. **Consolidation**: If multiple extracted points refer to the same topic (e.g., "I like cats" and "I own a cat"), merge them into a single, comprehensive node.
-5. **Language**: The `content` field MUST be written in **Chinese** (Simplified).
-6. **Format**: Output strictly valid JSON (JSON List). Do not include markdown formatting (like ```json) or explanations.
-7. **Subjective Rewrite**: Do NOT just copy the text. Rewrite it from Elysia's FIRST-PERSON perspective.
-   - Bad: "User said he was sad."
-   - Good: "I saw him vulnerable tonight. It made me feel anxious but I managed to comfort him."
-
-### Classification Categories (Type)
-Assign one of the following types to each node:
-- **Fact**: Objective truths about the user (e.g., job, age, location).
-- **Preference**: Likes, dislikes, hobbies.
-- **Event**: Specific past or future occurrences.
-- **Opinion**: User's subjective worldview or thoughts.
-- **Experience**: Emotional states or life experiences.
-
-### Output Format (JSON List)
-[
-  {{
-    "content": string, // The memory content in Chinese
-    "type": string,    // One of [Fact, Preference, Event, Opinion, Experience]
-    "poignancy": number // Integer 1-10
-    "keywords": ["tag1", "tag2"]
-  }}
-]
-
-### Output Example (JSON List)
-[
-  {{
-    "content": "用户因分手感到心碎，表达了对未来的迷茫。",
-    "type": "Experience",
-    "poignancy": 9,
-    "keywords": ["分手", "迷茫", "心碎"]
-  }},
-  {{
-    "content": "用户最近开始学习Python编程，并对此充满热情。",
-    "type": "Preference",
-    "poignancy": 6,
-    "keywords": ["学习", "编程"]
-  }}
-]
-"""
-# 从L2到L2的Reflector提示模板
-ReflectorPromptTemplate_L2_to_L2 = """  """
-
-
 from calendar import c
 from openai import OpenAI
 from L1 import ChatMessage
@@ -76,7 +7,6 @@ import json
 import time
 
 from datetime import datetime
-from Utils import create_embedding_model
 
 class ConversationSegment:
     def __init__(self, start_time: float, end_time: float, messages: list[ChatMessage]):
@@ -98,6 +28,7 @@ class ConversationSegment:
 
 
 from Demo.Utils import MilvusAgent
+from Demo.Prompt import ReflectorPromptTemplate_L1_to_L2
 
 class Reflector:
     """
@@ -273,26 +204,7 @@ class Reflector:
 
     def run_macro_reflection(self, conversation: list[ChatMessage]):
         # TODO 待实现
-        """ Run L2 to L2 reflection on a conversation."""
-        prompt = ReflectorPromptTemplate_L2_to_L2.format(conversation=conversation)
-
-        response = self.openai_client.chat.completions.create(
-            model="deepseek-chat",
-            messages=[
-                {"role": "system", "content": "You are a Reflector module that extracts long-term memories from conversations."},
-                {"role": "user", "content": prompt}
-            ],
-            response_format={
-                'type': 'json_object'
-            },
-            stream=False
-        )
-        
-        return response
-
-
-def test_l2_to_l2():
-    pass    
+        pass
     
 
 def test_l1_to_l2(reflector: Reflector, conversations: list[ChatMessage]):

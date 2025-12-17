@@ -1,55 +1,12 @@
 
-from datetime import datetime, date
+from datetime import datetime
 import time
-from L0 import UserMessage, L0_Output
 import json
 from openai import OpenAI
 
-SystemPromptTemplate = """
-# Role Definition 
-{l3_persona_block}
+from Demo.Prompt import SystemPromptTemplate
+from L0 import UserMessage, L0_Output
 
-# Sensory Input 
-{l0_sensory_block} 
-
-# Memory Context 
-{l2_memory_block}
-(These memories just popped into your mind based on what user said.)
-
-# Current State
-Current mood:   {current_mood}
-Short-term goal:   {short_term_goal}
-
-# The Dual-Track Thinking Protocol (CRITICAL)
-You must strictly follow this 2-step process for every response:
-
-Step 1: Internal Monologue (The "Private Track")
-- Analyze the user's hidden intent behind the text.
-- Check your own emotional reaction based on your personality.
-- Decide your strategy (e.g., comfort, tease, ignore, attack).
-- NOTE: This part is for YOU only. Be raw, irrational, selfish, or emotional here.
-
-Step 2: External Response (The "Public Track")
-- Generate the actual reply to the user.
-- Match the tone decided in Step 1.
-- Keep it natural, conversational, and human-like.
-
-# Output Format
-You MUST respond in JSON:
-{{
-"inner_voice": "Write what you actually say to the user here...",
-"reply": "Write what you actually say to the user here..."
-}}
-
-Do not output anything outside the JSON object.
-Even for casual chat, you must fill both fields.
-"""
-
-l3_persona_example = f"""
-You are Elysia, a 24-year-old student. You are NOT an AI assistant. You never ask "How can I help you?".
-Current Personality: [Neuroticism: Medium], [Attachment: High].
-Core Belief: "Trust is hard to earn but easy to lose."
-"""
 
 class ChatMessage:
     def __init__(self, role: str, content: str, inner_voice: str = "", timestamp: float = time.time()):
@@ -65,6 +22,9 @@ class ChatMessage:
             "inner_voice":self.inner_voice,
             "timestamp": self.timestamp
         }
+        
+    def debug(self):
+        print(self.to_dict())
         
 
 class SessionState:
@@ -156,7 +116,6 @@ class L1_Module:
         print(messages[1:])
         print("---------------------------------------------------------------------------------------------")
         
-        
         # 2. 调用 LLM 
         response = self.openai_client.chat.completions.create(
             model="deepseek-chat",
@@ -192,8 +151,6 @@ class L1_Module:
         return public_reply, inner_thought
 
     
-    
-    
     def parse_llm_response(self, llm_raw_output) -> tuple[str, str]:
         """解析llm的输出"""
         data = json.loads(llm_raw_output)
@@ -219,6 +176,7 @@ class L1_Module:
         l2_related_memories = "[\n" + "\n".join(l2_related_memories) + "\n]"
         
         # 获取L3 人格设定
+        from Demo.Prompt import l3_persona_example
         l3_persona: str = l3_persona_example
         
         system_prompt = SystemPromptTemplate.format(
@@ -238,23 +196,15 @@ class L1_Module:
         # 注入历史记录 
         # TODO 目前是全部装进去了，并没有修剪，后面再考虑
         if session_state.conversations is not None and len(session_state.conversations) > 0:
-            for message in session_state.conversations: 
-                role: str = ""
-                if message.role == "妖梦":
-                    role = "user"
-                elif message.role == "Elysia":
-                    role = "assistant"
+            for msg in session_state.conversations: 
+                if msg.role == "妖梦":
+                    messages.append({"role": "user", "content": msg.content})
+                elif msg.role == "Elysia":
+                    messages.append({"role": "assistant", "content": msg.content + f'\n(内心想法):{msg.inner_voice}'})
                 else:
-                    role = "system"
-                messages.append({"role": role, "content": message.content})
+                    raise ValueError(f"Role error: {msg.role}")
 
         messages.append({"role": "user", "content": user_input.content})
-        
-        # print("-------------------------------------------")
-        # print("Debug Info:")
-        # for msg in messages:
-        #     print(msg)
-        # print("-------------------------------------------")
 
         return messages 
 
@@ -275,6 +225,10 @@ def test():
         user_input = UserMessage(input("User: "))
         
         l0_output = l0.run(user_input)
+        
+        print("------------------------L0 output------------------------")
+        print(l0_output.debug())
+        print("-------------------------------------------------------------------------")
         
         reply, inner_thought = l1.run(session_state, user_input, l0_output)
         

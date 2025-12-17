@@ -84,42 +84,27 @@ class L0_Sensory_Processor:
 
 # ------ L0 Tagger  ------
 
-L0_Tagger_Prompt =   f"""
-Task: Analyze the user's incoming message purely on 'Vibe' and 'Urgency'.
-Input: "{{user_message}}"
-Context: {{time_context}} {{latency_context}} 
-
-Output format: JSON
-{{
-  "sentiment": "Anxious/Lonely", (One word summary)
-  "urgency": "High", (Low/Medium/High)
-  "intention_guess": "Seeking comfort", (Guess what they want before thinking deep)
-  "safety_flag": false (Is this self-harm or toxic?)
-}}
-"""
+from Demo.Prompt import L0_Tagger_System_Prompt, L0_Tagger_User_Template
 
 class L0_Tagger:
     """ L0 Tagger 类，用于对用户消息进行标签化 """
     def __init__(self, client: OpenAI):
         self.client = client
-        self.tagger_prompt_template = L0_Tagger_Prompt
-    
-    def construct_l0_tagger_prompt(self, user_message: str, time_context: str, latency_context: str) -> str:
-        """ 构建 L0 Tagger 的完整 prompt """
-        prompt = self.tagger_prompt_template.replace("{{user_message}}", user_message)
-        prompt = prompt.replace("{{time_context}}", time_context)
-        prompt = prompt.replace("{{latency_context}}", latency_context)
-        return prompt    
 
     def tag_message(self, user_message: UserMessage, time_context: str, latency_context: str) -> dict:
         """ 调用 LLM 对用户消息进行标签化 """
-        prompt = self.construct_l0_tagger_prompt(user_message.content, time_context, latency_context)
+        system_prompt = L0_Tagger_System_Prompt
+        user_prompt = L0_Tagger_User_Template.format(
+            user_message=user_message.content,
+            time_context=time_context,
+            latency_context=latency_context
+        )
         
         response = self.client.chat.completions.create(
             model="deepseek-chat",
             messages=[
-                {"role": "system", "content": "You are an expert L0 Tagger."},
-                {"role": "user", "content": prompt},
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
             ],
             stream=False
         )
@@ -257,6 +242,11 @@ class L0_Output:
             "tags": self.tags,
             "instructions": self.instructions
         }
+        
+    def debug(self):
+        print(f"sensory_data: {self.sensory_data}")
+        print(f"tags: {self.tags}")
+        print(f"instructions: {self.instructions}")
 
 class L0_Module:
     def __init__(self, client: OpenAI):
