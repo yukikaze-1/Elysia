@@ -197,6 +197,26 @@ class L1_Module:
 
     def construct_prompt(self, session_state: SessionState, user_input: UserMessage, l0_data: L0_Output) -> list[dict]:
         """ 拼装 Prompt """
+        l0_sensory_block_template = """
+        <facts>
+            Current_Time: {current_time}
+            Time of day: {time_of_day}
+            Day of Week: {day_of_week}
+            User_Latency: {latency}
+        </facts>
+        
+        <perception>
+            Perception: {perception}
+        </perception>
+        """
+        l0_sensory_block = l0_sensory_block_template.format(
+            current_time=l0_data.envs.current_time,
+            time_of_day=l0_data.envs.time_of_day,
+            day_of_week=l0_data.envs.day_of_week,
+            latency=l0_data.envs.user_latency,
+            perception=l0_data.perception
+        )
+        
         # 检索记忆
         related_memories: list[dict] = self.milvus_agent.retrieve(query_text=user_input.content)
         
@@ -216,7 +236,7 @@ class L1_Module:
         
         system_prompt = SystemPromptTemplate.format(
             l3_persona_block=l3_persona,
-            l0_sensory_block=l0_data.sensory_data,
+            l0_sensory_block=l0_sensory_block,
             l2_memory_block=l2_related_memories,
             current_mood=session_state.current_mood,
             short_term_goal=session_state.short_term_goals
@@ -238,14 +258,6 @@ class L1_Module:
                     messages.append({"role": "assistant", "content": msg.content + f'\n(内心想法):{msg.inner_voice}'})
                 else:
                     raise ValueError(f"Role error: {msg.role}")
-
-        # enforce_json_prompt = """
-        #     {user_input}
-
-        #     (System Reminder: You MUST respond in JSON format strictly. Start your response with {{ "inner_thought": ... )
-        # """
-        # enforce_json_prompt.format(user_input=user_input.content)
-        # messages.append({"role": "user", "content": enforce_json_prompt})
         
         messages.append({"role": "user", "content": user_input.content})
         

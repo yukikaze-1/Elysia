@@ -100,7 +100,7 @@ class Reflector:
         self.collection_name="l2_associative_memory"
         self.milvus_agent = MilvusAgent(self.collection_name)
 
-    def parse_llm_output(self, raw_response: ChatCompletion)-> list[MicroMemoryLLMOut]:
+    def parse_micro_llm_output(self, raw_response: ChatCompletion)-> list[MicroMemoryLLMOut]:
         """处理llm的原生回复，提取出MicroMemory"""
         if not raw_response.choices[0].message.content:
             print("Error! LLM response contains empty content!")
@@ -255,7 +255,7 @@ class Reflector:
         
         # 处理llm输出的json，转换为list[dict]
         # 这里假设解析后的格式是我们规定的格式：MicroMemoryLLMOut
-        memories: list[MicroMemoryLLMOut] = self.parse_llm_output(response)
+        memories: list[MicroMemoryLLMOut] = self.parse_micro_llm_output(response)
         
         # 处理记忆的角色替换
         memories = self.trans_memory(memories)
@@ -343,9 +343,7 @@ def test():
     reflector = Reflector(openai_client)
         
     
-    from test_dataset import (test_data_conversations_single_theme_with_designed_timestamp, 
-                              test_data_conversations_multi_theme_with_designed_timestamp,
-                              conversations_01)
+    from test_dataset import (conversations_01)
     # 测试l1——to-l2
     conversations = conversations_01
     res = test_l1_to_l2(reflector, conversations)

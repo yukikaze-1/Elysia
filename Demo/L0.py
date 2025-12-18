@@ -1,9 +1,9 @@
 
-import json
 from datetime import datetime
 import time
 import os
 from openai import OpenAI
+from Demo.Utils import TimeEnvs
 
 class InputEventInfo:
     """输入事件类"""
@@ -43,6 +43,23 @@ class UserMessage:
     def __str__(self) -> str:
         return f"UserMessage(user_id={self.user_id}, content={self.content}, timestamp={self.client_timestamp}, input_event={self.input_event})"
         
+class EnvironmentInformation:
+    def __init__(self, current_time: float, 
+                 time_of_day: str,
+                 day_of_week: str,
+                 user_latency: float):
+        self.current_time: float = current_time
+        self.time_of_day: str = time_of_day
+        self.day_of_week: str = day_of_week
+        self.user_latency: float = user_latency
+    
+    def to_dict(self):
+        return {
+            "current_time": self.current_time,
+            "day_of_week":self.day_of_week,
+            "user_latency": self.user_latency
+        }            
+        
 class L0_Sensory_Processor:
     """
     处理传感器数据的类
@@ -51,212 +68,112 @@ class L0_Sensory_Processor:
     # TODO init中的的-1000需要删掉
     def __init__(self, last_message_timestamp: float = time.time()-1000):
         self.last_timestamp = last_message_timestamp
-
-    def analyze_time_context(self, current_timestamp)->tuple[str, str]:
-        # 将时间戳转换为小时 (0-23)
-        dt = datetime.fromtimestamp(current_timestamp)
-        hour = dt.hour
+        self.time_envs = TimeEnvs()
         
-        # 拟人化的时间感知逻辑
-        if 0 <= hour < 5:
-            return "Late_Night", "深夜时刻，通常意味着脆弱、寂寞或失眠。"
-        elif 5 <= hour < 9:
-            return "Early_Morning", "清晨，一天的开始，能量通常较低或刚苏醒。"
-        elif 9 <= hour < 18:
-            return "Work_Hours", "工作时间，可能比较忙碌，回复由于理性。"
-        else:
-            return "Evening", "私人时间，比较放松。"
-
-    def analyze_latency(self, current_timestamp)->tuple[str, str]:
-        if  self.last_timestamp == 0.0:
-            return "First_Contact", "这是第一次对话。"
+    def get_envs(self) -> EnvironmentInformation:
+        """主动获取传感器数据"""
         
-        gap_seconds = current_timestamp - self.last_timestamp
-        
-        # 拟人化的延迟感知逻辑
-        if gap_seconds < 10:
-            return "Instant_Reply", "秒回。用户非常关注这段对话，或者很急。"
-        elif gap_seconds < 300: # 5分钟内
-            return "Normal_Flow", "正常的对话节奏。"
-        elif gap_seconds < 3600 * 6: # 6小时内
-            return "Short_Break", "间隔了一小段时间。"
-        elif gap_seconds < 3600 * 24 * 3: # 3天内
-            return "Long_Break", "用户离开了较长时间。"
-        else:
-            return "Ghosting_Return", "用户消失了很久突然出现 (Ghosting)。"
-        
+        # TODO 待扩展
+        current_time=time.time()
+        dt = datetime.fromtimestamp(current_time)
+        weekday = dt.strftime("%A")
+        time_of_day = self.time_envs.get_time_of_day_timestamp(current_time)
+        return EnvironmentInformation(current_time, time_of_day, weekday, current_time - self.last_timestamp)
 
-# ------ L0 Tagger  ------
-
-from Demo.Prompt import L0_Tagger_System_Prompt, L0_Tagger_User_Template
-
-class L0_Tagger:
-    """ L0 Tagger 类，用于对用户消息进行标签化 """
-    def __init__(self, client: OpenAI):
-        self.client = client
-
-    def tag_message(self, user_message: UserMessage, time_context: str, latency_context: str) -> dict:
-        """ 调用 LLM 对用户消息进行标签化 """
-        system_prompt = L0_Tagger_System_Prompt
-        user_prompt = L0_Tagger_User_Template.format(
-            user_message=user_message.content,
-            time_context=time_context,
-            latency_context=latency_context
-        )
-        
-        # TODO 次数是否也需要前缀续写？见(L1 chat)
-        response = self.client.chat.completions.create(
-            model="deepseek-chat",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            response_format={'type': 'json_object'},
-            stream=False
-        )
-        
-        tag_output = response.choices[0].message.content
-        
-        if tag_output:
-            tags = json.loads(tag_output)
-        else:
-            tags = {}
-        
-        return tags
-
-# ------ L0 Instruction Generator ------
-
-class TimeContext:
-    LateNight: str = "当前是深夜，请保持语气柔和，避免过于激动的措辞。"
-    Morning: str = "现在是清晨，语气可以轻松愉快一些。"
-    WorkHours: str = "现在是工作时间，回复应简洁明了，专业。"
-    Evening: str = "现在是晚上，可以稍微放松一些，语气友好。"
-    
-    def to_dict(self) -> dict:
-        return {
-            "LateNight": self.LateNight,
-            "Morning": self.Morning,
-            "WorkHours": self.WorkHours,
-            "Evening": self.Evening
-        }
-    
-class SentimentContext:
-    Angry: str = "检测到用户有攻击性。请启动防御机制：不要回击，先尝试降温处理 (De-escalation)。"
-    Sad: str = "检测到用户情绪低落。请表现出同理心，给予安慰和支持。"
-    Happy: str = "检测到用户情绪高兴。请以积极和热情的语气回应，分享他们的喜悦。"
-    
-    def to_dict(self) -> dict:
-        return {
-            "Angry": self.Angry,
-            "Sad": self.Sad,
-            "Happy": self.Happy
-        }
-
-class UrgencyContext:
-    High: str = "用户很着急，请直接给出简短的回应，不要废话。"
-    Medium: str = "用户有一定的紧迫感，请尽量快速回应。"
-    Low: str = "用户不急，请保持正常的回复节奏。"
-    
-    def to_dict(self) -> dict:
-        return {
-            "High": self.High,
-            "Medium": self.Medium,
-            "Low": self.Low
-        }
-
-class InstructionGenerator:
-    """ 根据标签生成指令的类 """
-    def __init__(self, time_context: TimeContext = TimeContext(), 
-                 sentiment_context: SentimentContext = SentimentContext(), 
-                 urgency_context: UrgencyContext = UrgencyContext()):
-        self.time_context = time_context
-        self.sentiment_context = sentiment_context
-        self.urgency_context = urgency_context
-
-    def get_instruction_from_tags(self, tags, time_context)->str:
-        """根据标签和时间上下文生成指令列表"""
-        instructions = []
-
-        # 1. 基于时间的硬规则
-        if time_context == "Late_Night":
-            instructions.append(self.time_context.LateNight)
-        elif time_context == "Early_Morning":
-            instructions.append(self.time_context.Morning)
-        elif time_context == "Work_Hours":
-            instructions.append(self.time_context.WorkHours)
-        elif time_context == "Evening":
-            instructions.append(self.time_context.Evening)
-        # 2. 基于情绪标签的映射
-        if tags.get("sentiment") == "Angry":
-            instructions.append(self.sentiment_context.Angry)
-        elif tags.get("sentiment") == "Sad":
-            instructions.append(self.sentiment_context.Sad)
-        elif tags.get("sentiment") == "Happy":
-            instructions.append(self.sentiment_context.Happy)
-
-        # 3. 基于紧迫感的映射
-        if tags.get("urgency") == "High":
-            instructions.append(self.urgency_context.High)
-        elif tags.get("urgency") == "Medium":
-            instructions.append(self.urgency_context.Medium)
-        elif tags.get("urgency") == "Low":
-            instructions.append(self.urgency_context.Low)
-        return " ".join(instructions)
-
-    def get_contexts_info(self) -> dict:
-        return {
-            "time_context": self.time_context.to_dict(),
-            "sentiment_context": self.sentiment_context.to_dict(),
-            "urgency_context": self.urgency_context.to_dict()
-        }
 
 class L0_Output:
-    """ L0 输出类，包含 Sensory Data、Tags 和 Instructions """
-    def __init__(self, sensory_data: str, tags: dict, instructions: str):
-        self.sensory_data = sensory_data
-        self.tags = tags
-        self.instructions = instructions
+    """ L0 输出类，包含 Sensory Data"""
+    def __init__(self, perception: str, envs: EnvironmentInformation):
+        self.perception: str = perception
+        self.envs: EnvironmentInformation = envs
         
     def to_dict(self) -> dict:
         """将 L0 输出转换为字典格式"""
         return {
-            "sensory_data": self.sensory_data,
-            "tags": self.tags,
-            "instructions": self.instructions
+            "perception": self.perception,
+            "envs": self.envs
         }
         
     def debug(self):
-        print(f"sensory_data: {self.sensory_data}")
-        print(f"tags: {self.tags}")
-        print(f"instructions: {self.instructions}")
+        print(f"perception: {self.perception} \n facts:{self.envs.to_dict()}")
+
+from Demo.Prompt import L0_SubConscious_System_Prompt, L0_SubConscious_User_Prompt
 
 class L0_Module:
-    def __init__(self, client: OpenAI):
+    def __init__(self, openai_client: OpenAI):
         self.user_messages = []
+        self.openai_client = openai_client
         self.sensory_processor = L0_Sensory_Processor()
-        self.tagger = L0_Tagger(client)
-        self.instruction_generator = InstructionGenerator()
+        self.time_envs = TimeEnvs()
 
     def run(self, user_message: UserMessage) -> L0_Output:
-        # 1. 处理传感器数据
-        current_timestamp = datetime.now().timestamp()
-        time_context, time_description = self.sensory_processor.analyze_time_context(current_timestamp)
-        latency_context, latency_description = self.sensory_processor.analyze_latency(current_timestamp)
-        sensory_data = (
-            f"时间感知: {time_context} - {time_description}\n"
-            f"延迟感知: {latency_context} - {latency_description}\n"
-            "请基于以上感知调整你的回复风格和内容，使其更符合当前的时间和对话节奏。"
-        )
-        # 2. 打标签
-        tags = self.tagger.tag_message(user_message, time_context, latency_context)
+        # 1. 获取传感器数据
+        current_env: EnvironmentInformation = self.sensory_processor.get_envs()
         
-        # 3. 生成指令
-        instructions = self.instruction_generator.get_instruction_from_tags(tags, time_context)
+        # 2. 处理传感器数据
         
-        # 4. 更新最后消息时间戳
-        self.sensory_processor.last_timestamp = current_timestamp
+        
+        # 3. 生成描述
+        sensory_description: str = self.generate_sensory_description(current_env)
+        
+        # 4. 更新最后交互时间
+        self.sensory_processor.last_timestamp = current_env.current_time
 
-        return L0_Output(sensory_data, tags, instructions)
+        return L0_Output(sensory_description, current_env)
+    
+    
+    def get_latency_desc(self, latency: float)->str:
+        """获取延迟描述"""
+        latency_desc = ""
+
+        if latency < 10: # 小于5秒
+            latency_desc = "Instant_Reply (秒回/极快)"
+        elif latency < 60: # 小于1分钟
+            latency_desc = "Normal_Flow (正常节奏)"
+        elif latency < 300: # 小于5分钟
+            latency_desc = "Short_Wait (轻微等待)"
+        else:
+            latency_desc = "Long_Silence (漫长沉默)"
+            
+        return latency_desc
+    
+    
+    def generate_sensory_description(self, envs: EnvironmentInformation)-> str:
+        """生成环境描述"""
+        
+        latency_desc = self.get_latency_desc(envs.user_latency)
+        dt = datetime.fromtimestamp(envs.current_time)
+        
+        system_prompt = L0_SubConscious_System_Prompt
+        user_prompt = L0_SubConscious_User_Prompt.format(
+            current_time=dt.isoformat(),
+            day_of_week=dt.strftime("%A"),
+            time_of_day=self.time_envs.get_time_of_day_timestamp(envs.current_time),
+            season=self.time_envs.get_season_from_timestamp(envs.current_time),
+            latency=envs.user_latency,
+            latency_description=latency_desc
+        )
+        
+        print("User Prompt:")
+        print(user_prompt)
+        
+        response = self.openai_client.chat.completions.create(
+            model="deepseek-chat",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            stream=False
+        )
+        
+        if not response.choices[0].message.content:
+            print("Error! Get empty response content.")
+            return ""
+            
+        raw_content = response.choices[0].message.content
+        
+        return raw_content
+    
 
 def test():
     from dotenv import load_dotenv
@@ -268,15 +185,14 @@ def test():
     print("User Message Input: 我睡不着。")
     user_message = UserMessage("我睡不着。")
     x = l0.run(user_message)
-    sensory_prompt, tags, instructions = x.sensory_data, x.tags, x.instructions
-    print("Sensory Processor Output:")
-    print(sensory_prompt)
-    print("Tagger Output:")
-    print(tags)
-    print("Instruction Output:")
-    print(instructions)
+    sensory_description, envs = x.perception, x.envs
+    print("Sensory Processor Output(Envs):")
+    print(envs.to_dict())
+    print("Sensory description:")
+    print(sensory_description)
 
 
 if __name__ == "__main__":
     test()
+    
     
