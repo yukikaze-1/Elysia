@@ -10,7 +10,7 @@ def search():
         collection_name=collection_name,
         filter="",
         limit=100,
-        output_fields=["id", "content", "poignancy", "keywords", "timestamp"]
+        output_fields=["id", "memory_type", "content", "poignancy", "keywords", "timestamp"]
     )
 
     for hit in res:

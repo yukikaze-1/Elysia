@@ -6,14 +6,21 @@ from openai import OpenAI
 
 from Demo.Prompt import SystemPromptTemplate
 from L0 import UserMessage, L0_Output
-
+from openai.types.chat import ChatCompletionMessage
 
 class ChatMessage:
-    def __init__(self, role: str, content: str, inner_voice: str = "", timestamp: float = time.time()):
+    def __init__(self, role: str, content , inner_voice: str = "", timestamp: float = time.time()):
         self.role: str = role
-        self.content: str = content
+        self.content = content
         self.inner_voice: str = inner_voice
         self.timestamp: float = timestamp
+    
+    @classmethod
+    def from_ChatCompletionMessage(cls, message: ChatCompletionMessage, timestamp: int):
+        return cls(role=message.role, 
+                   content=message.content, 
+                   inner_voice="",
+                   timestamp=float(timestamp))
     
     def to_dict(self) -> dict:
         return {
@@ -116,17 +123,22 @@ class L1_Module:
         print(messages[1:])
         print("---------------------------------------------------------------------------------------------")
         
+        # 对话前缀续写
+        messages.append({"role": "assistant", "content": "{\n", "prefix": True})
+        
         # 2. 调用 LLM 
         response = self.openai_client.chat.completions.create(
             model="deepseek-chat",
             messages=messages,
-            response_format={
-                'type': 'json_object'
-            },
+            # response_format={
+            #     'type': 'json_object'
+            # },
+            stop=['{'],
             stream=False
         )
         raw_content = response.choices[0].message.content
-        
+        if raw_content:
+            raw_content = '{' + raw_content
         print("----- LLM Raw Response -----")
         print(raw_content)
         print("----- End of LLM Raw Response -----")
@@ -148,10 +160,12 @@ class L1_Module:
             ChatMessage(role="Elysia", content=public_reply, inner_voice=inner_thought)
         )
         session_state.debug()
+        
+        print(f"This turn useage: Token:{response.usage}")
         return public_reply, inner_thought
 
     
-    def parse_llm_response(self, llm_raw_output) -> tuple[str, str]:
+    def parse_llm_response_aux(self, llm_raw_output) -> tuple[str, str]:
         """解析llm的输出"""
         data = json.loads(llm_raw_output)
         inner_voice = data.get("inner_voice", "...")
@@ -159,6 +173,27 @@ class L1_Module:
 
         return inner_voice, reply_text
 
+    def parse_llm_response(self, llm_raw_output)-> tuple[str, str]:
+        # 1. 打印原始内容的 repr()，这样能看到空格、换行符等不可见字符
+        print(f"DEBUG: Raw Output type: {type(llm_raw_output)}")
+        print(f"DEBUG: Raw Output repr: {repr(llm_raw_output)}") 
+        
+        # 2. 清洗数据（防止模型输出 ```json ... ``` 包裹）
+        cleaned_output = llm_raw_output.strip()
+        if cleaned_output.startswith("```"):
+            cleaned_output = cleaned_output.replace("```json", "").replace("```", "")
+        
+        try:
+            data = json.loads(cleaned_output)
+            return data["inner_voice"], data["reply"] # 假设你的JSON结构是这样
+        except json.JSONDecodeError as e:
+            print(f"!!! JSON 解析失败 !!!")
+            print(f"错误信息: {e}")
+            print(f"导致错误的内容: {llm_raw_output}")
+            
+            # 3. 兜底策略 (Fallback)
+            # 如果解析失败，与其让程序崩溃，不如返回一个默认回复，保证对话继续
+            return "(系统想法: 模型输出格式错误，可能是被截断或触发过滤)", "哎呀，我刚刚走神了，没听清你在说什么，能再说一遍吗？"
 
     def construct_prompt(self, session_state: SessionState, user_input: UserMessage, l0_data: L0_Output) -> list[dict]:
         """ 拼装 Prompt """
@@ -204,8 +239,16 @@ class L1_Module:
                 else:
                     raise ValueError(f"Role error: {msg.role}")
 
-        messages.append({"role": "user", "content": user_input.content})
+        # enforce_json_prompt = """
+        #     {user_input}
 
+        #     (System Reminder: You MUST respond in JSON format strictly. Start your response with {{ "inner_thought": ... )
+        # """
+        # enforce_json_prompt.format(user_input=user_input.content)
+        # messages.append({"role": "user", "content": enforce_json_prompt})
+        
+        messages.append({"role": "user", "content": user_input.content})
+        
         return messages 
 
 
@@ -214,7 +257,7 @@ def test():
     from dotenv import load_dotenv
     import os
     load_dotenv()
-    url = os.getenv("DEEPSEEK_API_BASE", "https://api.deepseek.com")
+    url = os.getenv("DEEPSEEK_API_BETA")
     client = OpenAI(api_key=os.getenv("DEEPSEEK_API_KEY"), base_url=url)
     
     l0 = L0_Module(client)

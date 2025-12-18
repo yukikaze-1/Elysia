@@ -43,12 +43,16 @@ class UserMessage:
     def __str__(self) -> str:
         return f"UserMessage(user_id={self.user_id}, content={self.content}, timestamp={self.client_timestamp}, input_event={self.input_event})"
         
-
 class L0_Sensory_Processor:
+    """
+    处理传感器数据的类
+    目前非常简陋
+    """
+    # TODO init中的的-1000需要删掉
     def __init__(self, last_message_timestamp: float = time.time()-1000):
         self.last_timestamp = last_message_timestamp
 
-    def analyze_time_context(self, current_timestamp):
+    def analyze_time_context(self, current_timestamp)->tuple[str, str]:
         # 将时间戳转换为小时 (0-23)
         dt = datetime.fromtimestamp(current_timestamp)
         hour = dt.hour
@@ -63,7 +67,7 @@ class L0_Sensory_Processor:
         else:
             return "Evening", "私人时间，比较放松。"
 
-    def analyze_latency(self, current_timestamp):
+    def analyze_latency(self, current_timestamp)->tuple[str, str]:
         if  self.last_timestamp == 0.0:
             return "First_Contact", "这是第一次对话。"
         
@@ -100,12 +104,14 @@ class L0_Tagger:
             latency_context=latency_context
         )
         
+        # TODO 次数是否也需要前缀续写？见(L1 chat)
         response = self.client.chat.completions.create(
             model="deepseek-chat",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
+            response_format={'type': 'json_object'},
             stream=False
         )
         
@@ -167,7 +173,7 @@ class InstructionGenerator:
         self.sentiment_context = sentiment_context
         self.urgency_context = urgency_context
 
-    def get_instruction_from_tags(self, tags, time_context):
+    def get_instruction_from_tags(self, tags, time_context)->str:
         """根据标签和时间上下文生成指令列表"""
         instructions = []
 
@@ -203,30 +209,6 @@ class InstructionGenerator:
             "sentiment_context": self.sentiment_context.to_dict(),
             "urgency_context": self.urgency_context.to_dict()
         }
-    
-
-#   发送给L1 的大概的 prompt 模板
-#     prompt = f"""
-#     [System]
-#     ... (L3 核心人格设定) ...
-
-#     [Conversation History]
-#     ...
-
-#     [Current Turn Input - L0 Sensory Data]
-#     ------------------------------------------------
-#     【物理感知】
-#     - 当前时间: 02:15 (深夜 - 易感时刻)
-#     - 回复节奏: 秒回 (间隔 5秒) - 用户似乎很渴望对话。
-
-#     【直觉标签】(由 L0 Tagger 生成)
-#     - 情绪色彩: 焦虑/孤独
-#     - 预判意图: 寻求安慰
-#     ------------------------------------------------
-#     User Said: "我睡不着。"
-#     ------------------------------------------------
-#     (Instruction: 请结合上方的感知数据进行内心独白。注意：因为是深夜且秒回，你的反应应该更柔和且及时。)
-# """
 
 class L0_Output:
     """ L0 输出类，包含 Sensory Data、Tags 和 Instructions """
@@ -251,38 +233,30 @@ class L0_Output:
 class L0_Module:
     def __init__(self, client: OpenAI):
         self.user_messages = []
-        
-        # L0 Sensory Processor
         self.sensory_processor = L0_Sensory_Processor()
-        
-        # L0 Tagger
         self.tagger = L0_Tagger(client)
-        
-        # Instruction Generator
         self.instruction_generator = InstructionGenerator()
 
     def run(self, user_message: UserMessage) -> L0_Output:
-        # 1. L0 Sensory Processing
+        # 1. 处理传感器数据
         current_timestamp = datetime.now().timestamp()
         time_context, time_description = self.sensory_processor.analyze_time_context(current_timestamp)
         latency_context, latency_description = self.sensory_processor.analyze_latency(current_timestamp)
-        sensory_prompt = (
+        sensory_data = (
             f"时间感知: {time_context} - {time_description}\n"
             f"延迟感知: {latency_context} - {latency_description}\n"
             "请基于以上感知调整你的回复风格和内容，使其更符合当前的时间和对话节奏。"
         )
-        # 2. L0 Tagging
+        # 2. 打标签
         tags = self.tagger.tag_message(user_message, time_context, latency_context)
         
-        # 3. Instruction Generation
+        # 3. 生成指令
         instructions = self.instruction_generator.get_instruction_from_tags(tags, time_context)
         
-        # 更新最后消息时间戳
+        # 4. 更新最后消息时间戳
         self.sensory_processor.last_timestamp = current_timestamp
 
-        l0_output = L0_Output(sensory_prompt, tags, instructions)
-
-        return l0_output
+        return L0_Output(sensory_data, tags, instructions)
 
 def test():
     from dotenv import load_dotenv

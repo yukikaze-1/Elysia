@@ -51,7 +51,7 @@ def create_memory_collection(collection_name: str, milvus_client: MilvusClient):
     schema.add_field(field_name="id", datatype=DataType.INT64, is_primary=True, auto_id=True)
     schema.add_field(field_name="embedding", datatype=DataType.FLOAT_VECTOR, dim=1024)
     schema.add_field(field_name="content", datatype=DataType.VARCHAR, max_length=65535)
-    schema.add_field(field_name="type", datatype=DataType.VARCHAR, max_length=20)
+    schema.add_field(field_name="memory_type", datatype=DataType.VARCHAR, max_length=20)
     schema.add_field(field_name="poignancy", datatype=DataType.INT8)
     schema.add_field(field_name="timestamp", datatype=DataType.INT64)
     schema.add_field(field_name="keywords", datatype=DataType.ARRAY, element_type=DataType.VARCHAR, max_length=128,max_capacity=50)
