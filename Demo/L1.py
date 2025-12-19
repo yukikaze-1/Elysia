@@ -5,7 +5,7 @@ import json
 from openai import OpenAI
 
 from Demo.Prompt import SystemPromptTemplate
-from L0 import UserMessage, L0_Output
+from Demo.L0 import UserMessage, L0_Output
 from openai.types.chat import ChatCompletionMessage
 
 class ChatMessage:
@@ -32,16 +32,24 @@ class ChatMessage:
         
     def debug(self):
         print(self.to_dict())
-        
+
 
 class SessionState:
     """会话状态（包含当前聊天的部分上下文）"""
-    def __init__(self, max_limit: int = 20):
-        self.max_limit: int = max_limit
+    def __init__(self, user_name: str, role: str, max_messages_limit: int = 20, max_inner_limit = 3):
+        self.user_name: str = user_name     # 用户的名字
+        self.role: str = role               # AI的名字
+        
+        self.max_messages_limit: int = max_messages_limit    # 最大对话数(含inner voice + 不含inner voice)
+        self.max_inner_limit: int = max_inner_limit     # 最大包含inner voice的对话数
+        
         self.conversations: list[ChatMessage] = []
         self.last_interaction_time: float = time.time()
+        
+        # TODO 下面这两项是否需要到单独拿出来作为一个“当前状态”的信息类？需要更新
         self.short_term_goals: str = "Just chatting"
         self.current_mood: str = "Neutral"
+
 
     def add_messages(self, messages: list[ChatMessage]):
         if messages is not None and len(messages) == 0:
@@ -68,23 +76,22 @@ class SessionState:
         self.last_interaction_time = self.conversations[-1].timestamp
         return self.last_interaction_time
     
-    def prune_history(self, conversation_limit=3, max_limits=20):
+    def prune_history(self):
         # 假设 history 结构是 [msg1, msg2, msg3, ...]
         # 我们保留最近 6 条消息 (3轮) 的完整内容
         # 对于更早的消息，只保留回复部分，去掉 Inner Thought
-        # 对更早的消息，用正则把 (Meta-Context: ...) 部分清洗掉
         # 对于非常老的消息，直接丢弃，保持总长度不超过 max_limits
         # TODO 待配套完善
         
         # 丢弃老消息
-        if len(self.conversations) > max_limits:
-            history = self.conversations[-max_limits:]
+        if len(self.conversations) > self.max_messages_limit:
+            history = self.conversations[-self.max_messages_limit:]
         
         # 清洗inner thought
-        threshold_index = len(history) - 2 * conversation_limit
+        threshold_index = len(history) - 2 * self.max_inner_limit
         if threshold_index > 0:
             for i in range(threshold_index):
-                if history[i].role == "assistant":
+                if history[i].role == self.role:
                     # 清洗掉 Inner Thought，只留 Reply
                     history[i].inner_voice = ""
                     
@@ -148,16 +155,16 @@ class L1_Module:
         
         # 4. 更新 L1 状态 (关键步骤！)
         # 我们不仅存“说的话”，还要存“想的话”，以便让 AI 记得自己的思路
-        session_state.conversations.append(
-            ChatMessage(role="妖梦", content=user_input.content)
+        session_state.add_messages(
+            [ChatMessage(role="妖梦", content=user_input.content)]
         )
+        
         
         # 技巧：存入历史时，我们可以选择是否把 inner_voice 塞进去给 LLM 看
         # 为了连贯性，建议将 inner_voice 作为一个特殊的 context 存入，
         # 但在发给 LLM 时标记清楚这是"上一轮的想法"。
-        session_state.conversations.append(
-            # ChatMessage(role="Elysia", content=f"{public_reply}\n(Meta-Context: My previous thought was: {inner_thought})")
-            ChatMessage(role="Elysia", content=public_reply, inner_voice=inner_thought)
+        session_state.add_messages(
+            [ChatMessage(role="Elysia", content=public_reply, inner_voice=inner_thought)]
         )
         session_state.debug()
         
@@ -202,9 +209,10 @@ class L1_Module:
             Current_Time: {current_time}
             Time of day: {time_of_day}
             Day of Week: {day_of_week}
+            Season: {season}
             User_Latency: {latency}
         </facts>
-        
+
         <perception>
             Perception: {perception}
         </perception>
@@ -213,6 +221,7 @@ class L1_Module:
             current_time=l0_data.envs.current_time,
             time_of_day=l0_data.envs.time_of_day,
             day_of_week=l0_data.envs.day_of_week,
+            season=l0_data.envs.season,
             latency=l0_data.envs.user_latency,
             perception=l0_data.perception
         )
@@ -274,12 +283,12 @@ def test():
     
     l0 = L0_Module(client)
     l1 = L1_Module(client)
-    session_state = SessionState()
+    session_state = SessionState(user_name="妖梦", role="Elysia")
     
     while(True):
         user_input = UserMessage(input("User: "))
         
-        l0_output = l0.run(user_input)
+        l0_output = l0.run()
         
         print("------------------------L0 output------------------------")
         print(l0_output.debug())

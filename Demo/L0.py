@@ -3,7 +3,7 @@ from datetime import datetime
 import time
 import os
 from openai import OpenAI
-from Demo.Utils import TimeEnvs
+from Demo.Utils import TimeEnvs, TimeOfDay, Season
 
 class InputEventInfo:
     """输入事件类"""
@@ -47,10 +47,12 @@ class EnvironmentInformation:
     def __init__(self, current_time: float, 
                  time_of_day: str,
                  day_of_week: str,
+                 season: str,
                  user_latency: float):
         self.current_time: float = current_time
         self.time_of_day: str = time_of_day
         self.day_of_week: str = day_of_week
+        self.season: str = season
         self.user_latency: float = user_latency
     
     def to_dict(self):
@@ -74,11 +76,12 @@ class L0_Sensory_Processor:
         """主动获取传感器数据"""
         
         # TODO 待扩展
-        current_time=time.time()
+        current_time = time.time()
         dt = datetime.fromtimestamp(current_time)
-        weekday = dt.strftime("%A")
-        time_of_day = self.time_envs.get_time_of_day_timestamp(current_time)
-        return EnvironmentInformation(current_time, time_of_day, weekday, current_time - self.last_timestamp)
+        weekday: str = dt.strftime("%A")
+        time_of_day: TimeOfDay = self.time_envs.get_time_of_day_from_timestamp(current_time)
+        season: Season = self.time_envs.get_season_from_timestamp(current_time)
+        return EnvironmentInformation(current_time, time_of_day.value, weekday, season, current_time - self.last_timestamp)
 
 
 class L0_Output:
@@ -101,17 +104,15 @@ from Demo.Prompt import L0_SubConscious_System_Prompt, L0_SubConscious_User_Prom
 
 class L0_Module:
     def __init__(self, openai_client: OpenAI):
-        self.user_messages = []
         self.openai_client = openai_client
         self.sensory_processor = L0_Sensory_Processor()
         self.time_envs = TimeEnvs()
 
-    def run(self, user_message: UserMessage) -> L0_Output:
+    def run(self) -> L0_Output:
         # 1. 获取传感器数据
         current_env: EnvironmentInformation = self.sensory_processor.get_envs()
         
         # 2. 处理传感器数据
-        
         
         # 3. 生成描述
         sensory_description: str = self.generate_sensory_description(current_env)
@@ -148,7 +149,7 @@ class L0_Module:
         user_prompt = L0_SubConscious_User_Prompt.format(
             current_time=dt.isoformat(),
             day_of_week=dt.strftime("%A"),
-            time_of_day=self.time_envs.get_time_of_day_timestamp(envs.current_time),
+            time_of_day=self.time_envs.get_time_of_day_from_timestamp(envs.current_time),
             season=self.time_envs.get_season_from_timestamp(envs.current_time),
             latency=envs.user_latency,
             latency_description=latency_desc
@@ -184,7 +185,7 @@ def test():
     print("----- Testing L0 Module -----")
     print("User Message Input: 我睡不着。")
     user_message = UserMessage("我睡不着。")
-    x = l0.run(user_message)
+    x = l0.run()
     sensory_description, envs = x.perception, x.envs
     print("Sensory Processor Output(Envs):")
     print(envs.to_dict())

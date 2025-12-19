@@ -86,9 +86,19 @@ class MilvusAgent:
             # 预加载
             self.milvus_client.load_collection(self.collection_name)
         self.embedding_model = create_embedding_model()
+    
+    def query(self, filter: str, output_fields: list[str]):
+        """检索记忆(标量搜索)"""
+        res = self.milvus_client.query(
+            collection_name=self.collection_name,
+            filter=filter,
+            output_fields=output_fields,
+            limit=10000
+        )
+        return res
         
     def retrieve(self, query_text: str, top_k: int = 5)->list[dict]:
-        """检索记忆"""
+        """检索记忆(向量搜索)"""
         vector = self.embedding_model.embed_documents([query_text])
         
         results = self.milvus_client.search(
@@ -137,6 +147,7 @@ class MilvusAgent:
         candidates.sort(key=lambda x: x["score"], reverse=True)
         return candidates[:top_k]
     
+    
     def forget_trivial(self, threshold: int):
         """清理部分不重要的记忆"""
         # TODO 后续实现
@@ -174,7 +185,7 @@ class TimeEnvs:
     def __init__(self):
         pass
     
-    def get_time_of_day_timestamp(self, timestamp: float)->str:
+    def get_time_of_day_from_timestamp(self, timestamp: float) -> TimeOfDay:
         """通过timstamp获取时间段，如早中晚"""
         dt = datetime.fromtimestamp(timestamp)
         hour = dt.hour
@@ -194,7 +205,7 @@ class TimeEnvs:
         else:  # 21 <= hour < 24
             return TimeOfDay.NIGHT
     
-    def get_season_from_timestamp(self, timestamp: float):
+    def get_season_from_timestamp(self, timestamp: float) -> Season:
         """通过timestamp获取季节"""
         dt = datetime.fromtimestamp(timestamp)
         month = dt.month
