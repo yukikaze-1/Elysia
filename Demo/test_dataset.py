@@ -1,6 +1,11 @@
-from L1 import ChatMessage
+from Demo.Session import ChatMessage
 
-test_data_conversations_single_theme_with_designed_timestamp = [
+#  ========================================================================================================================================================================
+#  测试数据集
+#  Reflector L1 to L2
+#  ========================================================================================================================================================================
+
+conversations_01 = [
 
     # ===== 第 1 组：上午，初始疲惫 =====
     ChatMessage(role="妖梦", content="今天一整天都感觉很累。", timestamp=1765876408.223395),
@@ -48,7 +53,7 @@ test_data_conversations_single_theme_with_designed_timestamp = [
 ]
 
 
-test_data_conversations_multi_theme_with_designed_timestamp  = [
+conversations_02  = [
 
     # ===== 第 1 组：身体疲惫 / 作息 =====
     ChatMessage(role="妖梦", content="今天醒来就觉得特别累。", timestamp=1765876408.223395),
@@ -96,7 +101,7 @@ test_data_conversations_multi_theme_with_designed_timestamp  = [
     ChatMessage(role="Elysia", content="你已经在认真观察自己的状态了。", timestamp=1765967365.994881),
 ]
 
-conversations_01 = [
+conversations_03 = [
 
     # ===== 第 1 组：通勤 / 出行体验 =====
     ChatMessage(role="妖梦", content="今天早上通勤特别不顺。", timestamp=1766011204.118903),

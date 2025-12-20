@@ -162,66 +162,6 @@ class MilvusAgent:
         print(f"Total memories: {res}")
         
         
-from enum import Enum
+  
 
-class Season(str, Enum):
-    SPRING = "Spring"
-    SUMMER = "Summer"
-    AUTUMN = "Autumn"
-    WINTER = "Winter"
-    
-class TimeOfDay(str, Enum):
-    MIDNIGHT = "Midnight"        
-    EARLY_MORNING = "Early_morning"  
-    MORNING = "Morning"          
-    NOON = "Noon"                
-    AFTERNOON = "Afternoon"      
-    EVENING = "Evening"          
-    NIGHT = "Night"           
-    
-from datetime import datetime
-    
-class TimeEnvs:
-    def __init__(self):
-        pass
-    
-    def get_time_of_day_from_timestamp(self, timestamp: float) -> TimeOfDay:
-        """通过timstamp获取时间段，如早中晚"""
-        dt = datetime.fromtimestamp(timestamp)
-        hour = dt.hour
-        
-        if 0 <= hour < 5:
-            return TimeOfDay.MIDNIGHT
-        elif 5 <= hour < 8:
-            return TimeOfDay.EARLY_MORNING
-        elif 8 <= hour < 12:
-            return TimeOfDay.MORNING
-        elif 12 <= hour < 13:
-            return TimeOfDay.NOON
-        elif 13 <= hour < 17:
-            return TimeOfDay.AFTERNOON
-        elif 17 <= hour < 21:
-            return TimeOfDay.EVENING
-        else:  # 21 <= hour < 24
-            return TimeOfDay.NIGHT
-    
-    def get_season_from_timestamp(self, timestamp: float) -> Season:
-        """通过timestamp获取季节"""
-        dt = datetime.fromtimestamp(timestamp)
-        month = dt.month
-
-        if month in (3, 4, 5):
-            return Season.SPRING
-        elif month in (6, 7, 8):
-            return Season.SUMMER
-        elif month in (9, 10, 11):
-            return Season.AUTUMN
-        else:
-            return Season.WINTER
-        
-    def get_day_of_week(self, timestamp: float)-> str:
-        """通过timestamp获取星期"""
-        dt = datetime.fromtimestamp(timestamp)
-        return dt.strftime("%A")
-    
     

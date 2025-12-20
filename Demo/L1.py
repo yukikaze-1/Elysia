@@ -1,130 +1,21 @@
 
-from datetime import datetime
-import time
 import json
 from openai import OpenAI
 
 from Demo.Prompt import SystemPromptTemplate
-from Demo.L0 import UserMessage, L0_Output
-from openai.types.chat import ChatCompletionMessage
-
-class ChatMessage:
-    def __init__(self, role: str, content , inner_voice: str = "", timestamp: float = time.time()):
-        self.role: str = role
-        self.content = content
-        self.inner_voice: str = inner_voice
-        self.timestamp: float = timestamp
-    
-    @classmethod
-    def from_ChatCompletionMessage(cls, message: ChatCompletionMessage, timestamp: int):
-        return cls(role=message.role, 
-                   content=message.content, 
-                   inner_voice="",
-                   timestamp=float(timestamp))
-    
-    def to_dict(self) -> dict:
-        return {
-            "role": self.role,
-            "content": self.content,
-            "inner_voice":self.inner_voice,
-            "timestamp": self.timestamp
-        }
-        
-    def debug(self):
-        print(self.to_dict())
-
-
-class SessionState:
-    """会话状态（包含当前聊天的部分上下文）"""
-    def __init__(self, user_name: str, role: str, max_messages_limit: int = 20, max_inner_limit = 3):
-        self.user_name: str = user_name     # 用户的名字
-        self.role: str = role               # AI的名字
-        
-        self.max_messages_limit: int = max_messages_limit    # 最大对话数(含inner voice + 不含inner voice)
-        self.max_inner_limit: int = max_inner_limit     # 最大包含inner voice的对话数
-        
-        self.conversations: list[ChatMessage] = []
-        self.last_interaction_time: float = time.time()
-        
-        # TODO 下面这两项是否需要到单独拿出来作为一个“当前状态”的信息类？需要更新
-        self.short_term_goals: str = "Just chatting"
-        self.current_mood: str = "Neutral"
-
-
-    def add_messages(self, messages: list[ChatMessage]):
-        if messages is not None and len(messages) == 0:
-            return
-        for msg in messages:
-            self.conversations.append(msg)
-        self.update_last_interaction_time()
-        
-    def update_goal(self, goal: str):
-        if not goal:
-            print("Error! New goal is invalid!")
-        self.short_term_goals = goal
-        
-    def update_mood(self, mood: str):
-        if not mood:
-            print("Error! New mood is invalid!")
-        self.current_mood = mood
-        
-    def update_last_interaction_time(self)->float:
-        """更新最后交互时间（以最后一条消息为准）"""
-        if len(self.conversations) == 0 :
-            print("Error, SessionSate has empty conversations!")
-            return 0.0
-        self.last_interaction_time = self.conversations[-1].timestamp
-        return self.last_interaction_time
-    
-    def prune_history(self):
-        # 假设 history 结构是 [msg1, msg2, msg3, ...]
-        # 我们保留最近 6 条消息 (3轮) 的完整内容
-        # 对于更早的消息，只保留回复部分，去掉 Inner Thought
-        # 对于非常老的消息，直接丢弃，保持总长度不超过 max_limits
-        # TODO 待配套完善
-        
-        # 丢弃老消息
-        if len(self.conversations) > self.max_messages_limit:
-            history = self.conversations[-self.max_messages_limit:]
-        
-        # 清洗inner thought
-        threshold_index = len(history) - 2 * self.max_inner_limit
-        if threshold_index > 0:
-            for i in range(threshold_index):
-                if history[i].role == self.role:
-                    # 清洗掉 Inner Thought，只留 Reply
-                    history[i].inner_voice = ""
-                    
-        self.conversations.clear()
-        self.conversations = history
-    
-    
-    def debug(self):
-        print("-------------------- SessionState Debug Info --------------------")
-        print(f"Time: {datetime.fromtimestamp(time.time())}")
-        print(f"  Last Interaction Time: {self.last_interaction_time}")
-        print(f"  Short Term Goals: {self.short_term_goals}")
-        print(f"  Current Mood: {self.current_mood}")
-        print("  Conversation History:")
-        for msg in self.conversations:
-            if msg.inner_voice == "":
-                print(f"    {msg.role} at {msg.timestamp}: {msg.content}")
-            else:
-                print(f"    {msg.role} at {msg.timestamp}: {msg.content} \n \t \t(inner_voice): {msg.inner_voice}")
-
-        print("-------------------- End of Debug Info --------------------")
-
-
 from Demo.Utils import MilvusAgent
+from Demo.L0_a import EnvironmentInformation
+from Demo.L0_b import AmygdalaOutput 
+from Demo.Session import SessionState, ChatMessage, UserMessage
 
 class L1_Module:
     def __init__(self,openai_client: OpenAI):
         self.openai_client = openai_client
         self.milvus_agent = MilvusAgent(collection_name="l2_associative_memory")
 
-    def run(self, session_state: SessionState, user_input: UserMessage, l0_context: L0_Output):
+    def run(self, session_state: SessionState, user_input: UserMessage, l0_output: AmygdalaOutput):
         # 1. 拼装 Prompt
-        messages: list = self.construct_prompt(session_state, user_input, l0_context)
+        messages: list = self.construct_prompt(session_state, user_input, l0_output)
         
         print("-----------------------------DEBUG Final Prompt without system prompt-----------------------------")
         print(messages[1:])
@@ -159,13 +50,16 @@ class L1_Module:
             [ChatMessage(role="妖梦", content=user_input.content)]
         )
         
-        
         # 技巧：存入历史时，我们可以选择是否把 inner_voice 塞进去给 LLM 看
         # 为了连贯性，建议将 inner_voice 作为一个特殊的 context 存入，
         # 但在发给 LLM 时标记清楚这是"上一轮的想法"。
         session_state.add_messages(
             [ChatMessage(role="Elysia", content=public_reply, inner_voice=inner_thought)]
         )
+        
+        # 5. 修剪历史，防止上下文过长
+        session_state.prune_history()
+        
         session_state.debug()
         
         print(f"This turn useage: Token:{response.usage}")
@@ -202,7 +96,9 @@ class L1_Module:
             # 如果解析失败，与其让程序崩溃，不如返回一个默认回复，保证对话继续
             return "(系统想法: 模型输出格式错误，可能是被截断或触发过滤)", "哎呀，我刚刚走神了，没听清你在说什么，能再说一遍吗？"
 
-    def construct_prompt(self, session_state: SessionState, user_input: UserMessage, l0_data: L0_Output) -> list[dict]:
+    def construct_prompt(self, session_state: SessionState, 
+                         user_input: UserMessage, 
+                         l0_output: AmygdalaOutput) -> list[dict]:
         """ 拼装 Prompt """
         l0_sensory_block_template = """
         <facts>
@@ -210,7 +106,7 @@ class L1_Module:
             Time of day: {time_of_day}
             Day of Week: {day_of_week}
             Season: {season}
-            User_Latency: {latency}
+            User_Latency: {latency}s
         </facts>
 
         <perception>
@@ -218,12 +114,12 @@ class L1_Module:
         </perception>
         """
         l0_sensory_block = l0_sensory_block_template.format(
-            current_time=l0_data.envs.current_time,
-            time_of_day=l0_data.envs.time_of_day,
-            day_of_week=l0_data.envs.day_of_week,
-            season=l0_data.envs.season,
-            latency=l0_data.envs.user_latency,
-            perception=l0_data.perception
+            current_time=l0_output.envs.time_envs.current_time,
+            time_of_day=l0_output.envs.time_envs.time_of_day,
+            day_of_week=l0_output.envs.time_envs.day_of_week,
+            season=l0_output.envs.time_envs.season,
+            latency=l0_output.envs.time_envs.user_latency,
+            perception=l0_output.perception
         )
         
         # 检索记忆
@@ -274,24 +170,27 @@ class L1_Module:
 
 
 def test():
-    from L0 import L0_Module
+    from Demo.L0_a import L0_Sensory_Processor
+    from Demo.L0_b import Amygdala, AmygdalaOutput
     from dotenv import load_dotenv
     import os
     load_dotenv()
     url = os.getenv("DEEPSEEK_API_BETA")
     client = OpenAI(api_key=os.getenv("DEEPSEEK_API_KEY"), base_url=url)
     
-    l0 = L0_Module(client)
+    l0_a = L0_Sensory_Processor()
+    l0_b = Amygdala(client)
     l1 = L1_Module(client)
     session_state = SessionState(user_name="妖梦", role="Elysia")
     
     while(True):
         user_input = UserMessage(input("User: "))
-        
-        l0_output = l0.run()
+        l0_a_output: EnvironmentInformation = l0_a.get_envs()
+        l0_b_output: AmygdalaOutput = l0_b.run(user_message=user_input, current_env=l0_a_output)
+        l0_output = l0_b_output
         
         print("------------------------L0 output------------------------")
-        print(l0_output.debug())
+        print(l0_b_output.debug())
         print("-------------------------------------------------------------------------")
         
         reply, inner_thought = l1.run(session_state, user_input, l0_output)
