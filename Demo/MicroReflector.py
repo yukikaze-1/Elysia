@@ -1,3 +1,7 @@
+"""
+存放 Micro Reflector 相关的类和逻辑
+包括 MicroMemory 的数据结构定义
+"""
 
 class MicroMemoryLLMOut:
     """LLM输出的最基础的micro memory的格式，没有timestamp和embedding"""
@@ -71,10 +75,10 @@ import json
 
 class MicroReflector:
     """负责从l1 的对话中提取记忆"""
-    def __init__(self, openai_client: OpenAI, collection_name: str):
+    def __init__(self, openai_client: OpenAI, milvus_agent: MilvusAgent, collection_name: str):
         self.openai_client = openai_client
         self.collection_name = collection_name
-        self.milvus_agent = MilvusAgent(self.collection_name)
+        self.milvus_agent = milvus_agent
         self.system_prompt = ReflectorPromptTemplate_L1_to_L2
     
     def parse_micro_llm_output(self, raw_response: ChatCompletion)-> list[MicroMemoryLLMOut]:
@@ -125,9 +129,7 @@ class MicroReflector:
         return res
     
     def format_conversations_to_lines(self, conversations: ConversationSegment) -> str:
-        """将历史对话转换为更高效的结构"""
-        # 形如:[user: 今天一整天都感觉很累。
-        # assistant: 听起来今天对你来说消耗挺大的。]
+        """将历史对话转换为文本行格式"""
         lines = []
         for msg in conversations.messages:
             lines.append(f'  {msg.role}: {msg.content}')
@@ -137,6 +139,7 @@ class MicroReflector:
         """处理reflector抽取出来的记忆，更换其表述"""
         # 例如将：用户近期持续睡眠质量不佳，表现为睡得很浅，并因此导致白天疲惫、注意力难以集中。
         # 转换为: 妖梦近期持续睡眠质量不佳，表现为睡得很浅，并因此导致白天疲惫、注意力难以集中。
+        # TODO 不知道是否需要删除，待测试
         def normalize_content(text: str) -> str:
             replacements = {
                 "用户": "妖梦"

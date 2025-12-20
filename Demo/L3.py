@@ -11,23 +11,23 @@ from Demo.CoreIdentity import CoreIdentityTemplate
 
 class BasicProfile:
     name: str
-    aliases: list # 别名，外号
+    aliases: list    # 别名，外号
     gender: Literal['Male', 'Female']  # 性别
     age: int   # 年龄
-    dob: str #  出生日期
-    mbti_label: str #  仅作标签参考，实际行为由 psychometrics 驱动
+    dob: str    # 出生日期
+    mbti_label: str    # 仅作标签参考，实际行为由 psychometrics 驱动
  
     
 class SociologicalProfile:
-    occupation: str # 职业
+    occupation: str  # 职业
     socioeconomic_status: str   # 社会经济地位
     education_field: str  # 专业领域
-    education_level: str # 学历
+    education_level: str  # 学历
     cultural_background: str  # 文化背景
-    origin: str #  家乡
-    current_location: str # 现居地 
-    religion_philosophy: str # 宗教/哲学信仰
-    political_spectrum: dict #  政治坐标：左翼/自由主义
+    origin: str  # 家乡
+    current_location: str  # 现居地
+    religion_philosophy: str  # 宗教/哲学信仰
+    political_spectrum: dict  # 政治坐标：左翼/自由主义
 
 
 class SensoryAbilities:
@@ -95,12 +95,57 @@ class Profile:
 #  决定角色的“出厂性格参数”
 #  ====================================================================================
 
+class Openess:
+    fantasy: float      # 幻想力
+    aesthetics: float   # 审美观
+    feelings: float     # 情感性
+    actions: float      # 行动性
+    ideas: float        # 思想性
+    values: float       # 价值观
+   
+    
+class Conscientiousness:
+    competence: float           # 能力
+    order: float                # 秩序
+    dutifulness: float          # 尽责性
+    achievement_striving: float  # 成就追求
+    self_discipline: float      # 自律性
+    deliberation: float         # 审慎性
+   
+    
+class Extraversion:
+    warmth: float               # 热情
+    gregariousness: float       # 爱社交
+    assertiveness: float        # 自信
+    activity: float             # 活跃性
+    excitement_seeking: float   # 寻求刺激
+    positive_emotions: float    # 积极情绪
+    
+    
+class Agreeableness:
+    trust: float                # 信任
+    straightforwardness: float  # 直率
+    altruism: float             # 利他性
+    compliance: float           # 顺从性
+    modesty: float              # 谦虚
+    tender_mindedness: float    # 体贴
+    
+    
+class Neuroticism:
+    anxiety: float              # 焦虑
+    angry_hostility: float      # 愤怒敌意
+    depression: float           # 抑郁
+    self_consciousness: float   # 自我意识
+    impulsiveness: float        # 冲动性
+    vulnerability: float        # 脆弱性
+
+
 class BigFive:
-    openness: int  # 开放性
-    conscientiousness: int  # 尽责性
-    extraversion: int  # 外向性
-    agreeableness: int  # 宜人性
-    neuroticism: int  # 神经质
+    openness: Openess  # 开放性
+    conscientiousness: Conscientiousness  # 尽责性
+    extraversion: Extraversion  # 外向性
+    agreeableness: Agreeableness  # 宜人性
+    neuroticism: Neuroticism  # 神经质
     
     
 class DarkTriad:
@@ -188,7 +233,7 @@ class Event:
 class DefiningEvent:
     id: str
     belief: str  # 由该事件形成的信念
-    origin_events: Event  #  该事件的起因事件
+    origin_events: Event  # 该事件的起因事件
 
 
 class SocialGraphNode:

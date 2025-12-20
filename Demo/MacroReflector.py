@@ -1,4 +1,7 @@
-
+"""
+存放 Macro Reflector 相关的类和逻辑
+包括 MacroMemory 的数据结构定义
+"""
 
 class MacroMemoryLLMOut:
     """LLM输出的最基础的macro memory的格式，没有timestamp和embedding"""
@@ -68,10 +71,10 @@ from Demo.Session import ChatMessage
 
 class MacroReflector:
     """负责从l2 的记忆中精炼记忆"""
-    def __init__(self, openai_client: OpenAI, collection_name: str):
+    def __init__(self, openai_client: OpenAI, milvus_agent: MilvusAgent, collection_name: str):
         self.openai_client = openai_client
         self.collection_name = collection_name
-        self.milvus_agent = MilvusAgent(self.collection_name)
+        self.milvus_agent = milvus_agent
         self.system_prompt = ReflectorPromptTemplate_L2_to_L2_System_Prompt
         
     def gather_daily_memories(self)-> list:

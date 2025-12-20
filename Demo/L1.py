@@ -1,4 +1,3 @@
-
 import json
 from openai import OpenAI
 
@@ -9,6 +8,7 @@ from Demo.L0_b import AmygdalaOutput
 from Demo.Session import SessionState, ChatMessage, UserMessage
 
 class L1_Module:
+    """大脑"""
     def __init__(self,openai_client: OpenAI):
         self.openai_client = openai_client
         self.milvus_agent = MilvusAgent(collection_name="l2_associative_memory")
@@ -34,6 +34,7 @@ class L1_Module:
             stop=['{'],
             stream=False
         )
+        # 3. 处理返回结果
         raw_content = response.choices[0].message.content
         if raw_content:
             raw_content = '{' + raw_content
@@ -41,24 +42,19 @@ class L1_Module:
         print(raw_content)
         print("----- End of LLM Raw Response -----")
 
-        # 3. 解析
+        # 4. 解析
         inner_thought, public_reply = self.parse_llm_response(raw_content)
         
-        # 4. 更新 L1 状态 (关键步骤！)
-        # 我们不仅存“说的话”，还要存“想的话”，以便让 AI 记得自己的思路
+        # 5. 更新 会话状态
         session_state.add_messages(
             [ChatMessage(role="妖梦", content=user_input.content)]
         )
-        
-        # 技巧：存入历史时，我们可以选择是否把 inner_voice 塞进去给 LLM 看
-        # 为了连贯性，建议将 inner_voice 作为一个特殊的 context 存入，
-        # 但在发给 LLM 时标记清楚这是"上一轮的想法"。
         session_state.add_messages(
             [ChatMessage(role="Elysia", content=public_reply, inner_voice=inner_thought)]
         )
         
-        # 5. 修剪历史，防止上下文过长
-        session_state.prune_history()
+        # # 5. 修剪历史，防止上下文过长
+        # session_state.prune_history()
         
         session_state.debug()
         
@@ -66,14 +62,6 @@ class L1_Module:
         return public_reply, inner_thought
 
     
-    def parse_llm_response_aux(self, llm_raw_output) -> tuple[str, str]:
-        """解析llm的输出"""
-        data = json.loads(llm_raw_output)
-        inner_voice = data.get("inner_voice", "...")
-        reply_text = data.get("reply", "...")
-
-        return inner_voice, reply_text
-
     def parse_llm_response(self, llm_raw_output)-> tuple[str, str]:
         # 1. 打印原始内容的 repr()，这样能看到空格、换行符等不可见字符
         print(f"DEBUG: Raw Output type: {type(llm_raw_output)}")
@@ -96,23 +84,13 @@ class L1_Module:
             # 如果解析失败，与其让程序崩溃，不如返回一个默认回复，保证对话继续
             return "(系统想法: 模型输出格式错误，可能是被截断或触发过滤)", "哎呀，我刚刚走神了，没听清你在说什么，能再说一遍吗？"
 
+
     def construct_prompt(self, session_state: SessionState, 
                          user_input: UserMessage, 
                          l0_output: AmygdalaOutput) -> list[dict]:
         """ 拼装 Prompt """
-        l0_sensory_block_template = """
-        <facts>
-            Current_Time: {current_time}
-            Time of day: {time_of_day}
-            Day of Week: {day_of_week}
-            Season: {season}
-            User_Latency: {latency}s
-        </facts>
-
-        <perception>
-            Perception: {perception}
-        </perception>
-        """
+        # 1. 构造 L0 感官区块
+        from Demo.Prompt import l0_sensory_block_template
         l0_sensory_block = l0_sensory_block_template.format(
             current_time=l0_output.envs.time_envs.current_time,
             time_of_day=l0_output.envs.time_envs.time_of_day,
@@ -122,7 +100,7 @@ class L1_Module:
             perception=l0_output.perception
         )
         
-        # 检索记忆
+        # 2. 检索记忆
         related_memories: list[dict] = self.milvus_agent.retrieve(query_text=user_input.content)
         
         print("--------------------DEBUG Related Memories--------------------")
@@ -135,10 +113,11 @@ class L1_Module:
             l2_related_memories.append(f'  {memory['content']}')
         l2_related_memories = "[\n" + "\n".join(l2_related_memories) + "\n]"
         
-        # 获取L3 人格设定
+        # 3. 获取L3 人格设定
         from Demo.Prompt import l3_persona_example
         l3_persona: str = l3_persona_example
         
+        # 4. 拼装 System Prompt
         system_prompt = SystemPromptTemplate.format(
             l3_persona_block=l3_persona,
             l0_sensory_block=l0_sensory_block,
@@ -151,10 +130,10 @@ class L1_Module:
         print(system_prompt)
         print("-------------------------------------------")
         
+        # 5. 拼装消息列表
         messages = [{"role": "system", "content": system_prompt}]
         
         # 注入历史记录 
-        # TODO 目前是全部装进去了，并没有修剪，后面再考虑
         if session_state.conversations is not None and len(session_state.conversations) > 0:
             for msg in session_state.conversations: 
                 if msg.role == "妖梦":
@@ -163,7 +142,7 @@ class L1_Module:
                     messages.append({"role": "assistant", "content": msg.content + f'\n(内心想法):{msg.inner_voice}'})
                 else:
                     raise ValueError(f"Role error: {msg.role}")
-        
+        # 注入当前用户输入
         messages.append({"role": "user", "content": user_input.content})
         
         return messages 

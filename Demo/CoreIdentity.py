@@ -96,27 +96,58 @@ CoreIdentityTemplate = {
       # 开放性
       "openness": {
         "overall": 0.9,
-        "facets": {"imagination": 0.95, "intellect": 0.85, "adventurousness": 0.6}
+        "facets": {
+            "fantasy": 0.85,
+            "aesthetics": 0.8,
+            "feelings": 0.76,
+            "actions": 0.83,
+            "ideas": 0.9,
+            "values": 0.72
+        }
       },
       # 尽责性
       "conscientiousness": {
         "overall": 0.7,
-        "facets": {"self_efficacy": 0.6, "orderliness": 0.8, "dutifulness": 0.7}
+        "facets": {
+            "competence": 0.8,
+            "order": 0.85,
+            "dutifulness": 0.78,
+            "achievement_striving": 0.82,
+            "self_discipline": 0.76,
+            "deliberation": 0.71}
       },
       # 外向性
       "extraversion": {
         "overall": 0.3,
-        "facets": {"friendliness": 0.4, "gregariousness": 0.1, "assertiveness": 0.2}
+        "facets": {
+            "warmth": 0.72,
+            "gregariousness": 0.65,
+            "assertiveness": 0.7,
+            "activity": 0.75,
+            "excitement_seeking": 0.6,
+            "positive_emotions": 0.78}
       },
       # 宜人性
       "agreeableness": {
         "overall": 0.8,
-        "facets": {"trust": 0.6, "altruism": 0.9, "cooperation": 0.8}
+        "facets": {
+            "trust": 0.79,
+            "straightforwardness": 0.7,
+            "altruism": 0.82,
+            "compliance": 0.68,
+            "modesty": 0.66,
+            "tender_mindedness": 0.81}
       },
       # 神经质
       "neuroticism": {
         "overall": 0.6,
-        "facets": {"anxiety": 0.8, "anger": 0.2, "depression": 0.5}
+        "facets": {
+            "anxiety": 0.55,
+            "angry_hostility": 0.38,
+            "depression": 0.31,
+            "self_consciousness": 0.47,
+            "impulsiveness": 0.44,
+            "vulnerability": 0.36}
       }
     },
     #  暗黑三角 (决定反社会/操纵倾向)

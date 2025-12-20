@@ -62,6 +62,20 @@ As the Herrscher of Humanity, Elysia commands powers tied to emotional resonance
 Both a seasoned warrior and a symbol of hope, Elysia is a flower that continues to bloom, even at the edge of the end.
 """
 
+l0_sensory_block_template = """
+    <facts>
+        Current_Time: {current_time}
+        Time of day: {time_of_day}
+        Day of Week: {day_of_week}
+        Season: {season}
+        User_Latency: {latency}s
+    </facts>
+    
+    <perception>
+        Perception: {perception}
+    </perception>
+"""
+
 #################################################################################################
 #
 # L0 Prompt

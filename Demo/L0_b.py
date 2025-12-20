@@ -56,6 +56,7 @@ from Demo.L0_a import TimeInfo
 from Demo.Session import  UserMessage
 
 class Amygdala:
+    """ L0_b 杏仁核模块"""
     def __init__(self, openai_client: OpenAI):
         self.openai_client = openai_client
         self.l3_core_dientity: str = self.get_l3_core_dientity()
@@ -67,19 +68,20 @@ class Amygdala:
         return l0_elysia_persona_block
     
     def run(self, user_message: UserMessage, current_env: EnvironmentInformation) -> AmygdalaOutput:
-        # 3. 生成描述
+        #  生成描述
         sensory_description: str = self.generate_sensory_description( user_message, current_env)
-        # 4. 更新最后交互时间
+        #  更新最后交互时间
 
         return AmygdalaOutput(sensory_description, current_env)
     
     
     def generate_sensory_description(self, user_message: UserMessage, envs: EnvironmentInformation)-> str:
-        """生成环境描述"""
+        """生成本能描述"""
         
         latency_desc = envs.time_envs.user_latency
         dt = datetime.fromtimestamp(envs.time_envs.current_time)
         
+        # 构建 Prompt
         from Demo.Prompt import L0_SubConscious_System_Prompt, L0_SubConscious_User_Prompt, l0_elysia_persona_block
         system_prompt = L0_SubConscious_System_Prompt.format(
             character_name="Elysia",
@@ -94,10 +96,10 @@ class Amygdala:
             latency_description=latency_desc,
             user_message=user_message.content
         )
-        
         print("User Prompt:")
         print(user_prompt)
         
+        # 调用 OpenAI API 生成描述
         response = self.openai_client.chat.completions.create(
             model="deepseek-chat",
             messages=[
@@ -110,7 +112,7 @@ class Amygdala:
         if not response.choices[0].message.content:
             print("Error! Get empty response content.")
             return ""
-            
+        # 获取生成的文本    
         raw_content = response.choices[0].message.content
         
         return raw_content
