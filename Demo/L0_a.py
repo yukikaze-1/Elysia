@@ -34,7 +34,6 @@ ps:
 
 
 import time
-
 from enum import Enum
 
 class Season(str, Enum):

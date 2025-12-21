@@ -67,7 +67,7 @@ class MicroMemoryStorage(MicroMemory):
 
 from Demo.Utils import MilvusAgent
 from Demo.Session import ChatMessage, ConversationSegment
-from Demo.Prompt import ReflectorPromptTemplate_L1_to_L2
+from Demo.Prompt import MicroReflector_SystemPrompt, MicroReflector_UserPrompt
 from openai.types.chat import ChatCompletionMessage, ChatCompletion
 from openai import OpenAI
 import json
@@ -79,7 +79,8 @@ class MicroReflector:
         self.openai_client = openai_client
         self.collection_name = collection_name
         self.milvus_agent = milvus_agent
-        self.system_prompt = ReflectorPromptTemplate_L1_to_L2
+        self.system_prompt = MicroReflector_SystemPrompt
+        self.user_prompt = MicroReflector_UserPrompt
     
     def parse_micro_llm_output(self, raw_response: ChatCompletion)-> list[MicroMemoryLLMOut]:
         """处理llm的原生回复，提取出MicroMemory"""
@@ -115,6 +116,7 @@ class MicroReflector:
             print("Raw LLM content:")
             print(raw_content)
             return []
+        # 将 dict 转换为 MicroMemoryLLMOut
         res: list[MicroMemoryLLMOut] = []
         try:
             for mem in memories:
@@ -128,29 +130,14 @@ class MicroReflector:
             raise Exception("Error! Failed to convert llm output to MicroMemoryLLMOut. In function: parse_llm_output.")
         return res
     
+    
     def format_conversations_to_lines(self, conversations: ConversationSegment) -> str:
         """将历史对话转换为文本行格式"""
         lines = []
         for msg in conversations.messages:
             lines.append(f'  {msg.role}: {msg.content}')
         return "[\n" + "\n".join(lines) + "\n]"
-
-    def trans_memory(self, memories: list[MicroMemoryLLMOut]):
-        """处理reflector抽取出来的记忆，更换其表述"""
-        # 例如将：用户近期持续睡眠质量不佳，表现为睡得很浅，并因此导致白天疲惫、注意力难以集中。
-        # 转换为: 妖梦近期持续睡眠质量不佳，表现为睡得很浅，并因此导致白天疲惫、注意力难以集中。
-        # TODO 不知道是否需要删除，待测试
-        def normalize_content(text: str) -> str:
-            replacements = {
-                "用户": "妖梦"
-            }
-            for k, v in replacements.items():
-                text = text.replace(k, v)
-            return text
-        for memory in memories:
-            memory.content= normalize_content(memory.content)
-            
-        return memories
+    
     
     def conversation_split(self, conversations: list[ChatMessage])->list[ConversationSegment]:
         """将对话按时间来进行切割"""
@@ -173,6 +160,7 @@ class MicroReflector:
             
         segments.append(ConversationSegment(current[0].timestamp, current[-1].timestamp, current.copy()))
         return segments
+    
     
     def run_micro_reflection(self, conversations: list[ChatMessage])->list[MicroMemory]:
         """对一大段对话进行反思，并抽取记忆、存入milvus"""
@@ -208,7 +196,9 @@ class MicroReflector:
             user_name="妖梦",
             character_name="Elysia"
         )
-        user_prompt = f"Here is the recent raw interaction log:\n\n{transcript}"
+        user_prompt = self.user_prompt.format(
+            transcript=transcript
+        )
         
         print("----------Raw User Prompt ----------")
         print(user_prompt)
@@ -235,12 +225,6 @@ class MicroReflector:
         # 这里假设解析后的格式是我们规定的格式：MicroMemoryLLMOut
         memories: list[MicroMemoryLLMOut] = self.parse_micro_llm_output(response)
         
-        # 处理记忆的角色替换
-        memories = self.trans_memory(memories)
-        # {'content': '我发现他今天醒来就感到异常疲惫，即使睡了七个多小时也无济于事。', 'memory_type': 'Experience', 'poignancy': 5, 'keywords': ['疲惫', '睡眠', '醒来']}, 
-        # {'content': '我了解到他最近频繁做梦，这可能是导致他白天精神不振的原因。', 'memory_type': 'Experience', 'poignancy': 4, 'keywords': ['做梦', '精神不振', '频繁']},
-        # {'content': '我注意到他正在忙于工作，项目进度很赶，时间压力不小。', 'memory_type': 'Fact', 'poignancy': 4, 'keywords': ['工作', '项目', '时间压力']}, 
-        
         # 添加时间戳
         res: list[MicroMemory] = []
         for mem in memories:
@@ -248,10 +232,12 @@ class MicroReflector:
         
         return res
 
+
     def get_embedding(self, text: str) -> list[float]:
         """ Get embedding vector for a given text. """
         vector = self.milvus_agent.embedding_model.embed_documents([text])
         return vector[0] if vector and len(vector) > 0 else []
+    
     
     def save_reflection_results(self, memories: list[MicroMemory]):
         """ 将抽象出来的记忆存入 milvus. """

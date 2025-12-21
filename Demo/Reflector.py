@@ -18,10 +18,10 @@ class MemoryReflector:
         self.micro_reflector = MicroReflector(self.openai_client, self.milvus_agent, self.collection_name)
         self.macro_reflector = MacroReflector(self.openai_client, self.milvus_agent, self.collection_name)
 
-    def run_macro_reflection(self, memories: list[MicroMemory], store_flag: bool = True) -> list[MacroMemory]:
+    def run_macro_reflection(self, store_flag: bool = True) -> list[MacroMemory]:
         """运行 Macro 反思，从 Micro Memories 中提炼 Macro Memories"""
-        return []
-    
+        return self.macro_reflector.run_macro_reflection()
+
     def run_micro_reflection(self, conversations: list[ChatMessage], store_flag: bool = True) -> list[MicroMemory]:
         """运行 Micro 反思，从对话中提取 Micro Memories"""
         micro_memories: list[MicroMemory] = self.micro_reflector.run_micro_reflection(conversations)
@@ -38,9 +38,9 @@ def test_l1_to_l2(reflector: MemoryReflector, conversations: list[ChatMessage]):
     return memories
 
 
-def test_l2_to_l2(reflector: MemoryReflector, micro_memories: list[MicroMemory]):
+def test_l2_to_l2(reflector: MemoryReflector):
     """测试l2到l2的反思"""
-    macro_memories: list[MacroMemory] = reflector.run_macro_reflection(micro_memories)
+    macro_memories: list[MacroMemory] = reflector.run_macro_reflection()
     print("Reflected Macro Memories:")
     for memory in macro_memories:
         print(memory.to_dict())
@@ -79,10 +79,13 @@ def test():
         
     
     from test_dataset import (conversations_02, conversations_01, conversations_03)
+    conversations = conversations_03
     
     # 测试l1——to-l2
-    conversations = conversations_03
     res = test_l1_to_l2(reflector, conversations)
+    
+    # 测试l2-to-l2
+    res2 = test_l2_to_l2(reflector)
         
     
 if __name__ == "__main__":

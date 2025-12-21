@@ -63,38 +63,72 @@ class MacroMemoryStorage(MacroMemory):
     
 import time
 import json   
+from datetime import datetime
 from Demo.Utils import MilvusAgent
 from openai import OpenAI
 from openai.types.chat import ChatCompletionMessage, ChatCompletion 
-from Demo.Prompt import ReflectorPromptTemplate_L2_to_L2_System_Prompt, ReflectorPromptTemplate_L2_to_L2_User_Prompt
+from Demo.Prompt import MacroReflector_SystemPrompt, MacroReflector_UserPrompt
 from Demo.Session import ChatMessage
+from Demo.MicroReflector import MicroMemory
 
 class MacroReflector:
     """负责从l2 的记忆中精炼记忆"""
     def __init__(self, openai_client: OpenAI, milvus_agent: MilvusAgent, collection_name: str):
         self.openai_client = openai_client
-        self.collection_name = collection_name
+        self.collection_name: str = collection_name
         self.milvus_agent = milvus_agent
-        self.system_prompt = ReflectorPromptTemplate_L2_to_L2_System_Prompt
+        self.system_prompt: str = MacroReflector_SystemPrompt
+        self.user_prompt: str = MacroReflector_UserPrompt
         
-    def gather_daily_memories(self)-> list:
+        
+    def gather_daily_memories(self)-> list[MicroMemory]:
         """汇集一天的记忆"""
-        start_time = int(time.time()) - 86400 
+        # TODO 这个一天的记忆有待商榷
+        # start_time = int(time.time()) - 86400 
+        start_time: int = 1766011204  # 2025-12-18 6:40:4 ---- 2025-12-19 7:40:1
     
         # Milvus 表达式查询 (Hybrid Search)
         # 查出今天发生的高权重记忆
-        expr = f"timestamp > {start_time} && poignancy >= 5"
-        results: list = self.milvus_agent.query(filter=expr, output_fields=["content", "type", "poignancy"])
+        expr = f"timestamp > {start_time} AND poignancy >= 3"
+        results: list = self.milvus_agent.query(filter=expr, output_fields=["content", "memory_type", "poignancy", "timestamp", "keywords"])
         
-        return [res['content'] for res in results]
-    
+        print("--------------- Gather Daily Memories ---------------")
+        print(f"Query Expression: {expr}")
+        print(f"Found {len(results)} memories from Milvus.")
+        for hit in results:
+            print(hit)
+        print("-----------------------------------------------------")
         
+        # 将查询到的结果转为标准的MicroMemory格式返回
+        micro_memories: list[MicroMemory] = []
+        for res in results:
+            micro_memories.append(MicroMemory(
+                content=res['content'],
+                memory_type=res['memory_type'],
+                poignancy=res['poignancy'],
+                keywords=res['keywords'],
+                timestamp=res['timestamp']
+            ))
+        return micro_memories
+
+
     def run_macro_reflection(self):
         """对一天的记忆进行反思"""
-        timestamp = int(time.time())
-        memories = self.gather_daily_memories()
+        # timestamp = int(time.time())
+        # TODO 测试用，待修改
+        
+        timestamp = 1766101201  # 2025-12-19 7:40:1
+        micro_memories: list[MicroMemory] = self.gather_daily_memories()
         system_prompt = self.system_prompt
-        user_prompt=""
+        user_prompt = self.user_prompt.format(
+            character_name="Elysia",
+            memories_list=self.format_micro_memories_to_lines(micro_memories)
+        )
+        
+        print("--------------- Reflector L2 to L2 User Prompt ---------------")
+        print("User Prompt:")
+        print(user_prompt)
+        print("---------------------------------------------------------")
         
         response = self.openai_client.chat.completions.create(
             model="deepseek-chat",
@@ -113,19 +147,29 @@ class MacroReflector:
         msg.debug()
         print("--------------- End of Reflector L2 to L2 Raw Response ---------------")
         
-        memories: list[MacroMemoryLLMOut] = self.parse_macro_llm_output(response)
+        macro_memories_llm_out: list[MacroMemoryLLMOut] = self.parse_macro_llm_output(response)
         
         # 添加时间戳
-        res: list[MacroMemory] = []
-        for mem in memories:
-            res.append(MacroMemory.from_macro_memory_llm_out(mem, timestamp))
+        macro_memories: list[MacroMemory] = []
+        for mem in macro_memories_llm_out:
+            macro_memories.append(MacroMemory.from_macro_memory_llm_out(mem, timestamp))
         
-        return res
+        return macro_memories
+    
+    
+    def format_micro_memories_to_lines(self, memories: list[MicroMemory])-> str:
+        """将micro memories格式化为文本行"""
+        lines = []
+        for mem in memories:
+            lines.append(f"- [{datetime.fromtimestamp(mem.timestamp).isoformat()}] (Poignancy: {mem.poignancy}) {mem.content}\n")
+        return "[\n" + "\n".join(lines) + "\n]"
+    
     
     def get_embedding(self, text: str) -> list[float]:
         """ Get embedding vector for a given text. """
         vector = self.milvus_agent.embedding_model.embed_documents([text])
         return vector[0] if vector and len(vector) > 0 else []
+        
         
     def parse_macro_llm_output(self, raw_response: ChatCompletion)-> list[MacroMemoryLLMOut]:
         """处理llm的原生回复，提取出MicroMemory"""
@@ -141,10 +185,14 @@ class MacroReflector:
                 return [{}]
             try:
                 data = json.loads(raw_content)
+                # 如果解析出来的是字典，把它包装成列表
+                if isinstance(data, dict):
+                    return [data]
                 return data
             except json.JSONDecodeError as e:
                 print(f"JSON parsing error: {e}")
                 return [{}]
+            
         # 提取llm回复中的content部分，应该是一个list[dict]
         # [
         #   {
@@ -174,6 +222,7 @@ class MacroReflector:
     
     def save_reflection_results(self, memories: list[MacroMemory]):
         """ 将抽象出来的记忆存入 milvus. """
+        pass
         # TODO 实现
         # if not memories or len(memories) == 0:
         #     print("No memories to store.")

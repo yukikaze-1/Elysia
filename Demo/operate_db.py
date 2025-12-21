@@ -8,9 +8,11 @@ collection_name = "l2_associative_memory"
 def search():
     res = milvus_client.query(
         collection_name=collection_name,
+        # filter="timestamp > 1766011204 AND poignancy >= 5",
         filter="",
         limit=100,
-        output_fields=["id", "memory_type", "content", "poignancy", "keywords", "timestamp"]
+        output_fields=["id", "memory_type", "content", "poignancy", "keywords", "timestamp"],
+        # consistency_level="Strong"
     )
 
     for hit in res:

@@ -53,9 +53,6 @@ class L1_Module:
             [ChatMessage(role="Elysia", content=public_reply, inner_voice=inner_thought)]
         )
         
-        # # 5. 修剪历史，防止上下文过长
-        # session_state.prune_history()
-        
         session_state.debug()
         
         print(f"This turn useage: Token:{response.usage}")

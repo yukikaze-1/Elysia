@@ -93,7 +93,8 @@ class MilvusAgent:
             collection_name=self.collection_name,
             filter=filter,
             output_fields=output_fields,
-            limit=10000
+            limit=10000,
+            consistency_level="Strong"
         )
         return res
         
