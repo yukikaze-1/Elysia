@@ -2,7 +2,8 @@
 from typing import Literal
 from datetime import datetime
 
-from Demo.CoreIdentity import CoreIdentityTemplate
+from Demo.Layers.CoreIdentity import CoreIdentityTemplate
+from Demo.Layers.Session import UserMessage
 
 #  ====================================================================================
 #  Layer 1: Profile & Biometrics (基础与生理层)
@@ -339,9 +340,18 @@ class RuntimeState:
 #  
 #  ====================================================================================
 
+default_meta_info = {
+    "meta": {
+    "schema_version": "3.0",
+    "character_id": "uuid-v4-hash",
+    "created_at": "2023-10-27T10:00:00Z",
+    "last_updated": "2023-10-27T12:00:00Z"
+  }
+}
+
 class CoreIdentity:
     """人物设定"""
-    def __init__(self, meta_info: dict):
+    def __init__(self, meta_info: dict = default_meta_info):
         self.meta_info: dict = meta_info
         self.profile: Profile 
         self.psychometrics: Psychometrics 
@@ -349,8 +359,74 @@ class CoreIdentity:
         self.narrative: Narrative
         self.communication_style: CommunicationStyle 
         self.runtime_state: RuntimeState 
+
+
+from Demo.Logger import setup_logger
+import logging
+
+class PersonaLayer:
+    """
+    人格层：负责管理角色的人格特征、情绪状态和表达风格
+    """
+    def __init__(self) :
+        self.logger: logging.Logger = setup_logger("PersonaLayer")
+        self.character_identity: CoreIdentity = CoreIdentity() # 角色所有信息
+        # 在实际项目中，这里应该从 JSON/YAML 加载设定
+        # self.character_identity = self._load_from_config(config_path)
+        self.logger.info("PersonaLayer initialized with CoreIdentity.")
+        
+    # =========================================
+    # 接口 1: 更新心情 (被 Dispatcher 在收到用户输入时调用)
+    # =========================================
+    
+    def update_mood(self, user_input: UserMessage):
+        """更新心情"""
+        # 会调用llm来更新
+        # TODO 待实现
+        pass
+    
+    # =========================================
+    # 接口 2: 获取 System Prompt (被 Dispatcher/L1 调用)
+    # =========================================
+    
+    def get_persona_prompt(self)->str:
+        """生成人设prompt"""
+        # TODO 这会很复杂
+        from Demo.Prompt import l3_persona_example
+        return l3_persona_example
+    
+    # =========================================
+    # 接口 3: 主动性判断 (被 Dispatcher 的 Heartbeat 逻辑调用)
+    # =========================================
+    def should_initiate_conversation(self)->bool:
+        """ 是否具备主动发起对话的条件 """
+        return True  # TODO 待实现，调用llm判断
     
     
+# @dataclass
+# class CoreIdentity:
+#     """
+#     存储角色的静态设定和动态状态
+#     """
+#     # === 静态设定 (Base Profile) ===
+#     name: str = "Elysia"
+#     age: int = 18
+#     base_personality: str = "Cheerful, curious, slightly mischievous."
+#     speaking_style: str = "Uses emojis, casual tone, refers to user as 'Senpai'."
+    
+#     # === 动态状态 (Dynamic State) ===
+#     # 情绪 (Mood): 简单的描述词，如 Happy, Sad, Neutral, Angry
+#     current_mood: str = "Neutral"
+    
+#     # 精力值 (Energy): 0-100. 
+#     # 高精力 -> 话痨，主动说话。低精力 -> 简短回复，不主动。
+#     energy_level: int = 80
+    
+#     # 亲密度 (Relationship): 0-100
+#     intimacy: int = 50
+
+#     def __str__(self):
+#         return f"{self.name} (Mood: {self.current_mood}, Energy: {self.energy_level})"
     
 def test():
     import time

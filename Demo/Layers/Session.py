@@ -8,7 +8,11 @@
     - ConversationSegment 类表示一段对话片段
 """
 
-import os
+import sys
+import time
+from datetime import datetime
+import logging
+from Demo.Logger import setup_logger
 
 class InputEventInfo:
     """输入事件类"""
@@ -30,9 +34,9 @@ class InputEventInfo:
 
 class UserMessage:
     """用户消息类"""
-    def __init__(self, content: str):
+    def __init__(self, role: str, content: str):
         # TODO user id 目前从环境变量读取，后续可能需要改为传参
-        self.user_id: str = os.getenv("USER_ID", "default_user")
+        self.role: str= role
         self.content: str = content
         self.client_timestamp: float = time.time()
         self.input_event = InputEventInfo()
@@ -47,7 +51,7 @@ class UserMessage:
         }
         
     def to_str(self) -> str:
-        return f"UserMessage(user_id={self.user_id}, content={self.content}, timestamp={self.client_timestamp}, input_event={self.input_event})"
+        return f"UserMessage(role={self.role}, content={self.content}, timestamp={self.client_timestamp}, input_event={self.input_event})"
 
 
 from openai.types.chat import ChatCompletionMessage
@@ -68,6 +72,13 @@ class ChatMessage:
                    inner_voice="",
                    timestamp=float(timestamp))
     
+    @classmethod
+    def from_UserMessage(cls, user_message: UserMessage):
+        return cls(role=user_message.role,
+                   content=user_message.content,
+                   inner_voice="",
+                   timestamp=user_message.client_timestamp)
+    
     def to_dict(self) -> dict:
         return {
             "role": self.role,
@@ -76,8 +87,8 @@ class ChatMessage:
             "timestamp": self.timestamp
         }
         
-    def debug(self):
-        print(self.to_dict())
+    def debug(self, logger: logging.Logger):
+        logger.info(self.to_dict())
 
 
 class ConversationSegment:
@@ -94,60 +105,67 @@ class ConversationSegment:
             lines.append(f'  {msg.role}: {msg.content}: {msg.timestamp}： {datetime.fromtimestamp(msg.timestamp)}')
         return "[\n" + "\n".join(lines) + "\n]"
     
-    def debug(self):
-        print("Conversaton Segement:")
-        print(f"During:{self.start_time} to {self.end_time}.Contains {len(self.messages)} messages")
-        print(self.format_messages_to_line())
-        print()
+    def debug(self, logger: logging.Logger):
+        logger.info("Conversaton Segement:")
+        logger.info(f"During:{self.start_time} to {self.end_time}.Contains {len(self.messages)} messages")
+        logger.info(self.format_messages_to_line())
+        
 
 
 from datetime import datetime
 import time
 
 class SessionState:
-    """会话状态（包含当前聊天的部分上下文）"""
+    """
+    [内部辅助类] 会话状态管理
+    负责维护 Context Window (上下文窗口)，确保发给 LLM 的 Token 不会溢出。
+    """
     def __init__(self, user_name: str, role: str, max_messages_limit: int = 20, max_inner_limit = 3):
+        # TODO 此处logger本应该是L2传进来的，但是为了调试方便，改为sessionstate自有
+        self.logger: logging.Logger = setup_logger("SessionState")
         self.user_name: str = user_name     # 用户的名字
         self.role: str = role               # AI的名字
         
         self.max_messages_limit: int = max_messages_limit    # 最大对话数(含inner voice + 不含inner voice)
         self.max_inner_limit: int = max_inner_limit     # 最大包含inner voice的对话数
         
-        self.conversations: list[ChatMessage] = []
-        self.last_interaction_time: float = time.time()
-        
-        # TODO 下面这两项是否需要到单独拿出来作为一个“当前状态”的信息类？需要更新
-        self.short_term_goals: str = "Just chatting"
-        self.current_mood: str = "Neutral"
+        # TODO 这个需要加锁吗？
+        self.conversations: list[ChatMessage] = []  # 会话历史
+        self.last_interaction_time: float = time.time()  # 最后交互时间戳
 
 
     def add_messages(self, messages: list[ChatMessage]):
         """ 添加消息到会话历史 """
         if messages is not None and len(messages) == 0:
+            self.logger.warning("Attempted to add empty message list to SessionState.")
             return
         for msg in messages:
             self.conversations.append(msg)
             
         self.update_last_interaction_time()
+        self.logger.info(f"Added {len(messages)} messages to SessionState. Total messages now: {len(self.conversations)}")
         
         if self.check_message_overflow():
+            self.logger.info("Message overflow detected. Pruning history.")
             self.prune_history()
-        
-    def update_goal(self, goal: str):
-        if not goal:
-            print("Error! New goal is invalid!")
-        self.short_term_goals = goal
-        
-    def update_mood(self, mood: str):
-        if not mood:
-            print("Error! New mood is invalid!")
-        self.current_mood = mood
+    
+    
+    def get_history(self)-> list[ChatMessage]:
+        return self.conversations
+    
+    
+    def get_recent_items(self, limit: int = 5) -> list[ChatMessage]:
+        """获取最近几条，用于主动性判断"""
+        subset = self.conversations[-limit:]
+        return subset
+    
         
     def update_last_interaction_time(self)->float:
         """更新最后交互时间（以最后一条消息为准）"""
         if len(self.conversations) == 0 :
-            print("Error, SessionSate has empty conversations!")
+            self.logger.error("No conversations in SessionState when updating last interaction time.")
             return 0.0
+        
         self.last_interaction_time = self.conversations[-1].timestamp
         return self.last_interaction_time
     
@@ -164,11 +182,14 @@ class SessionState:
         # TODO 待配套完善
         
         if len(self.conversations) <= self.max_messages_limit:
+            self.logger.info("No need to prune history.")
             return  # 不需要修剪
         
         # 丢弃老消息
+        
         if len(self.conversations) > self.max_messages_limit:
             history = self.conversations[-self.max_messages_limit:]
+            self.logger.info(f"Pruned history to last {self.max_messages_limit} messages.")
         
         # 清洗inner thought
         threshold_index = len(history) - 2 * self.max_inner_limit
@@ -183,16 +204,14 @@ class SessionState:
     
     
     def debug(self):
-        print("-------------------- SessionState Debug Info --------------------")
-        print(f"Time: {datetime.fromtimestamp(time.time())}")
-        print(f"  Last Interaction Time: {self.last_interaction_time}")
-        print(f"  Short Term Goals: {self.short_term_goals}")
-        print(f"  Current Mood: {self.current_mood}")
-        print("  Conversation History:")
+        self.logger.info("-------------------- SessionState Debug Info --------------------")
+        self.logger.info(f"Time: {datetime.fromtimestamp(time.time())}")
+        self.logger.info(f"  Last Interaction Time: {self.last_interaction_time}")
+        self.logger.info("  Conversation History:")
         for msg in self.conversations:
             if msg.inner_voice == "":
-                print(f"    {msg.role} at {msg.timestamp}: {msg.content}")
+                self.logger.info(f"    {msg.role} at {msg.timestamp}: {msg.content}")
             else:
-                print(f"    {msg.role} at {msg.timestamp}: {msg.content} \n \t \t(inner_voice): {msg.inner_voice}")
+                self.logger.info(f"    {msg.role} at {msg.timestamp}: {msg.content} \n \t \t(inner_voice): {msg.inner_voice}")
 
-        print("-------------------- End of Debug Info --------------------")
+        self.logger.info("-------------------- End of Debug Info --------------------")

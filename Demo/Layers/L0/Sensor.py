@@ -34,8 +34,13 @@ ps:
 
 
 import time
+import logging 
 from enum import Enum
 
+
+# =============================================================================
+# L0 数据结构定义
+# =============================================================================
 class Season(str, Enum):
     SPRING = "Spring"
     SUMMER = "Summer"
@@ -73,6 +78,15 @@ class TimeInfo:
             "season": self.season,
             "user_latency": self.user_latency,
             "last_message_timestamp": self.last_message_timestamp
+        }
+        
+    def to_l1_decide_to_act_dict(self):
+        """L1 decide_to_act函数专用，用于主动感知"""
+        return {
+            "current_time": self.current_time,
+            "time_of_day": self.time_of_day,
+            "day_of_week": self.day_of_week,
+            "season": self.season,
         }
     
     
@@ -114,23 +128,8 @@ class TimeInfo:
         """通过timestamp获取星期"""
         dt = datetime.fromtimestamp(timestamp)
         return dt.strftime("%A")
-            
-from datetime import datetime 
- 
-class TimeSensor:
-    def __init__(self):
-        self.last_message_timestamp = 0.0  # 上次消息时间戳
-    
-    def get_time(self)->TimeInfo:
-        current_time  = time.time()
-        # TODO 只是为了测试加上的-100，待修改
-        if self.last_message_timestamp == 0.0:
-            self.last_message_timestamp = current_time - 100  
-        user_latency = current_time - self.last_message_timestamp
-        return TimeInfo(current_time=current_time, user_latency=user_latency, last_message_timestamp=self.last_message_timestamp)
-    
-        
-        
+
+
 class EnvironmentInformation:
     """L0 a 输出类"""
     def __init__(self, time_envs: TimeInfo):
@@ -139,38 +138,53 @@ class EnvironmentInformation:
     def to_dict(self):
         return {
             "time envs": self.time_envs.to_dict() 
-        }            
-        
-        
-class L0_Sensory_Processor:
+        }  
+
+# =============================================================================
+# L0 业务组件（各种传感器）
+# =============================================================================           
+from datetime import datetime 
+ 
+class TimeSensor:
+    def __init__(self, logger: logging.Logger):
+        self.logger: logging.Logger = logger
+        self.last_message_timestamp = 0.0  # 上次消息时间戳
+    
+    def get_time(self)->TimeInfo:
+        """获取时间信息"""
+        self.logger.info("TimeSensor: Getting current time information...")
+        current_time  = time.time()
+        # TODO 只是为了测试加上的-100，待修改
+        if self.last_message_timestamp == 0.0:
+            self.last_message_timestamp = current_time - 100  
+        user_latency = current_time - self.last_message_timestamp
+        res = TimeInfo(current_time=current_time, user_latency=user_latency, last_message_timestamp=self.last_message_timestamp)
+        self.logger.info(f"TimeSensor: Current time information: {res.to_dict()}")
+        return res
+    
+          
+
+# =============================================================================
+# L0 业务组件集成
+# =============================================================================
+       
+class SensoryProcessor:
     """
     处理传感器数据的类
     目前非常简陋
     """
-    def __init__(self):
-        self.time_sensor = TimeSensor()
+    def __init__(self, logger: logging.Logger):
+        self.logger: logging.Logger = logger
+        self.time_sensor: TimeSensor = TimeSensor(self.logger)
         
-    def get_envs(self) -> EnvironmentInformation:
+    def active_perception_envs(self) -> EnvironmentInformation:
         """主动获取传感器数据"""
-        
+        self.logger.info("Active perception: Gathering environment information...")
         # TODO 待扩展
+        # 获取时间信息
         time_envs = self.time_sensor.get_time()
         
+        self.logger.info("Environment information perception completed.")
         return EnvironmentInformation(time_envs=time_envs)
 
-    
-
-def test():
-    from dotenv import load_dotenv
-    load_dotenv()
-    l0_a = L0_Sensory_Processor()
-    
-    res = l0_a.get_envs()
-    print(res.to_dict())
-    
-
-
-if __name__ == "__main__":
-    test()
-    
     

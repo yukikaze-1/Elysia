@@ -1,44 +1,101 @@
+import sys
+import time
+import logging
 
-from openai import OpenAI
+# 1. 引入核心架构组件
+from Demo.Core.EventBus import EventBus, global_event_bus
+from Demo.Core.Dispatcher import Dispatcher
+from Demo.Layers.L0.L0 import SensorLayer
+from Demo.Layers.L1 import BrainLayer
+from Demo.Layers.L2 import MemoryLayer
+from Demo.Layers.L3 import PersonaLayer
+from Demo.Workers.Reflector.Reflector import Reflector
 
-import os
-
-from Demo.L0_a import EnvironmentInformation, L0_Sensory_Processor
-from Demo.L0_b import Amygdala, AmygdalaOutput
-from Demo.L1 import L1_Module, UserMessage, ChatMessage, SessionState
-from Demo.Reflector import MemoryReflector
+from Demo.Logger import setup_logger
 
 def main():
-    from dotenv import load_dotenv
-    load_dotenv()
+    logger :logging.Logger = setup_logger("Main")
+    logger.info(">>> Initializing AI Agent System...")
+
+    # ==========================================
+    # Step 1: 创建神经中枢 (Event Bus)
+    # ==========================================
+    bus = global_event_bus
+
+    # ==========================================
+    # Step 2: 实例化各层 (Dependency Injection)
+    # ==========================================
     
-    openai_client = OpenAI(api_key=os.getenv("DEEPSEEK_API_KEY"), base_url=os.getenv("DEEPSEEK_API_BASE", "https://api.deepseek.com"))
+    # [L2 记忆层] 
+    l2 = MemoryLayer()
     
-    l0_a = L0_Sensory_Processor()
-    l0_b = Amygdala(openai_client)
-    l1 = L1_Module(openai_client)
-    reflector = MemoryReflector(openai_client)
+    # [L3 人格层] - 加载初始设定
+    l3 = PersonaLayer()
     
-    session_state = SessionState(user_name="妖梦", role="Elysia")
+    # [L1 大脑层] - 加载 API Key
+    l1 = BrainLayer()
     
-    while(True):
-        user_input = UserMessage(input("User: "))
-        l0_a_output: EnvironmentInformation = l0_a.get_envs()
-        l0_b_output: AmygdalaOutput = l0_b.run(user_message=user_input, current_env=l0_a_output)
-        l0_output = l0_b_output
+    # [Reflector] - 负责后台整理
+    reflector = Reflector()
+    reflector.start()
+    
+    # [L0 传感层] - 需要 bus 来发送 USER_INPUT 和 SYSTEM_TICK
+    l0 = SensorLayer(event_bus=bus)
+
+    # ==========================================
+    # Step 3: 组装调度器 (The Orchestrator)
+    # ==========================================
+    # 调度器持有所有模块的引用，负责指挥
+    dispatcher = Dispatcher(
+        event_bus=bus,
+        l0=l0,
+        l1=l1,
+        l2=l2,
+        l3=l3,
+        reflector=reflector
+    )
+
+    # ==========================================
+    # Step 4: 启动系统
+    # ==========================================
+    try:
+        # 1. 启动 L0 的子线程 (输入监听 + 心跳)
+        # 这样 input() 就不会阻塞主程序
+        l0.start_threads()
+
+        # 2. 启动调度器主循环 (这是一个阻塞操作，也是主程序的 Loop)
+        logger.info("System ready. Entering Main Loop.")
+        dispatcher.start() 
+
+    except KeyboardInterrupt:
+        # 捕获 Ctrl+C，进行优雅退出
+        logger.info("\nSTOP signal received. Shutting down...")
+    
+    except Exception as e:
+        logger.error(f"Critical System Failure: {e}", exc_info=True)
+    
+    finally:
+        # ==========================================
+        # Step 5: 清理资源 (Graceful Shutdown)
+        # ==========================================
+        # 停止调度器循环
+        if 'dispatcher' in locals():
+            dispatcher.stop()
         
-        print("------------------------L0 output------------------------")
-        print(l0_b_output.debug())
-        print("-------------------------------------------------------------------------")
-        
-        reply, inner_thought = l1.run(session_state, user_input, l0_output)
-        
-        print(f"Elysia (Inner Thought): {inner_thought}")
-        print(f"Elysia (Reply): {reply}")
-        print("-----")
-        
-        
-        
+        # 停止 L0 的监听线程
+        if 'l0' in locals():
+            l0.stop_threads()
+            
+        # 确保 Reflector 保存所有未处理的缓存,然后停止它
+        if 'reflector' in locals():
+            logger.info("Saving pending reflections...")
+            # 调用强制保存接口
+            reflector.force_save() 
+            reflector.stop()
+            
+        logger.info("System Shutdown Complete.")
+
+
 if __name__ == "__main__":
     main()
     

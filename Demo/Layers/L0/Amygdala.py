@@ -1,6 +1,6 @@
 """
 L0_b 模块：
-    2. 生成本能反应 ---> 输出本能反应
+     生成本能反应 ---> 输出本能反应
     
 eg.
     L0 (潜意识/边缘系统/杏仁核)：
@@ -32,7 +32,7 @@ ps:
     如果你想要 Elysia 偶尔“理智控制不住情绪”，或者“嘴硬心软”，那么保留 L0 是必须的，因为它代表了那个“无法控制的身体本能”
 """
 
-from Demo.L0_a import EnvironmentInformation
+from Demo.Layers.L0.Sensor import EnvironmentInformation
 
 class AmygdalaOutput:
     """ L0_b Amygdala 输出类"""
@@ -52,25 +52,29 @@ class AmygdalaOutput:
 
 from openai import OpenAI
 from datetime import datetime
-from Demo.L0_a import TimeInfo
-from Demo.Session import  UserMessage
+from Demo.Layers.L0.Sensor import TimeInfo
+from Demo.Layers.Session import  UserMessage
+import logging
 
 class Amygdala:
     """ L0_b 杏仁核模块"""
-    def __init__(self, openai_client: OpenAI):
+    def __init__(self, openai_client: OpenAI, logger: logging.Logger):
         self.openai_client = openai_client
+        self.logger = logger
         self.l3_core_dientity: str = self.get_l3_core_dientity()
+        
         
     def get_l3_core_dientity(self):
         """获取L3核心身份信息"""
         # TODO 从L3模块获取
-        from Demo.Prompt import l0_elysia_persona_block
-        return l0_elysia_persona_block
-    
-    def run(self, user_message: UserMessage, current_env: EnvironmentInformation) -> AmygdalaOutput:
+        from Demo.Prompt import l3_elysia_persona_block
+        return l3_elysia_persona_block
+
+
+    def react(self, user_message: UserMessage, current_env: EnvironmentInformation) -> AmygdalaOutput:
+        """  杏仁核反应函数 """
         #  生成描述
         sensory_description: str = self.generate_sensory_description( user_message, current_env)
-        #  更新最后交互时间
 
         return AmygdalaOutput(sensory_description, current_env)
     
@@ -82,7 +86,7 @@ class Amygdala:
         dt = datetime.fromtimestamp(envs.time_envs.current_time)
         
         # 构建 Prompt
-        from Demo.Prompt import L0_SubConscious_System_Prompt, L0_SubConscious_User_Prompt, l0_elysia_persona_block
+        from Demo.Prompt import L0_SubConscious_System_Prompt, L0_SubConscious_User_Prompt, l3_elysia_persona_block
         system_prompt = L0_SubConscious_System_Prompt.format(
             character_name="Elysia",
             l3_persona_block=self.get_l3_core_dientity()
@@ -96,8 +100,8 @@ class Amygdala:
             latency_description=latency_desc,
             user_message=user_message.content
         )
-        print("User Prompt:")
-        print(user_prompt)
+        self.logger.info("User Prompt:")
+        self.logger.info(user_prompt)
         
         # 调用 OpenAI API 生成描述
         response = self.openai_client.chat.completions.create(
@@ -110,39 +114,13 @@ class Amygdala:
         )
         
         if not response.choices[0].message.content:
-            print("Error! Get empty response content.")
+            self.logger.error("Error! Get empty response content.")
             return ""
         # 获取生成的文本    
         raw_content = response.choices[0].message.content
         
+        self.logger.info("Amygdala generated sensory description:")
+        self.logger.info(raw_content)
+        
         return raw_content
-    
-    
-def test():
-    import time
-    from dotenv import load_dotenv
-    from openai import OpenAI
-    import os
-    load_dotenv()
-    
-    url = os.getenv("DEEPSEEK_API_BETA")
-    openai_client =  OpenAI(api_key=os.getenv("DEEPSEEK_API_KEY"), base_url=url)
-    amygdala = Amygdala(openai_client)
-    
-    # 构造测试环境信息
-    time_info = TimeInfo(
-        current_time=time.time(),
-        user_latency=5.0,
-        last_message_timestamp=time.time() - 10.0
-    )
-    from Demo.L0_a import EnvironmentInformation
-    env_info = EnvironmentInformation(time_info)
-    user_message = UserMessage(content="我今天分手了，我不知道该怎么办。")
-    output = amygdala.run(user_message, env_info)
-    output.debug()
-    
-    
-if __name__ == "__main__":
-    test()
-    
     

@@ -1,9 +1,9 @@
 
 from pymilvus import MilvusClient
-from Demo.Utils import create_embedding_model, create_memory_collection
+from Demo.Utils import create_embedding_model, create_micro_memory_collection, create_macro_memory_collection
 
 milvus_client = MilvusClient(uri="http://localhost:19530", token="root:Milvus")
-collection_name = "l2_associative_memory"
+collection_name = "micro_memory"
 
 def search():
     res = milvus_client.query(
@@ -12,7 +12,7 @@ def search():
         filter="",
         limit=100,
         output_fields=["id", "memory_type", "content", "poignancy", "keywords", "timestamp"],
-        # consistency_level="Strong"
+        consistency_level="Strong"
     )
 
     for hit in res:
@@ -33,7 +33,7 @@ def inject_data():
         print(f"Error! No collection named {collection_name}! Exited.")
         return
     contents: list[str] = [memory['content'] for memory in memories]
-    model = create_embedding_model()
+    model = create_embedding_model(debug_info="Inject Data Script")
     vecs: list[list[float]] = model.embed_documents(contents)
     
     # for mem, vec in zip(memories, vecs):
@@ -62,7 +62,7 @@ def clean_up_collection():
         print(f"Drop collection {collection_name}.")
         milvus_client.drop_collection(collection_name)
         print(f"Creating collection {collection_name}.")
-        create_memory_collection(collection_name, milvus_client)
+        create_micro_memory_collection(collection_name, milvus_client)
         
         
 if __name__ == "__main__":
