@@ -17,7 +17,7 @@ from datetime import datetime
 
 from Demo.Layers.L0.Sensor import SensoryProcessor, EnvironmentInformation
 from Demo.Layers.L0.Amygdala import AmygdalaOutput, Amygdala
-from Demo.Layers.Session import UserMessage
+from Demo.Layers.Session import ChatMessage, UserMessage
 from Demo.Core.Schema import Event, EventType, EventContentType, EventSource
 from Demo.Core.EventBus import EventBus, global_event_bus
 from Demo.Logger import setup_logger
@@ -73,12 +73,15 @@ class SensorLayer:
         self.logger.info("L0 SensorLayer threads stopping...")
         
         
-    def output(self, public_reply:str, inner_thought: str):
+    def output(self, msg: ChatMessage):
         """
         [接口实现] 简单的控制台打印
         """
         # 同时记录日志
         logger = logging.getLogger("Main")
+        public_reply: str = msg.content
+        inner_thought: str = msg.inner_voice if msg.inner_voice else ""
+        timestamp: str = datetime.fromtimestamp(msg.timestamp).strftime("%Y-%m-%d %H:%M:%S")
         
         # 使用颜色区分 AI 和用户的发言 (例如：绿色)
         GREEN = "\033[92m"
@@ -86,10 +89,12 @@ class SensorLayer:
         RESET = "\033[0m"
         
         # 打印 formatted output
-        print(f"\n{GREEN}[Elysia]: {public_reply}{RESET}")
-        logger.info(f"Elysia Public Reply: {public_reply}")
-        print(f"{YELLOW}(Inner Thought): {inner_thought}{RESET}\n")
-        logger.info(f"Elysia Inner Thought: {inner_thought}")
+        print(f"\n{GREEN}[{msg.role} @ {timestamp}]: {public_reply}{RESET}")
+        logger.info(f"{msg.role} Public Reply: {public_reply}")
+        
+        if msg.role == "Elysia" and inner_thought:
+            print(f"{YELLOW}(Inner Thought): {inner_thought}{RESET}\n")
+            logger.info(f"{msg.role} Inner Thought: {inner_thought}")
         
         # 强制刷新缓冲区，确保字立刻显示出来
         sys.stdout.flush()
@@ -111,17 +116,19 @@ class SensorLayer:
                     continue
                 
                 self.logger.info(f"User input received: {raw_input}")
-                raw_input = UserMessage(role="妖梦", content=raw_input)
 
                 # 2. [业务集成] 感官预处理 (SensoryProcessor)
                 # 主动感知环境信息
                 env_info: EnvironmentInformation = self.sensory_processor.active_perception_envs()
                 self.logger.info(f"Environment information perceived: {env_info}")
                 
+                user_input: UserMessage = UserMessage(role="妖梦", content=raw_input, timestamp=env_info.time_envs.current_time)
+                
+                
                 # 3. [业务集成] 杏仁核反应 (Amygdala)
                 try:
                     amygdala_reaction: AmygdalaOutput = self.amygdala.react(
-                        user_message=raw_input,
+                        user_message=user_input,
                         current_env=env_info
                     )
                     self.logger.info(f"Amygdala reaction: {amygdala_reaction}")
@@ -129,14 +136,15 @@ class SensorLayer:
                     self.logger.warning(f"Amygdala error: {e}", exc_info=True)
 
                 # 4. 封装并发送事件
-                # TODO 这里封装的有问题,conten和metadata具体怎么分配
+                # TODO 这里封装的有问题,content和metadata具体怎么分配
                 event = Event(
                     type=EventType.USER_INPUT,
                     content_type=EventContentType.USERMESSAGE,
-                    content=raw_input,
+                    content=user_input,
                     source=EventSource.L0_SENSOR,
+                    timestamp=time.time(),  # 事件产生时间,并非用户输入时间
                     metadata={
-                        "AmygdalaOutput": amygdala_reaction
+                        "AmygdalaOutput": amygdala_reaction,
                     }
                 )
                 self.bus.publish(event)

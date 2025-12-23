@@ -60,9 +60,10 @@ from datetime import datetime
     
 class TimeInfo:
     """时间信息输出类"""
-    def __init__(self, current_time: float, 
-                 user_latency: float,
-                 last_message_timestamp: float):
+    # TODO 此处的默认全部设为0只是为了Dispatcher中的_handle_user_input函数中调用generate_reply时类型检查通过，实际使用时必须传入正确的值
+    def __init__(self, current_time: float = 0, 
+                 user_latency: float = 0,
+                 last_message_timestamp: float = 0):
         self.current_time: float = current_time
         self.time_of_day: str = self._get_time_of_day_from_timestamp(self.current_time).value
         self.day_of_week: str = self._get_day_of_week(self.current_time)

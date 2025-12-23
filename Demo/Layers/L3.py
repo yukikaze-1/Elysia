@@ -363,6 +363,7 @@ class CoreIdentity:
 
 from Demo.Logger import setup_logger
 import logging
+from Demo.Core.Schema import DEFAULT_ERROR_MOOD
 
 class PersonaLayer:
     """
@@ -373,17 +374,22 @@ class PersonaLayer:
         self.character_identity: CoreIdentity = CoreIdentity() # 角色所有信息
         # 在实际项目中，这里应该从 JSON/YAML 加载设定
         # self.character_identity = self._load_from_config(config_path)
+        self.mood: str = "Elysia 当前心情愉快，渴望与用户深入交流。"
         self.logger.info("PersonaLayer initialized with CoreIdentity.")
         
     # =========================================
     # 接口 1: 更新心情 (被 Dispatcher 在收到用户输入时调用)
     # =========================================
     
-    def update_mood(self, user_input: UserMessage):
+    def update_mood(self, new_mood: str):
         """更新心情"""
         # 会调用llm来更新
         # TODO 待实现
-        pass
+        if new_mood is None or new_mood == DEFAULT_ERROR_MOOD or new_mood.strip() == "":
+            self.logger.warning("Attempted to update mood with empty value. Ignoring.")
+            return
+        self.mood = new_mood
+        self.logger.info(f"PersonaLayer mood updated to: {self.mood}")
     
     # =========================================
     # 接口 2: 获取 System Prompt (被 Dispatcher/L1 调用)
@@ -402,6 +408,11 @@ class PersonaLayer:
         """ 是否具备主动发起对话的条件 """
         return True  # TODO 待实现，调用llm判断
     
+    
+    def get_current_mood(self)->str:
+        """获取当前心情描述"""
+        # TODO 待实现
+        return self.mood
     
 # @dataclass
 # class CoreIdentity:

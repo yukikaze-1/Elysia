@@ -8,7 +8,6 @@
     - ConversationSegment 类表示一段对话片段
 """
 
-import sys
 import time
 from datetime import datetime
 import logging
@@ -34,11 +33,10 @@ class InputEventInfo:
 
 class UserMessage:
     """用户消息类"""
-    def __init__(self, role: str, content: str):
-        # TODO user id 目前从环境变量读取，后续可能需要改为传参
+    def __init__(self, role: str, content: str, timestamp: float | None = None):
         self.role: str= role
         self.content: str = content
-        self.client_timestamp: float = time.time()
+        self.client_timestamp: float = timestamp if timestamp else time.time()
         self.input_event = InputEventInfo()
 
     def to_dict(self) -> dict:
@@ -59,11 +57,11 @@ import time
 
 class ChatMessage:
     """聊天消息类，包含角色、内容、内心独白、时间戳等信息"""
-    def __init__(self, role: str, content , inner_voice: str = "", timestamp: float = time.time()):
+    def __init__(self, role: str, content , inner_voice: str , timestamp: float | None = None):
         self.role: str = role
         self.content = content
         self.inner_voice: str = inner_voice
-        self.timestamp: float = timestamp
+        self.timestamp: float = timestamp if timestamp else time.time()
     
     @classmethod
     def from_ChatCompletionMessage(cls, message: ChatCompletionMessage, timestamp: int):
@@ -108,7 +106,7 @@ class ConversationSegment:
     def debug(self, logger: logging.Logger):
         logger.info("Conversaton Segement:")
         logger.info(f"During:{self.start_time} to {self.end_time}.Contains {len(self.messages)} messages")
-        logger.info(self.format_messages_to_line())
+        logger.info("Conversaton Segement:" + self.format_messages_to_line())
         
 
 
@@ -201,6 +199,7 @@ class SessionState:
                     
         self.conversations.clear()
         self.conversations = history
+        self.logger.info("Cleaned inner thoughts from older messages.")
     
     
     def debug(self):

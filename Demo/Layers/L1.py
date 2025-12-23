@@ -1,16 +1,19 @@
 import json
 import os
-import logging
 
 from datetime import datetime, timedelta
 from openai import OpenAI
 from dotenv import load_dotenv
-from Demo.Prompt import SystemPromptTemplate, l2_memory_block_template, l1_decide_to_act_template
+from Demo.Prompt import (SystemPromptTemplate, 
+                         l2_memory_block_template, 
+                         l1_decide_to_act_template,
+                         current_state_template)
 from Demo.Layers.L0.Sensor import EnvironmentInformation
 from Demo.Layers.L0.Amygdala import AmygdalaOutput 
 from Demo.Layers.Session import ChatMessage, UserMessage
 from Demo.Workers.Reflector.MacroReflector import MacroMemory
 from Demo.Workers.Reflector.MicroReflector import MicroMemory
+from Demo.Core.Schema import DEFAULT_ERROR_INNER_THOUGHT, DEFAULT_ERROR_PUBLIC_REPLY, DEFAULT_ERROR_MOOD
 from Demo.Logger import setup_logger
 
 
@@ -44,12 +47,13 @@ class BrainLayer:
 
     def generate_reply(self, 
                        user_input: UserMessage, 
-                       persona: str, 
+                       personality: str, 
+                       mood: str,
                        micro_memories: list[MicroMemory],
                        macro_memories: list[MacroMemory],
                        history: list[ChatMessage], 
                        l0_output: AmygdalaOutput
-                       ) -> tuple[str, str]:
+                       ) -> tuple[str, str, str]:
         """
         [接口方法] 核心对话生成
         采用双重思考 (Dual-Think) 模式，同时生成“内心想法”(Inner Thought) 和“公开回复”(Public Reply)
@@ -58,7 +62,8 @@ class BrainLayer:
         通过这种方式，AI 能够展现更丰富的个性和情感层次，使对话更加生动自然。
         参数:
             user_input: 用户的输入消息
-            persona: L3 人格设定文本块
+            personality: L3 人格设定文本块
+            mood: 当前情绪描述
             micro_memories: 近期微观记忆列表
             macro_memories: 宏观记忆列表
             history: 历史对话消息列表
@@ -66,10 +71,12 @@ class BrainLayer:
         返回值:
             inner_thought: AI 的内心想法
             public_reply: AI 面向用户的公开回复
+            mood: AI 当前的情绪描述
         """
         self.logger.info("Generating reply for user input.")
         # TODO 测试用，实际调用时请传入真实的参数
-        current_state = "Elysia 当前心情愉快，渴望与用户深入交流。"  # 这里传入简单的当前状态，实际调用时请传入真实的
+        # 目前先用传入的 mood 参数，后续考虑扩展，不只是情绪，而是更全面的状态描述
+        current_state:str = mood  
         
         # 将记忆格式化为文本格式
         memories: str =  self._construct_memories(micro_memories, macro_memories)
@@ -78,7 +85,7 @@ class BrainLayer:
             # 1. 构建系统级 Prompt (System Prompt)
             # 将人格设定和记忆注入到 System 区域，确保模型遵循人设
             system_prompt = self._construct_system_prompt(
-                l3_persona=persona,
+                l3_personality=personality,
                 l0_output=l0_output, 
                 memories=memories,
                 current_state=current_state
@@ -106,25 +113,29 @@ class BrainLayer:
             self.logger.info("----- End of LLM Raw Response -----")
 
             # 4. 解析
-            inner_thought, public_reply = self.parse_llm_dual_think_response(raw_content)
+            inner_thought, public_reply, new_mood = self.parse_llm_dual_think_response(raw_content)
             
             self.logger.info(f"This turn useage: Token:{response.usage}")
-            return public_reply, inner_thought
+            return public_reply, inner_thought, new_mood
 
         except Exception as e:
             self.logger.error(f"[L1 Error] Generate reply failed: {e}", exc_info=True)
-            return "(系统想法: 模型输出格式错误，可能是被截断或触发过滤)", "哎呀，我刚刚走神了，没听清你在说什么，能再说一遍吗？" # 发生错误时的兜底回复，保持沉默或简单的拟声词
+            return "(系统想法: 模型输出格式错误，可能是被截断或触发过滤)", "哎呀，我刚刚走神了，没听清你在说什么，能再说一遍吗？", "" # 发生错误时的兜底回复，保持沉默或简单的拟声词
     
     
     def decide_to_act(self, 
                       silence_duration: timedelta, 
+                      last_speaker: str,
+                      cur_mood: str,
                       cur_envs: EnvironmentInformation, 
                       recent_conversations: list[ChatMessage]
                       )-> ActiveResponse:
         """
         决定是否主动开口
         参数:
-            silence_duration: 自上次用户发言以来的静默时间
+            silence_duration: 自上次交互以来的静默时间(包含用户和AI双方)
+            last_speaker: 上次发言者 ("Elysia" 或 "妖梦")
+            cur_mood: 当前心情描述
             cur_envs: 当前环境信息
             recent_conversations: 最近的对话列表
         返回值:
@@ -132,20 +143,19 @@ class BrainLayer:
         """
         
         self.logger.info("Deciding whether to initiate conversation.")
+        current_mood =  cur_mood
         
-        # TODO 测试用，实际调用时请传入真实的参数
-        current_mood =  "Elysia 当前心情愉快，渴望与用户深入交流。" 
-        
-        # 获取当前时间信息
+        # 格式化最近对话
         lines = []
         for msg in recent_conversations:
-            lines.append(f'  {msg.role}: {msg.content}: {msg.timestamp}： {datetime.fromtimestamp(msg.timestamp)}')
+            lines.append(f'  {msg.role}: {msg.content} | {msg.timestamp} | {datetime.fromtimestamp(msg.timestamp)}')
         recent_convs =  "[\n" + "\n".join(lines) + "\n]"
-        
         self.logger.info(f"Recent conversations formatted: {recent_convs}")
+        
         # 构造system prompt
         system_prompt = l1_decide_to_act_template.format(
             user_name="妖梦",
+            last_speaker=last_speaker,
             silence_duration=silence_duration.__str__(),
             current_mood=current_mood,
             current_time_envs=cur_envs.time_envs.to_l1_decide_to_act_dict(),
@@ -155,9 +165,7 @@ class BrainLayer:
         
         # 对话前缀续写
         messages: list = [{"role": "system", "content": system_prompt}]
-        messages.append({
-            "role": "assistant", "content": "{\n", "prefix": True
-        })
+        messages.append({"role": "assistant", "content": "{\n", "prefix": True})
         self.logger.info("Messages for decide_to_act constructed.")
         
         # 调用llm
@@ -178,7 +186,7 @@ class BrainLayer:
         
         # 解析
         res: ActiveResponse = self.parse_llm_decide_to_act_response(raw_content)
-        
+        self.logger.info("------------------------------------------------------------------------------------------------")
         return res
     
     # ===========================================================================================================================
@@ -240,14 +248,20 @@ class BrainLayer:
             
 
     def _construct_system_prompt(self, 
-                                l3_persona: str,
+                                l3_personality: str,
                                 l0_output: AmygdalaOutput,
                                 memories: str,
                                 current_state: str
                                 ) -> str:
+        # 拼装current_state
+        # TODO 待扩展
+        current_state = current_state_template.format(
+            mood=current_state
+        )
+        
         # 拼装 System Prompt
         system_prompt = SystemPromptTemplate.format(
-            l3_persona_block=l3_persona,
+            l3_personality_block=l3_personality,
             l0_sensory_block=l0_output.perception,
             l2_memory_block=memories,
             current_state=current_state
@@ -287,7 +301,7 @@ class BrainLayer:
             raise e
             
         
-    def parse_llm_dual_think_response(self, llm_raw_output)-> tuple[str, str]:
+    def parse_llm_dual_think_response(self, llm_raw_output)-> tuple[str, str, str]:
         """ 解析 LLM 双重思考回复 """
         # 1. 打印原始内容的 repr()，这样能看到空格、换行符等不可见字符
         self.logger.info(f"DEBUG: Raw Output type: {type(llm_raw_output)}")
@@ -301,7 +315,7 @@ class BrainLayer:
         try:
             data = json.loads(cleaned_output)
             self.logger.info("LLM output parsed into dual think response.")
-            return data["inner_voice"], data["reply"] # 假设你的JSON结构是这样
+            return data["inner_voice"], data["reply"], data["mood"]
         except json.JSONDecodeError as e:
             self.logger.error("!!! JSON 解析失败 !!!", exc_info=True)
             self.logger.error(f"错误信息: {e}")
@@ -309,5 +323,5 @@ class BrainLayer:
             
             # 3. 兜底策略 (Fallback)
             # 如果解析失败，与其让程序崩溃，不如返回一个默认回复，保证对话继续
-            return "(系统想法: 模型输出格式错误，可能是被截断或触发过滤)", "哎呀，我刚刚走神了，没听清你在说什么，能再说一遍吗？"
+            return DEFAULT_ERROR_INNER_THOUGHT, DEFAULT_ERROR_PUBLIC_REPLY, DEFAULT_ERROR_MOOD
     

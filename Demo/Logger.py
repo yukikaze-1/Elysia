@@ -28,7 +28,7 @@ def setup_logger(name: str, log_dir: str = DEFAULT_LOG_PATH) -> logging.Logger:
     # 4. 创建统一的格式器 (Formatter)
     # 建议格式：[时间] [日志级别] [模块名]: 消息
     formatter = logging.Formatter(
-        fmt="<%(asctime)s> - [%(levelname)s] - {%(name)s}: %(message)s",
+        fmt="%(asctime)s - [%(levelname)s] - <%(name)s>: %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S" # 更加可读的时间格式
     )
 

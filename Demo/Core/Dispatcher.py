@@ -1,22 +1,30 @@
-# Demo/Core/Dispatcher.py
 import time
 import logging
 from datetime import datetime, timedelta
+from typing import Literal
 from Demo.Core.EventBus import EventBus, global_event_bus
 from Demo.Core.Schema import Event, EventType
 from Demo.Layers.L0.Amygdala import AmygdalaOutput
-from Demo.Layers.L0.Sensor import EnvironmentInformation
+from Demo.Layers.L0.Sensor import EnvironmentInformation, TimeInfo
 from Demo.Layers.Session import UserMessage, ChatMessage
-
-
 from Demo.Layers.L0.L0 import SensorLayer
-from Demo.Layers.L1 import BrainLayer
+from Demo.Layers.L1 import ActiveResponse, BrainLayer
 from Demo.Layers.L2 import MemoryLayer
 from Demo.Layers.L3 import PersonaLayer
 from Demo.Workers.Reflector.Reflector import Reflector
 from Demo.Logger import setup_logger
 
+from Demo.Utils import timedelta_to_text
+
 class Dispatcher:
+    """
+    调度器：负责协调 L0, L1, L2, L3 各层的工作流程
+    1. 接收来自 EventBus 的事件
+    2. 根据事件类型调用相应层的处理方法
+    3. 管理各层之间的数据流动和依赖关系
+    4. 实现主动性逻辑 (Agency)，决定何时让 AI 主动发起对话
+    5. 处理错误和异常，确保系统稳定运行
+    """
     def __init__(self, event_bus: EventBus = global_event_bus, 
                  l0: SensorLayer = SensorLayer(), 
                  l1: BrainLayer = BrainLayer(), 
@@ -37,13 +45,18 @@ class Dispatcher:
         self.running = False
         
         # === 主动性控制参数 ===
-        self.last_interaction_time: datetime = datetime.now()
+        # 记录上次交互时间
+        tmp_time = datetime.now()
+        self.last_interaction_time: datetime = tmp_time     # last_interaction_time：AI 或用户最后一次说话的时间
+        self.last_ai_reply_time: datetime = tmp_time        # last_ai_reply_time：AI最后一次说话的时间
+        self.last_user_reply_time: datetime = tmp_time      # last_user_reply_time：用户最后一次说话的时间
+        self.last_speaker: Literal['Elysia', '妖梦'] = "Elysia"  # 记录上次发言者，初始为 AI
+        
         # 冷却时间：AI 主动说话后，至少安静 100 秒
         # TODO 此处限制并没有被使用
-        self.active_cooldown: timedelta = timedelta(seconds=100) 
-        # 触发阈值：用户沉默超过 20 秒才考虑主动说话
-        self.silence_threshold: timedelta = timedelta(seconds=20)
-
+        self.active_cooldown: timedelta = timedelta(seconds=60) 
+        # 触发阈值：用户沉默超过 60 秒才考虑主动说话
+        self.silence_threshold: timedelta = timedelta(seconds=60)
 
     def start(self):
         """启动调度主循环 (阻塞式)"""
@@ -74,7 +87,10 @@ class Dispatcher:
                     # Reflector 完成了Micro reflect，通知 L2 或 L3 更新
                     # TODO 待实现
                     self.logger.info("Micro reflection completed.")
-                
+                elif event.type == EventType.REFLECTION_DONE:
+                    # Reflector 完成了 reflection，通知 L2 或 L3 更新
+                    # TODO 待实现
+                    self.logger.info("Reflection completed.")
                 else:
                     self.logger.warning(f"Unknown event type: {event.type}")
 
@@ -88,48 +104,68 @@ class Dispatcher:
     def _handle_user_input(self, event: Event):
         """
         处理用户输入的核心流程：
-        感知 -> 检索记忆 -> 读取人设 -> 思考 -> 表达 -> 存储 -> 触发反思
+        感知 -> 检索记忆 -> 读取人设 -> 思考 -> 表达 -> 存储 
         """
+        if not isinstance(event.content, UserMessage):
+            self.logger.error(f"Invalid event content type for USER_INPUT: {type(event.content)}")
+            return
+        if not isinstance(event.metadata, dict):
+            self.logger.error(f"Invalid event metadata type for USER_INPUT: {type(event.metadata)}")
+            return
+        if not isinstance(event.metadata.get("AmygdalaOutput"), AmygdalaOutput):
+            self.logger.error(f"Invalid AmygdalaOutput type in event metadata: {type(event.metadata.get('AmygdalaOutput'))}")
+            return
+        
         user_input: UserMessage = event.content
         self.logger.info(f"Processing user input: {user_input.to_str()}")
+        
+        # 输出用户输入
+        self.l0.output(ChatMessage.from_UserMessage(user_input))
 
         # 1. 更新交互时间
         self.last_interaction_time = datetime.now()
         
         # 2. [L0] 输出
-        cur_env: EnvironmentInformation = self.l0.sensory_processor.active_perception_envs() 
-        l0_output: AmygdalaOutput = self.l0.amygdala.react(user_message=user_input, current_env=cur_env)
+        l0_output = event.metadata.get("AmygdalaOutput", AmygdalaOutput("", EnvironmentInformation(TimeInfo())) )
 
         # 3. [L2] 检索相关记忆 (Short-term + Long-term)
         # 获取 3条相关记忆 + 昨天的日记摘要
         history, micro_memories, macro_memories = self.l2.retrieve_context(query=user_input.content)
 
         # 4. [L3] 获取人格状态
-        persona:str = self.l3.get_persona_prompt()
+        personality:str = self.l3.get_persona_prompt()
+        mood: str = self.l3.get_current_mood()
 
         # 5. [L1] 调用大脑生成回复
         # 组装 Prompt 的工作通常在 L1 内部或这里完成，建议由 L1 封装
-        public_reply, inner_thought = self.l1.generate_reply(
+        public_reply, inner_thought, new_mood = self.l1.generate_reply(
             user_input=user_input,
-            persona=persona,
+            mood=mood,
+            personality=personality,
             micro_memories=micro_memories,
             macro_memories=macro_memories,
             history=history,
             l0_output=l0_output
         )
         
-        # [L0] 输出回复
-        self.l0.output(public_reply, inner_thought)
-        
         # === 构造标准消息对象 ===
         user_msg = ChatMessage.from_UserMessage(user_input)
         ai_msg = ChatMessage(role="Elysia", content=public_reply, inner_voice=inner_thought)
+        
+        # [L0] 输出回复
+        self.l0.output(ai_msg)
         
         # 6. [L2] 写入短时记忆
         # === 分发给 L2 (为了下一句能接上话) ===
         messages: list[ChatMessage] = [user_msg, ai_msg]
         self.l2.add_short_term_memory(messages)
         self.logger.info("Short-term memory updated.")
+        
+        # 更新最后发言时间和发言者
+        self.last_user_reply_time = datetime.fromtimestamp(user_input.client_timestamp)
+        self.last_ai_reply_time = datetime.now()
+        # TODO 考虑不搭理用户的情况，需要扩展
+        self.last_speaker = "Elysia" # 因为目前ELysia一定会回复 
         
         # === 分发给 Reflector (为了变成长期记忆) ===
         # Reflector 内部会将其加入 buffer，攒够了就提取并清空
@@ -138,28 +174,41 @@ class Dispatcher:
         self.logger.info("Message sent to Reflector for potential long-term memory storage.")
         
         # [L3] 更新情绪
-        self.l3.update_mood(user_input) 
+        self.l3.update_mood(new_mood) 
         self.logger.info("Persona mood updated.")
 
         self.logger.info("User input processing completed.")
+        self.logger.info("------------------------------------------------------------------------------------------------")
 
 
     def _handle_system_tick(self, event: Event):
         """
         处理心跳事件：决定是否主动发起对话 (Agency)
         """
-        # event.content 可能是当前时间戳
+        # event.content 与 event.timestamp 是当前时间戳
+        # 以l0感知到的环境信息中的的时间戳为基准进行计算，避免时间漂移
+        # 此处的时间戳只为了计算沉默时长和判定冷却期(硬性条件)
+        self.logger.info("---------------------------------------------------")
         current_time: datetime = datetime.fromtimestamp(event.timestamp)
         self.logger.info(f"System tick received at {current_time.isoformat()}")
         
         # 1. 计算沉默时长
-        silence_duration = current_time - self.last_interaction_time
+        silence_duration_since_last_ai_reply: timedelta = current_time - self.last_ai_reply_time
+        silence_duration_since_last_user_reply: timedelta = current_time - self.last_user_reply_time
+        self.logger.info(f"Silence duration since last AI reply: {timedelta_to_text(silence_duration_since_last_ai_reply)}, \
+            since last user reply: {timedelta_to_text(silence_duration_since_last_user_reply)}"
+        )
         
         # 2. 检查硬性条件 (避免频繁打扰)
-        if silence_duration < self.silence_threshold:
-            self.logger.info(f"Event time: {current_time.isoformat()}, 'silence_duration': {silence_duration}, last interaction: {self.last_interaction_time.isoformat()}")
-            self.logger.info("Silence duration below threshold, not initiating conversation.")
+        if silence_duration_since_last_ai_reply < self.silence_threshold:
+            self.logger.info(f"Event time: {current_time.isoformat()}, 'silence_duration_since_last_ai_reply': {timedelta_to_text(silence_duration_since_last_ai_reply)}, \
+                last interaction: {self.last_interaction_time.isoformat()}")
+            self.logger.info(f"Silence duration below threshold '{timedelta_to_text(self.silence_threshold)}', not initiating conversation.")
             return # 还没到寂寞的时候，直接返回
+        
+        if self.last_speaker == "Elysia" and silence_duration_since_last_ai_reply < self.active_cooldown:
+            self.logger.info(f"Last speaker was AI and still in cooldown period '{timedelta_to_text(self.active_cooldown)}', not initiating conversation.")
+            return
 
         # 检查是否还在冷却期内 (比如刚主动说完话)
         # 这里需要额外的逻辑记录 "last_active_message_time"，简化起见暂略
@@ -173,37 +222,44 @@ class Dispatcher:
         
         # 3.5 感知当前环境
         cur_envs: EnvironmentInformation = self.l0.sensory_processor.active_perception_envs()
+        current_time = datetime.fromtimestamp(cur_envs.time_envs.current_time)
+        silence_duration = current_time - self.last_interaction_time
 
         # 4. [L1] 决策层 (廉价 LLM 调用)
         # 询问大脑："用户很久没说话了，现在是{时间}，你想说点什么吗？"
+        cur_mood = self.l3.get_current_mood()
+        
         recent_memories = self.l2.get_recent_summary(limit=5)
-        response = self.l1.decide_to_act(
+        response: ActiveResponse = self.l1.decide_to_act(
             silence_duration=silence_duration,
+            last_speaker=self.last_speaker,
+            cur_mood=cur_mood,
             cur_envs=cur_envs,
             recent_conversations=recent_memories
         )
         should_speak: bool = response.should_speak
+        # 决定主动说话
         if should_speak:
-            self.logger.info("AI decided to initiate conversation.")
+            self.logger.info("Elysia decided to initiate conversation.")
             
-            # 5. 生成主动问候语
-            # 注意：这里不需要 user_input，因为是无中生有
-            greeting = response.content
-            reason = response.reasoning
+            # 5. 生成主动问候语，已经在第四步完成
+            msg = ChatMessage(role="Elysia", content=response.content, inner_voice=response.reasoning)
+            
             # 6. 输出并记录
-            self.l0.output(greeting, reason)
+            self.l0.output(msg)
             # 发送给L2，存入session
-            self.l2.add_short_term_memory(
-                messages=[ChatMessage(role="Elysia", content=greeting, inner_voice=reason)]
-            )
+            self.l2.add_short_term_memory(messages=[msg])
             # 发送给Reflector，存入长期记忆
-            self.reflector.on_new_message(
-                ChatMessage(role="Elysia", content=greeting, inner_voice=reason)
-            )
-            # 重置交互时间，避免连续触发
-            self.last_interaction_time = datetime.now()
+            self.reflector.on_new_message(msg)
+            # 更新情绪
+            self.l3.update_mood(response.mood)
+            # 重置主动交互时间，避免连续触发
+            tmp_time = datetime.now()
+            self.last_ai_reply_time = tmp_time
+            self.last_interaction_time = tmp_time
+            self.last_speaker = "Elysia"
         else:
-            self.logger.info("AI decided not to initiate conversation at this time.")
+            self.logger.info("Elysia decided not to initiate conversation at this time.")
             
         self.logger.info("System tick processing completed.")
 

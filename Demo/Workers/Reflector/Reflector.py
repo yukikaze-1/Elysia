@@ -39,7 +39,7 @@ class Reflector:
         # TODO 待修改，我想让micro reflector有多种触发模式
         # 比如 1. 空闲10分钟触发 2. buffer满触发 
         # 此处简单的以 buffer 满足一定数量触发
-        self.micro_threshold = 5  # 每 5 句对话触发一次微观反思
+        self.micro_threshold = 5
         self.last_macro_run = datetime.now()
         
         # 4. 后台线程
@@ -91,19 +91,20 @@ class Reflector:
     # 接口: 被 Dispatcher 调用
     # =========================================
 
-    def check_and_trigger(self, l2_layer: Any):
-        """
-        [接口方法] Dispatcher 每次对话后调用此方法。
-        注意：Dispatcher 传进来 l2_layer 是为了获取最新的上下文，
-        但为了解耦，我们最好让 Dispatcher 直接把新发生的对话传进来，
-        或者让 Reflector 自己去 l2 取。
+    # TODO 思考这个方法以及谁来启动macro reflect
+    # def check_and_trigger(self, l2_layer: Any):
+    #     """
+    #     [接口方法] Dispatcher 每次对话后调用此方法。
+    #     注意：Dispatcher 传进来 l2_layer 是为了获取最新的上下文，
+    #     但为了解耦，我们最好让 Dispatcher 直接把新发生的对话传进来，
+    #     或者让 Reflector 自己去 l2 取。
         
-        这里我们采用简单的推模式：利用 EventBus 监听或手动添加。
-        (为了适配之前的 main.py，我们在 add_dialogue 里做实际工作)
-        """
-        # 这个方法在当前架构可以是空的，因为我们通过 add_dialogue 收集数据
-        # 或者在这里检查是否需要运行 Macro 反思
-        self._check_macro_trigger()
+    #     这里我们采用简单的推模式：利用 EventBus 监听或手动添加。
+    #     (为了适配之前的 main.py，我们在 add_dialogue 里做实际工作)
+    #     """
+    #     # 这个方法在当前架构可以是空的，因为我们通过 add_dialogue 收集数据
+    #     # 或者在这里检查是否需要运行 Macro 反思
+    #     self._check_macro_trigger()
 
 
     def on_new_message(self, msg: ChatMessage):
@@ -136,7 +137,7 @@ class Reflector:
             if data_to_process:
                 try:
                     self.logger.info(f"[Reflector] Running Micro-Reflection on {len(data_to_process)} messages...")
-                    
+                    self.logger.debug(f"Data to process: {data_to_process}")
                     # === 调用你的业务代码 ===
                     # results 是 list[MicroMemory]
                     results = self.reflector.run_micro_reflection(
@@ -163,6 +164,8 @@ class Reflector:
             # 方法： 让dispatcher 决定macro reflector何时运行，
             # 此时往event bus上push一个MACRO REFLECTION START event
             # 算了，到时候问问ai
+            # 先测试一下
+            self._check_macro_trigger()
             
             time.sleep(2) # 休息一下，避免死循环空转
             
@@ -174,7 +177,11 @@ class Reflector:
         now = datetime.now()
         # 简单逻辑：如果你想每天凌晨 3 点跑，或者距离上次跑超过 24 小时
         # 这里演示简单版：每 24 小时跑一次
-        if (now - self.last_macro_run).total_seconds() > 86400:
+        # if (now - self.last_macro_run).total_seconds() > 86400:
+        #     threading.Thread(target=self._run_macro_async).start()
+        #     self.last_macro_run = now
+        # TODO 待修改，目前测试会调低间隔, 例如每2分钟跑一次
+        if (now - self.last_macro_run).total_seconds() > 120:
             threading.Thread(target=self._run_macro_async).start()
             self.last_macro_run = now
 
@@ -202,12 +209,11 @@ class Reflector:
 class MemoryReflector:
     """
     ORP System: MemoryReflector 模块，用于从对话中提取长期记忆节点
-    会持续运行在后台
     """
     def __init__(self, logger: Logger):
         self.logger: Logger = logger
         load_dotenv()
-        self.openai_client = OpenAI(api_key=os.getenv("DEEPSEEK_API_KEY"), base_url=os.getenv("DEEPSEEK_API_BASE"))
+        self.openai_client = OpenAI(api_key=os.getenv("DEEPSEEK_API_KEY"), base_url=os.getenv("DEEPSEEK_API_BETA"))
         self.micro_memory_collection_name = "micro_memory"
         self.macro_memory_collection_name = "macro_memory"
         self.milvus_agent = MemoryLayer()

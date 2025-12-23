@@ -35,8 +35,8 @@ class MemoryLayer:
         return cls._instance
     
     def __init__(self, 
-                 micro_memeory_collection_name: str = "micro_memory",
-                 macro_memeory_collection_name: str = "macro_memory"
+                 micro_memeory_collection_name: str | None = None,
+                 macro_memeory_collection_name: str | None = None
                  ):
         # 防止重复初始化
         # 因为 __new__ 返回同一个实例后，Python 依然会调用 __init__
@@ -47,8 +47,8 @@ class MemoryLayer:
         
         # === 1. 初始化长期记忆 (Milvus) ===
         self.milvus_client = MilvusClient(uri="http://localhost:19530", token="root:Milvus")
-        self.micro_memeory_collection_name = micro_memeory_collection_name
-        self.macro_memeory_collection_name = macro_memeory_collection_name
+        self.micro_memeory_collection_name = micro_memeory_collection_name if micro_memeory_collection_name else "micro_memory"
+        self.macro_memeory_collection_name = macro_memeory_collection_name if macro_memeory_collection_name else "macro_memory"
         
         # 检查并创建micro memory集合
         if not self.milvus_client.has_collection(self.micro_memeory_collection_name):
@@ -136,12 +136,15 @@ class MemoryLayer:
         """
         self.logger.info(f"Storing {len(memories)} Micro Memories...")
         data = []
-        # 生成向量
+        
         for mem in memories:
+            # 生成向量
             vector = self.embedding_model.embed_documents([mem.content])
+            # 组织数据
             info = {
                 "content": mem.content,
                 "embedding": vector,
+                "subject": mem.subject,
                 "memory_type": mem.memory_type,
                 "poignancy": mem.poignancy,
                 "keywords": mem.keywords,
@@ -170,6 +173,8 @@ class MemoryLayer:
             info = {
                 "diary_content":mem.diary_content,
                 "embedding": vector,
+                "subject":mem.subject,
+                "dominant_emotion":mem.dominant_emotion,
                 "poignancy":mem.poignancy,
                 "timestamp": int(mem.timestamp),
                 "keywords":mem.keywords
@@ -207,6 +212,7 @@ class MemoryLayer:
         self.logger.info(f"Query Completed. Retrieved {len(res)} records.")
         return res
     
+    
     @overload
     def retrieve(self, mem_type: Literal['Micro'], query_text: str, top_k: int = 5) -> List[MicroMemory]:
         ...
@@ -231,14 +237,14 @@ class MemoryLayer:
         if mem_type == 'Micro':
             self.logger.info("Retrieving Micro Memories...")
             collection_name = self.micro_memeory_collection_name
-            output_fields = ["content", "poignancy", "timestamp", "keywords"]
+            output_fields = ["content", "subject", "memory_type", "poignancy", "timestamp", "keywords"]
         else:
             self.logger.info("Retrieving Macro Memories...")
             collection_name = self.macro_memeory_collection_name
-            output_fields = ["diary_content", "poignancy", "timestamp", "keywords"]
+            output_fields = ["diary_content", "subject", "dominant_emotion", "poignancy", "timestamp", "keywords"]
         
         # 向量检索
-        results = self.milvus_client.search(
+        results: list[list[dict]] = self.milvus_client.search(
             collection_name=collection_name,
             anns_field="embedding",
             data=vector,
@@ -264,48 +270,70 @@ class MemoryLayer:
             return self._trans_to_macro_memeory(results)
         
     
-    def _trans_to_micro_memeory(self, results: list[dict])-> list[MicroMemory]:
-        """转为Micro Memory格式"""
+    def _trans_to_micro_memeory(self, results: list[dict]) -> list[MicroMemory]:
+        """转为Micro Memory格式 (兼容扁平结构)"""
         self.logger.info("Translating to MicroMemory format...")
         res: list[MicroMemory] = []
+        
         try:
             for mem in results:
+                # [核心逻辑]
+                # 经过 Rerank 后，数据已经是扁平的了，不需要 mem['entity']
+                # 但为了健壮性，我们做一个判断：
+                # 如果 mem 里有 'entity' 键，说明没经过 Rerank（或者是原始结果），就取 entity
+                # 否则，mem 本身就是数据源
+                source = mem.get('entity', mem)
+
                 res.append(
                     MicroMemory(
-                        content=mem['content'],
-                        memory_type=mem['memory_type'],
-                        poignancy=mem['poignancy'],
-                        keywords=mem['keywords'],
-                        timestamp=mem['timestamp'],
+                        content=source.get('content'),
+                        memory_type=source.get('memory_type'),
+                        subject=source.get('subject'),
+                        poignancy=source.get('poignancy'),
+                        keywords=source.get('keywords'),
+                        timestamp=source.get('timestamp')
                     )
                 )
         except Exception as e:
             self.logger.error(f"Error in _trans_to_micro_memeory: {e}")
+            self.logger.error(f"Problematic data: {mem}") 
             raise e
         
         self.logger.info("Translation to MicroMemory format completed.")
         return res
         
-    def _trans_to_macro_memeory(self, results: list[dict])-> list[MacroMemory]:  
-        """转为Macro Memory格式"""
+        
+    def _trans_to_macro_memeory(self, results: list[dict]) -> list[MacroMemory]:
+        """转为Macro Memory格式 (兼容性修复版)"""
         self.logger.info("Translating to MacroMemory format...")
+
         res: list[MacroMemory] = []
         try:
             for mem in results:
+                # 2. 智能获取数据源：
+                # 如果是 Milvus 原始结果，数据在 'entity' 里；
+                # 如果是 Rerank 后的结果，数据可能已经被展平在 mem 本身里
+                source = mem.get('entity', mem)
+                
                 res.append(
                     MacroMemory(
-                        diary_content=mem['diary_content'],
-                        poignancy=mem['poignancy'],
-                        dominant_emotion=mem['dominant_emotion'],
-                        timestamp=mem['timestamp']
+                        # 使用 .get() 避免字段缺失导致崩溃
+                        diary_content=source.get('diary_content'),
+                        subject=source.get('subject'),
+                        poignancy=source.get('poignancy'),
+                        dominant_emotion=source.get('dominant_emotion'),
+                        timestamp=source.get('timestamp'),
+                        keywords=source.get('keywords') 
                     )
                 )
         except Exception as e:
             self.logger.error(f"Error in _trans_to_macro_memeory: {e}")
+            self.logger.error(f"Problematic data: {mem}")
             raise e
         
         self.logger.info("Translation to MacroMemory format completed.")
         return res
+    
         
     def rerank(self, type: Literal['Micro', 'Macro'] ,results: list[dict], top_k: int = 5)->list[dict]:
         """重排记忆"""
@@ -315,55 +343,112 @@ class MemoryLayer:
             return self._rerank_macro(results, top_k)
         
         
-    def _reank_micro(self, results: list[dict], top_k: int = 5)->list[dict]:
-        """重排Micro Memory"""
+    def _reank_micro(self, results: list[dict], top_k: int = 5) -> list[dict]:
+        """重排Micro Memory (修复版：保留原始字段)"""
         self.logger.info("Reranking Micro Memories...")
-        # 1. 基于多维度打分重排
+        
         candidates = []
         current_time = int(time.time())
         
-        # 3. Python 内存重排序
         for hit in results:
-            # A. 相似度 (Milvus 返回的是距离，需要转为相似度，L2距离越小越相似)
-            # 简单处理：假设距离在 0-2 之间归一化，或者直接用 1/(1+distance)
-            similarity = 1 / (1 + hit['distance'])
+            # 安全获取 entity，防止部分数据异常
+            raw_entity = hit.get("entity", {})
             
-            # B. 情绪权重 (归一化到 0-1)
-            poignancy_score = hit["entity"].get("poignancy") / 10.0
+            # --- 评分逻辑不变 ---
+            similarity = 1 / (1 + hit.get('distance', 0)) # distance usually outside entity
             
-            # C. 时间新鲜度 (使用指数衰减)
-            # 比如：每过 7 天，新鲜度减半
-            days_diff = (current_time - hit["entity"].get("timestamp")) / (86400)
+            # 使用 .get(key, default) 防止 NoneType 报错
+            poignancy = raw_entity.get("poignancy", 0) or 0
+            poignancy_score = poignancy / 10.0
+            
+            timestamp = raw_entity.get("timestamp", current_time) or current_time
+            days_diff = (current_time - timestamp) / (86400)
             recency_score = np.exp(-0.1 * days_diff) 
             
-            # D. 综合打分 (权重可调)
             final_score = (similarity * 0.5) + (poignancy_score * 0.4) + (recency_score * 0.1)
             
-            candidates.append({
-                "content": hit["entity"].get("content"),
-                "score": final_score,
-                "debug_info": f"Sim:{similarity:.2f}, Poi:{poignancy_score:.2f}, Time:{recency_score:.2f}"
-            })
+            # --- [关键修改] 构建新的数据项 ---
+            # 1. 复制原始 entity 数据 (content, subject, memory_type, keywords 等全都在这里)
+            item = raw_entity.copy()
+            
+            # 2. 注入评分信息 (可选，用于调试)
+            item['score'] = final_score
+            item['debug_info'] = f"Sim:{similarity:.2f}, Poi:{poignancy_score:.2f}, Time:{recency_score:.2f}"
+            
+            # 3. 将 id 或 distance 也放进去（如果下游需要）
+            item['vector_id'] = hit.get('id')
+            
+            candidates.append(item)
         
-        # 4. 按最终分数排序并切片
-        candidates.sort(key=lambda x: x["score"], reverse=True)
+        # 按最终分数排序
+        candidates.sort(key=lambda x: x.get("score", 0), reverse=True)
+        
         self.logger.info(f"Reranked Micro Memories.")
         return candidates[:top_k]
     
     
-    def _rerank_macro(self, results: list[dict], top_k: int = 5)->list[dict]:
-        """重排Macro Memory"""
-        # TODO 待实现
+    def _rerank_macro(self, results: list[dict], top_k: int = 5) -> list[dict]:
+        """重排Macro Memory (实现版)"""
         self.logger.info("Reranking Macro Memories...")
-        # 暂时直接返回前 top_k 条
-        self.logger.info(f"Reranked Macro Memories.")
-        return results[:top_k]
+        
+        candidates = []
+        current_time = int(time.time())
+        
+        for hit in results:
+            # 安全获取原始数据
+            raw_entity = hit.get("entity", {})
+            
+            # --- A. 相似度计算 ---
+            # 同样假设 metric_type 是 L2，距离越小越相似
+            # 加上 1e-6 防止除以 0（虽然 L2 通常 >= 0）
+            distance = hit.get('distance', 100.0)
+            similarity = 1 / (1 + distance)
+            
+            # --- B. 情绪/重要性权重 ---
+            # Macro 记忆通常有较高的 Poignancy，这是检索长期记忆的关键
+            poignancy = raw_entity.get("poignancy", 0) or 0
+            poignancy_score = poignancy / 10.0
+            
+            # --- C. 时间衰减 (比 Micro 更加平缓) ---
+            # Micro 关注当下，Macro 关注长期。
+            # 这里设置 decay_rate 为 0.05 (Micro 是 0.1)，意味着“旧”得更慢
+            timestamp = raw_entity.get("timestamp", current_time) or current_time
+            days_diff = (current_time - timestamp) / 86400
+            # 保护性判断，防止未来时间导致负数
+            days_diff = max(0, days_diff)
+            recency_score = np.exp(-0.05 * days_diff)
+            
+            # --- D. 综合打分 ---
+            # 策略：相关性优先，其次是重要性，时间因素影响较小
+            # 调整建议：Sim: 0.5, Poi: 0.35, Time: 0.15
+            final_score = (similarity * 0.5) + (poignancy_score * 0.35) + (recency_score * 0.15)
+            
+            # --- [关键] 构建结果，必须保留原始字段 ---
+            # 复制原始 entity 的所有字段 (diary_content, dominant_emotion 等)
+            item = raw_entity.copy()
+            
+            # 注入分数和调试信息
+            item['score'] = final_score
+            item['debug_info'] = (f"Score:{final_score:.3f} | "
+                                  f"Sim:{similarity:.2f}, Poi:{poignancy_score:.2f}, Time:{recency_score:.2f}")
+            
+            # 保留 vector id 以备不时之需
+            item['vector_id'] = hit.get('id')
+            
+            candidates.append(item)
+            
+        # 按分数降序排列
+        candidates.sort(key=lambda x: x.get("score", 0), reverse=True)
+        
+        self.logger.info(f"Reranked Macro Memories. Top score: {candidates[0]['score'] if candidates else 0:.3f}")
+        return candidates[:top_k]
     
     
     def forget_trivial(self, threshold: int):
         """清理部分不重要的记忆"""
         # TODO 后续实现
         pass
+    
     
     def dump_states(self, type: Literal['Micro', 'Macro', 'ALL']):
         """查看现在存了多少记忆"""

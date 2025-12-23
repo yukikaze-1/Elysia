@@ -2,6 +2,7 @@ import os
 import torch
 from langchain_huggingface import HuggingFaceEmbeddings
 
+
 def create_embedding_model(debug_info: str, model: str = "BAAI/bge-large-en-v1.5") -> HuggingFaceEmbeddings:
     """
     创建 HuggingFace 嵌入模型
@@ -34,7 +35,7 @@ from pymilvus import MilvusClient
 
 def create_micro_memory_collection(collection_name: str, milvus_client: MilvusClient):
     """  创建用于Micro Memory 的 Milvus Collection  """
-    #  如果存在先删除 (测试用，生产环境请注释)
+    #  TODO 如果存在先删除 (测试用，生产环境请注释)
     if milvus_client.has_collection(collection_name):
         milvus_client.drop_collection(collection_name)
         
@@ -47,6 +48,7 @@ def create_micro_memory_collection(collection_name: str, milvus_client: MilvusCl
     )
     schema.add_field(field_name="id", datatype=DataType.INT64, is_primary=True, auto_id=True)
     schema.add_field(field_name="embedding", datatype=DataType.FLOAT_VECTOR, dim=1024)
+    schema.add_field(field_name="subject", datatype=DataType.VARCHAR, max_length=255)
     schema.add_field(field_name="content", datatype=DataType.VARCHAR, max_length=65535)
     schema.add_field(field_name="memory_type", datatype=DataType.VARCHAR, max_length=20)
     schema.add_field(field_name="poignancy", datatype=DataType.INT8)
@@ -74,7 +76,7 @@ def create_micro_memory_collection(collection_name: str, milvus_client: MilvusCl
 
 def create_macro_memory_collection(collection_name: str, milvus_client: MilvusClient):
     """  创建用于Macro Memory 的 Milvus Collection  """
-    # 如果存在先删除 (测试用，生产环境请注释)
+    # TODO 如果存在先删除 (测试用，生产环境请注释)
     if milvus_client.has_collection(collection_name):
         milvus_client.drop_collection(collection_name)
         
@@ -88,6 +90,7 @@ def create_macro_memory_collection(collection_name: str, milvus_client: MilvusCl
     schema.add_field(field_name="id", datatype=DataType.INT64, is_primary=True, auto_id=True)
     schema.add_field(field_name="embedding", datatype=DataType.FLOAT_VECTOR, dim=1024)
     schema.add_field(field_name="diary_content", datatype=DataType.VARCHAR, max_length=65535)
+    schema.add_field(field_name="subject", datatype=DataType.VARCHAR, max_length=255)
     schema.add_field(field_name="dominant_emotion", datatype=DataType.VARCHAR, max_length=65535)
     schema.add_field(field_name="poignancy", datatype=DataType.INT8)
     schema.add_field(field_name="timestamp", datatype=DataType.INT64)
@@ -112,4 +115,36 @@ def create_macro_memory_collection(collection_name: str, milvus_client: MilvusCl
     print(f"Collection {collection_name} ready.")        
   
 
-    
+from datetime import timedelta
+
+def timedelta_to_text(td: timedelta) -> str:
+    total_seconds = int(td.total_seconds())
+
+    days, rem = divmod(total_seconds, 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes, seconds = divmod(rem, 60)
+
+    parts = []
+    if days:
+        parts.append(f"{days}d")
+    if hours:
+        parts.append(f"{hours}h")
+    if minutes:
+        parts.append(f"{minutes}m")
+    if seconds or not parts:
+        parts.append(f"{seconds}s")
+
+    return " ".join(parts)
+
+from logging import Logger
+import json
+def parse_json(raw_content, logger: Logger)-> list[dict]:
+    """Parse JSON content from raw string."""
+    if not raw_content:
+        return [{}]
+    try:
+        data = json.loads(raw_content)
+        return data
+    except json.JSONDecodeError as e:
+        logger.error(f"JSON parsing error: {e}")
+        return [{}]

@@ -8,8 +8,9 @@
 # =========================================
 class MicroMemoryLLMOut:
     """LLM输出的最基础的micro memory的格式，没有timestamp和embedding"""
-    def __init__(self, content: str, memory_type: str, poignancy: int, keywords: list[str]):
+    def __init__(self, content: str, subject: str,memory_type: str, poignancy: int, keywords: list[str]):
         self.content: str = content
+        self.subject: str = subject
         self.memory_type: str = memory_type
         self.poignancy: int = poignancy
         self.keywords: list[str] = keywords
@@ -17,6 +18,7 @@ class MicroMemoryLLMOut:
     def to_dict(self):
         return {
             "content":self.content,
+            "subject":self.subject,
             "memory_type": self.memory_type,
             "poignancy": self.poignancy,
             "keywords":self.keywords
@@ -25,14 +27,15 @@ class MicroMemoryLLMOut:
 
 class MicroMemory(MicroMemoryLLMOut):
     """Micro Memory 的格式"""
-    def __init__(self, content: str, memory_type: str, poignancy: int, keywords: list[str], timestamp: float):
-        super().__init__(content=content, memory_type=memory_type, poignancy=poignancy, keywords=keywords)
+    def __init__(self, content: str, subject: str, memory_type: str, poignancy: int, keywords: list[str], timestamp: float):
+        super().__init__(content=content, subject=subject, memory_type=memory_type, poignancy=poignancy, keywords=keywords)
         self.timestamp = timestamp
         
     @classmethod
     def from_micro_memory_llm_out(cls, llm_out: MicroMemoryLLMOut, timestamp: float):
         return cls(
             content=llm_out.content,
+            subject=llm_out.subject,
             memory_type=llm_out.memory_type,
             poignancy=llm_out.poignancy,
             keywords=llm_out.keywords,
@@ -47,14 +50,15 @@ class MicroMemory(MicroMemoryLLMOut):
 
 class MicroMemoryStorage(MicroMemory):
     """Micro Memory 的milvus存储格式"""
-    def __init__(self, content: str, memory_type: str, poignancy: int, keywords: list[str], timestamp: float, embedding: list[float]):
-        super().__init__(content, memory_type, poignancy, keywords, timestamp)
+    def __init__(self, content: str, subject: str, memory_type: str, poignancy: int, keywords: list[str], timestamp: float, embedding: list[float]):
+        super().__init__(content, subject, memory_type, poignancy, keywords, timestamp)
         self.embedding = embedding
 
     @classmethod
     def from_memory(cls, memory: MicroMemory, embedding: list[float]):
         return cls(
             content=memory.content,
+            subject=memory.subject,
             memory_type=memory.memory_type,
             poignancy=memory.poignancy,
             keywords=memory.keywords,
@@ -77,8 +81,9 @@ if TYPE_CHECKING:
 from Demo.Layers.Session import ChatMessage, ConversationSegment
 from Demo.Prompt import MicroReflector_SystemPrompt, MicroReflector_UserPrompt
 from openai.types.chat import ChatCompletionMessage, ChatCompletion
+from Demo.Utils import parse_json
 from openai import OpenAI
-import json
+from datetime import datetime
 from logging import Logger
 
 
@@ -120,7 +125,11 @@ class MicroReflector:
             
     def _run_micro_reflection_aux(self, conversations: ConversationSegment)->list[MicroMemory]:
         """对一小段对话进行反思"""
-        self.logger.info(f"[Reflector] Running Micro-Reflection on conversation segment from {conversations.start_time} to {conversations.end_time}, containing {len(conversations.messages)} messages.")
+        self.logger.info(f"[Reflector] Running Micro-Reflection on conversation segment from\
+            {datetime.fromtimestamp(conversations.start_time)} to \
+            {datetime.fromtimestamp(conversations.end_time)}, \
+            containing {len(conversations.messages)} messages."
+        )
         # 该对话的时间戳
         timestamp = conversations.start_time
         # 转化历史对话
@@ -135,31 +144,33 @@ class MicroReflector:
             transcript=transcript
         )
         
-        self.logger.info("----------Raw User Prompt ----------")
+        self.logger.info("----------Micro Reflector(L1 to L2) Raw User Prompt ----------")
         self.logger.info(user_prompt)
         self.logger.info("----------------------------------------")
         
-        # TODO 该chat是否需要使用前缀续写？(见L1的chat)
+        # 调用LLM ，采用前缀续写方式
+        messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+                {"role": "assistant", "content": "[\n", "prefix": True} 
+        ]
         response = self.openai_client.chat.completions.create(
             model="deepseek-chat",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
+            messages=messages,
             stream=False
         )
-        raw_message: ChatCompletionMessage = response.choices[0].message
-        msg = ChatMessage.from_ChatCompletionMessage(raw_message, response.created)
         
         self.logger.info("--------------- Reflector L1 to L2 Raw Response ---------------")
         self.logger.info(response)
-        self.logger.info("")
-        msg.debug(self.logger)
         self.logger.info("--------------- End of Reflector L1 to L2 Raw Response ---------------")
         
         # 处理llm输出的json，转换为list[dict]
         # 这里假设解析后的格式是我们规定的格式：MicroMemoryLLMOut
-        memories: list[MicroMemoryLLMOut] = self.parse_micro_llm_output(response)
+        # 因为是对话前缀续写，需要手动加上'{'组成完整的json格式
+        raw_content = response.choices[0].message.content
+        if raw_content:
+                raw_content = '[' + raw_content
+        memories: list[MicroMemoryLLMOut] = self.parse_micro_llm_output(raw_content)
         
         # 添加时间戳
         res: list[MicroMemory] = []
@@ -168,40 +179,36 @@ class MicroReflector:
         self.logger.info(f"[Reflector] Extracted {len(res)} Micro Memories from conversation segment.")
         return res
 
-    def parse_micro_llm_output(self, raw_response: ChatCompletion)-> list[MicroMemoryLLMOut]:
+
+    def parse_micro_llm_output(self, llm_raw_output)-> list[MicroMemoryLLMOut]:
         """处理llm的原生回复，提取出MicroMemory"""
-        self.logger.info("Parsing Micro LLM Output...")
-        if not raw_response.choices[0].message.content:
-            self.logger.error("Error! LLM response contains empty content!")
-            self.logger.error("Raw LLM response:")
-            self.logger.error(raw_response)
-            return []
         
-        def parse_json(raw_content)->list[dict]:
-            """Parse JSON content from raw string."""
-            if not raw_content:
-                return [{}]
-            try:
-                data = json.loads(raw_content)
-                return data
-            except json.JSONDecodeError as e:
-                self.logger.error(f"JSON parsing error: {e}")
-                return [{}]
+        self.logger.info("Parsing Micro LLM Output...")
+        # 1. 打印原始内容的 repr()，这样能看到空格、换行符等不可见字符
+        self.logger.info(f"DEBUG: Raw Output type: {type(llm_raw_output)}")
+        self.logger.info(f"DEBUG: Raw Output repr: {repr(llm_raw_output)}") 
+        
+        # 2. 清洗数据（防止模型输出 ```json ... ``` 包裹）
+        cleaned_output = llm_raw_output.strip()
+        if cleaned_output.startswith("```"):
+            cleaned_output = cleaned_output.replace("```json", "").replace("```", "")
+            
         # 提取llm回复中的content部分，应该是一个list[dict]
         # [
         #   {
         #    "content": "他今天早上通勤很不顺利，地铁临时晚点，这让他整个人都变得有些急躁。我能感受到他被打乱节奏后的那种烦躁。",
+        #    "subject": "妖梦",
         #    "memory_type": "Experience",
         #    "poignancy": 4,
         #    "keywords": ["通勤", "地铁晚点", "急躁", "烦躁"],
         #   }
         # ]
-        raw_content:str = raw_response.choices[0].message.content
-        memories: list[dict] = parse_json(raw_content)
+        # raw_content:str = raw_response.choices[0].message.content
+        
+        memories: list[dict] = parse_json(cleaned_output, self.logger)
         if not memories:
             self.logger.error("Error! Parse JSON failed.")
-            self.logger.error("Raw LLM content:")
-            self.logger.error(raw_content)
+            self.logger.error("Raw LLM content:\n cleaned_output")
             return []
         
         # 将 dict 转换为 MicroMemoryLLMOut
@@ -210,6 +217,7 @@ class MicroReflector:
             for mem in memories:
                 res.append(MicroMemoryLLMOut(
                     content=mem['content'], 
+                    subject=mem['subject'],
                     memory_type=mem['memory_type'],
                     poignancy=mem['poignancy'],
                     keywords=mem['keywords'])
@@ -233,7 +241,10 @@ class MicroReflector:
         """将对话按时间来进行切割"""
         if len(conversations) == 0:
             return []
-        self.logger.info(f"Splitting {len(conversations)} messages into conversation segments.By gap_seconds={gap_seconds}")     
+        self.logger.info(f"Splitting {len(conversations)} messages into conversation segments. By gap_seconds={gap_seconds}") 
+        self.logger.debug("Messages to split:")
+        for msg in conversations:
+            msg.debug(self.logger)    
         segments: list[ConversationSegment] = []
         
         # 目前采用简单粗暴的按时间间隔来分
@@ -249,7 +260,10 @@ class MicroReflector:
             
         segments.append(ConversationSegment(current[0].timestamp, current[-1].timestamp, current.copy()))
         self.logger.info(f"Total {len(segments)} conversation segments created.")
+        for s in segments:
+            s.debug(self.logger)
         return segments
+
 
     def get_embedding(self, text: str) -> list[float]:
         """ Get embedding vector for a given text. """
@@ -276,6 +290,7 @@ class MicroReflector:
             info = {
                 "content": mem.content,
                 "embedding": vec,
+                "subject": mem.subject,
                 "memory_type": mem.memory_type,
                 "poignancy": mem.poignancy,
                 "keywords": mem.keywords,
