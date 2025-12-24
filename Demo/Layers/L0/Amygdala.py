@@ -53,7 +53,7 @@ class AmygdalaOutput:
 from openai import OpenAI
 from datetime import datetime
 from Demo.Layers.L0.Sensor import TimeInfo
-from Demo.Layers.Session import  UserMessage
+from Demo.Core.Schema import  UserMessage
 import logging
 
 class Amygdala:

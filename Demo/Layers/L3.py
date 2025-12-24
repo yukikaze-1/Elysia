@@ -3,7 +3,7 @@ from typing import Literal
 from datetime import datetime
 
 from Demo.Layers.CoreIdentity import CoreIdentityTemplate
-from Demo.Layers.Session import UserMessage
+from Demo.Core.Schema import UserMessage
 
 #  ====================================================================================
 #  Layer 1: Profile & Biometrics (基础与生理层)

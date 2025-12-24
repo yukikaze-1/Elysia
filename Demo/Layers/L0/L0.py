@@ -6,20 +6,17 @@ L0 模块：
     运行在独立线程中，持续监听用户和环境变化，产生事件推送给 L1 模块。
 """
 
-import logging
 from openai import OpenAI
 from typing import Optional
 import threading
 import time
-import sys
 import os
 from datetime import datetime
 
 from Demo.Layers.L0.OutputChannel import OutputChannel, ConsoleChannel
 from Demo.Layers.L0.Sensor import SensoryProcessor, EnvironmentInformation
 from Demo.Layers.L0.Amygdala import AmygdalaOutput, Amygdala
-from Demo.Layers.Session import ChatMessage, UserMessage
-from Demo.Core.Schema import Event, EventType, EventContentType, EventSource
+from Demo.Core.Schema import Event, EventType, EventContentType, EventSource, ChatMessage, UserMessage
 from Demo.Core.EventBus import EventBus, global_event_bus
 from Demo.Logger import setup_logger
 

@@ -78,7 +78,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from Demo.Layers.L2 import MemoryLayer
     
-from Demo.Layers.Session import ChatMessage, ConversationSegment
+from Demo.Core.Schema import ChatMessage, ConversationSegment
 from Demo.Prompt import MicroReflector_SystemPrompt, MicroReflector_UserPrompt
 from openai.types.chat import ChatCompletionMessage, ChatCompletion
 from Demo.Utils import parse_json

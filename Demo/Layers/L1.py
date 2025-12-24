@@ -10,10 +10,9 @@ from Demo.Prompt import (SystemPromptTemplate,
                          current_state_template)
 from Demo.Layers.L0.Sensor import EnvironmentInformation
 from Demo.Layers.L0.Amygdala import AmygdalaOutput 
-from Demo.Layers.Session import ChatMessage, UserMessage
 from Demo.Workers.Reflector.MacroReflector import MacroMemory
 from Demo.Workers.Reflector.MicroReflector import MicroMemory
-from Demo.Core.Schema import DEFAULT_ERROR_INNER_THOUGHT, DEFAULT_ERROR_PUBLIC_REPLY, DEFAULT_ERROR_MOOD
+from Demo.Core.Schema import ChatMessage, UserMessage, DEFAULT_ERROR_INNER_THOUGHT, DEFAULT_ERROR_PUBLIC_REPLY, DEFAULT_ERROR_MOOD
 from Demo.Logger import setup_logger
 
 

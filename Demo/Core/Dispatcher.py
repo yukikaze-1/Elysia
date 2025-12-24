@@ -1,4 +1,3 @@
-import time
 import logging
 from datetime import datetime, timedelta
 from typing import Literal
@@ -6,7 +5,7 @@ from Demo.Core.EventBus import EventBus, global_event_bus
 from Demo.Core.Schema import Event, EventType
 from Demo.Layers.L0.Amygdala import AmygdalaOutput
 from Demo.Layers.L0.Sensor import EnvironmentInformation, TimeInfo
-from Demo.Layers.Session import UserMessage, ChatMessage
+from Demo.Core.Schema import UserMessage, ChatMessage
 from Demo.Layers.L0.L0 import SensorLayer
 from Demo.Layers.L1 import ActiveResponse, BrainLayer
 from Demo.Layers.L2 import MemoryLayer
