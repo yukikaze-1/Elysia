@@ -1,7 +1,7 @@
 """
 定义数据模式
 """
-from attr import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, Optional
 from datetime import datetime
@@ -26,6 +26,8 @@ class EventSource(str, Enum):
     L1 = "L1"
     REFLECTOR = "REFLECTOR"
     SYSTEM = "SYSTEM"    
+    WEB_CLIENT = "WEB_CLIENT"       # 来自 Web 前端客户端
+    ACTIVE_SENSOR = "ACTIVE_SENSOR" # 来自主动传感器模块(L0主动感知)
 
 class EventContentType(str, Enum):
     """事件内容类型枚举"""
@@ -37,12 +39,12 @@ class EventContentType(str, Enum):
 @dataclass
 class Event:
     """系统内传递的标准事件对象"""
-    type: EventType
-    content_type: EventContentType  # 事件内容类型
-    content: Any                  # 事件载荷: 文本字符串, 或结构化数据
-    source: EventSource           # 来源: "L0", "L1", "REFLECTOR"
-    timestamp: float = time.time()  # 事件发生时间戳
-    id: str = str(uuid.uuid4())      # 唯一ID，便于追踪
+    type: EventType         # 事件类型
+    content_type: EventContentType  # 事件载荷类型
+    content: Any                  # 事件载荷
+    source: EventSource           # 来源
+    timestamp: float = field(default_factory=time.time) # 事件发生时间戳
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))      # 唯一ID，便于追踪
     metadata: Dict[str, Any] | None = None     # 额外元数据
 
     def __str__(self):

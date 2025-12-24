@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Elysia Chat Interface</title>
+    <style>
+        /* --- 样式升级版 --- */
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        
+        body {
+            font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
+            background-color: #f2f2f2;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .chat-container {
+            width: 100%;
+            max-width: 800px;
+            height: 90vh;
+            background-color: #fff;
+            border-radius: 12px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.1);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* 顶部栏 */
+        .chat-header {
+            padding: 15px 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            font-size: 18px;
+            font-weight: bold;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .status-dot {
+            height: 10px; width: 10px;
+            background-color: #ccc; border-radius: 50%;
+            display: inline-block; margin-right: 6px;
+        }
+        .status-dot.connected { background-color: #4ade80; box-shadow: 0 0 8px #4ade80; }
+        .status-dot.disconnected { background-color: #f87171; }
+        .status-text { font-size: 12px; font-weight: normal; opacity: 0.9; }
+
+        /* 消息列表区 */
+        .chat-messages {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            background-color: #f5f7fa;
+            display: flex;
+            flex-direction: column;
+            gap: 20px; /* 消息组之间的间距变大 */
+        }
+
+        /* --- 核心：消息行布局 --- */
+        .message-row {
+            display: flex;
+            flex-direction: column;
+            max-width: 80%;
+        }
+
+        /* 名字标签 */
+        .message-name {
+            font-size: 12px;
+            color: #888;
+            margin-bottom: 4px;
+            margin-left: 4px; /* 默认靠左微调 */
+        }
+
+        /* 气泡本体 */
+        .message-bubble {
+            padding: 12px 16px;
+            border-radius: 12px;
+            font-size: 15px;
+            line-height: 1.6;
+            word-wrap: break-word;
+            position: relative;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        }
+
+        /* === 身份差异化样式 === */
+
+        /* 1. 用户 (妖梦) - 靠右 */
+        .message-row.user {
+            align-self: flex-end; /* 整个行靠右 */
+            align-items: flex-end; /* 名字和气泡内部靠右 */
+        }
+        .message-row.user .message-name {
+            margin-right: 4px; /* 名字靠右微调 */
+        }
+        .message-row.user .message-bubble {
+            background-color: #95ec69; /* 微信绿 */
+            color: #000;
+            border-top-right-radius: 2px; /* 把右上角变尖 */
+        }
+
+        /* 2. AI (Elysia) - 靠左 */
+        .message-row.ai {
+            align-self: flex-start;
+            align-items: flex-start;
+        }
+        .message-row.ai .message-bubble {
+            background-color: #fff;
+            color: #333;
+            border-top-left-radius: 2px; /* 把左上角变尖 */
+        }
+
+        /* 3. 心声 (Elysia Inner Voice) - 靠左，特殊样式 */
+        .message-row.inner-voice {
+            align-self: flex-start;
+            align-items: flex-start;
+            opacity: 0.9;
+        }
+        .message-row.inner-voice .message-bubble {
+            background-color: #f9f9f9;
+            color: #555;
+            font-style: italic;
+            border: 1px dashed #ccc;
+            font-size: 14px;
+        }
+
+        /* 4. 系统通知 */
+        .system-notice {
+            align-self: center;
+            background-color: rgba(0,0,0,0.1);
+            color: #666;
+            font-size: 12px;
+            padding: 4px 12px;
+            border-radius: 10px;
+        }
+
+        /* 底部输入区 */
+        .chat-input-area {
+            padding: 20px;
+            background-color: #fff;
+            border-top: 1px solid #eee;
+            display: flex;
+            gap: 12px;
+        }
+        #message-input {
+            flex: 1;
+            padding: 12px 16px;
+            border: 1px solid #ddd;
+            border-radius: 24px;
+            font-size: 15px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        #message-input:focus { border-color: #667eea; }
+        #send-btn {
+            padding: 0 24px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 24px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        #send-btn:disabled { background: #ccc; cursor: not-allowed; }
+
+    </style>
+</head>
+<body>
+
+    <div class="chat-container">
+        <div class="chat-header">
+            Elysia
+            <div style="display: flex; align-items: center;">
+                <span class="status-dot" id="status-dot"></span>
+                <span class="status-text" id="status-text">Connecting...</span>
+            </div>
+        </div>
+        
+        <div class="chat-messages" id="chat-box">
+            </div>
+
+        <div class="chat-input-area">
+            <input type="text" id="message-input" placeholder="和 Elysia 说点什么..." autocomplete="off">
+            <button id="send-btn" disabled>发送</button>
+        </div>
+    </div>
+
+    <script>
+        const chatBox = document.getElementById('chat-box');
+        const messageInput = document.getElementById('message-input');
+        const sendBtn = document.getElementById('send-btn');
+        const statusDot = document.getElementById('status-dot');
+        const statusText = document.getElementById('status-text');
+
+        // ★★★ 请确认这里的 IP 和端口 ★★★
+        const WS_URL = 'ws://192.168.1.18:8000/ws'; 
+        let websocket = null;
+
+        // 当前用户的名字 (用于判断是否是自己发的消息)
+        const MY_NAME = "妖梦";
+
+        function connectWebSocket() {
+            websocket = new WebSocket(WS_URL);
+
+            websocket.onopen = () => {
+                updateStatus('connected');
+                sendBtn.disabled = false;
+                appendSystemMessage('已连接到 Elysia 的心智空间');
+            };
+
+            websocket.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    
+                    // 1. 处理心声 (Inner Voice)
+                    if (data.inner_voice && data.inner_voice.trim()) {
+                        appendMessage('inner-voice', data.inner_voice, 'Elysia (心声)');
+                    }
+
+                    // 2. 处理对话内容
+                    if (data.content) {
+                        // ★ 关键修复：判断 role ★
+                        // 如果 role 是 "妖梦" 或 "User"，说明是服务器回显的我的消息
+                        // 我们在发送时已经本地显示过了，所以这里选择“忽略”，防止重复显示
+                        if (data.role === MY_NAME || data.role === 'User') {
+                            console.log("忽略自己发送的消息回显");
+                            return; 
+                        }
+
+                        // 否则认为是 Elysia 的回复
+                        appendMessage('ai', data.content, 'Elysia');
+                    }
+                } catch (e) {
+                    console.error("解析失败，显示原始文本:", e);
+                    appendMessage('ai', event.data, 'System/Raw');
+                }
+            };
+
+            websocket.onclose = () => {
+                updateStatus('disconnected');
+                sendBtn.disabled = true;
+                appendSystemMessage('连接已断开');
+            };
+        }
+
+        function sendMessage() {
+            const text = messageInput.value.trim();
+            if (!text || !websocket) return;
+
+            // 1. 构建 JSON
+            const payload = {
+                role: MY_NAME,
+                content: text,
+                timestamp: Date.now() / 1000
+            };
+
+            // 2. 发送
+            websocket.send(JSON.stringify(payload));
+
+            // 3. ★ 本地立即显示 (带名字) ★
+            appendMessage('user', text, MY_NAME);
+
+            messageInput.value = '';
+            messageInput.focus();
+        }
+
+        // ★ 核心渲染函数：支持 type, text, name
+        function appendMessage(type, text, senderName) {
+            // 创建外层行容器
+            const rowDiv = document.createElement('div');
+            rowDiv.className = `message-row ${type}`; // type: 'user', 'ai', 'inner-voice'
+
+            // 创建名字
+            if (senderName) {
+                const nameDiv = document.createElement('div');
+                nameDiv.className = 'message-name';
+                nameDiv.textContent = senderName;
+                rowDiv.appendChild(nameDiv);
+            }
+
+            // 创建气泡
+            const bubbleDiv = document.createElement('div');
+            bubbleDiv.className = 'message-bubble';
+            bubbleDiv.textContent = text;
+            rowDiv.appendChild(bubbleDiv);
+
+            chatBox.appendChild(rowDiv);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        function appendSystemMessage(text) {
+            const div = document.createElement('div');
+            div.className = 'system-notice';
+            div.textContent = text;
+            chatBox.appendChild(div);
+        }
+
+        function updateStatus(status) {
+            statusDot.className = 'status-dot ' + status;
+            statusText.textContent = status === 'connected' ? 'Online' : 'Offline';
+        }
+
+        sendBtn.addEventListener('click', sendMessage);
+        messageInput.addEventListener('keypress', (e) => { if(e.key==='Enter') sendMessage(); });
+
+        window.onload = () => {
+            connectWebSocket();
+            messageInput.focus();
+        };
+    </script>
+</body>
+</html>
