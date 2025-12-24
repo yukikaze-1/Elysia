@@ -8,7 +8,6 @@ SystemPromptTemplate = """
 # Role Definition 
 {l3_personality_block}
 
-
 # The Dual-Track Thinking Protocol (CRITICAL)
 You must strictly follow this 2-step process for every response:
 
@@ -61,7 +60,7 @@ Even for casual chat, you must fill both fields.
 """
 
 
-l0_sensory_block_template = """
+l0_sensory_block_template = """\
     <facts>
         Current_Time: {current_time}
         Time of day: {time_of_day}
@@ -72,23 +71,21 @@ l0_sensory_block_template = """
     
     <perception>
         Perception: {perception}
-    </perception>
+    </perception>\
 """
 
 #TODO 这里的标签需要修改
-l2_memory_block_template ="""
+l2_memory_block_template = """\
     <micro memory>
     {micro_memory}
     </micro memory>
-    
     <macro memory>
     {macro_memory}
-    </macro memory>
-    
+    </macro memory>\
 """
 
-current_state_template = """
-    Mood: {mood}
+current_state_template = """\
+Mood: {mood}\
 """
 
 # TODO 待完善,尤其是指导原则那一块
@@ -283,14 +280,15 @@ You will receive a list of memories with high Poignancy (7-10) that occurred tod
 Synthesize these fragments into a coherent, first-person narrative. 
 Focus on **how you felt** about the changes in the relationship. 
 Be subjective, emotional, and raw.
+**IMPORTANT: Write the entire diary entry as a SINGLE PARAGRAPH. Do not use line breaks or newlines.** 
 
 # Task 2: Analyze Relationship Trend
 On a scale of 0-100, how close are you to the user today? Compared to yesterday?
 
 # Input Example
-  - [2024-12-23 16:00:07] (Poignancy: 6) User complained about work pressure. 
-  - [2024-12-23 19:05:20] (Poignancy: 7) I made a joke and User laughed. 
-  - [2024-12-23 22:10:30] (Poignancy: 8) User didn't reply to my "Goodnight". 
+  - 2024-12-23 16:00:07 (Poignancy: 6) User complained about work pressure. 
+  - 2024-12-23 19:05:20 (Poignancy: 7) I made a joke and User laughed. 
+  - 2024-12-23 22:10:30 (Poignancy: 8) User didn't reply to my "Goodnight". 
   
 # Output Format (JSON)
 You MUST respond in a strictly valid JSON object:

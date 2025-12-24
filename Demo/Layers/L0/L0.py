@@ -15,6 +15,7 @@ import sys
 import os
 from datetime import datetime
 
+from Demo.Layers.L0.OutputChannel import OutputChannel, ConsoleChannel
 from Demo.Layers.L0.Sensor import SensoryProcessor, EnvironmentInformation
 from Demo.Layers.L0.Amygdala import AmygdalaOutput, Amygdala
 from Demo.Layers.Session import ChatMessage, UserMessage
@@ -35,12 +36,14 @@ class SensorLayer:
         # 业务组件
         self.sensory_processor = SensoryProcessor(self.logger)
         self.amygdala = Amygdala(self.openai_client, self.logger)
+        # 输出通道 TODO 支持多通道
+        self.channels: list[OutputChannel] = [ConsoleChannel()]
         
         # 对接逻辑
-        self.bus: EventBus = event_bus
+        self.bus: EventBus = event_bus  # 事件总线
         self.running: bool = False
-        self._input_thread: Optional[threading.Thread] = None
-        self._tick_thread: Optional[threading.Thread] = None
+        self._input_thread: Optional[threading.Thread] = None   # 输入监听线程
+        self._tick_thread: Optional[threading.Thread] = None    # 心跳线程
 
         self.logger.info("L0 SensorLayer initialized.")
 
@@ -71,33 +74,17 @@ class SensorLayer:
         self.running = False
         # 线程会随着 while 循环条件变为 False 而自然结束
         self.logger.info("L0 SensorLayer threads stopping...")
+    
+    def add_channel(self, channel: OutputChannel):
+        """[接口方法] 添加输出通道"""
+        self.channels.append(channel)
+        self.logger.info(f"Output channel {channel.__class__.__name__} added to L0 SensorLayer.")    
         
         
     def output(self, msg: ChatMessage):
-        """
-        [接口实现] 简单的控制台打印
-        """
-        # 同时记录日志
-        logger = logging.getLogger("Main")
-        public_reply: str = msg.content
-        inner_thought: str = msg.inner_voice if msg.inner_voice else ""
-        timestamp: str = datetime.fromtimestamp(msg.timestamp).strftime("%Y-%m-%d %H:%M:%S")
-        
-        # 使用颜色区分 AI 和用户的发言 (例如：绿色)
-        GREEN = "\033[92m"
-        YELLOW = "\033[93m"
-        RESET = "\033[0m"
-        
-        # 打印 formatted output
-        print(f"\n{GREEN}[{msg.role} @ {timestamp}]: {public_reply}{RESET}")
-        logger.info(f"{msg.role} Public Reply: {public_reply}")
-        
-        if msg.role == "Elysia" and inner_thought:
-            print(f"{YELLOW}(Inner Thought): {inner_thought}{RESET}\n")
-            logger.info(f"{msg.role} Inner Thought: {inner_thought}")
-        
-        # 强制刷新缓冲区，确保字立刻显示出来
-        sys.stdout.flush()
+        """[接口方法] 通过所有通道输出消息"""
+        for channel in self.channels:
+            channel.send_message(msg)
     
     
     def _input_loop(self):

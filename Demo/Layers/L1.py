@@ -205,14 +205,14 @@ class BrainLayer:
             """将micro memories格式化为文本行"""
             lines = []
             for mem in memories:
-                lines.append(f"- [{datetime.fromtimestamp(mem.timestamp).isoformat()}] (Poignancy: {mem.poignancy}) {mem.content}\n")
+                lines.append(f"- {datetime.fromtimestamp(mem.timestamp).isoformat()} (Poignancy: {mem.poignancy}) {mem.content}")
             return "[\n" + "\n".join(lines) + "\n]"
         
         def format_macro_memories_to_lines(memories: list[MacroMemory])-> str:
             """将macro memories格式化为文本行"""
             lines = []
             for mem in memories:
-                lines.append(f"- [{datetime.fromtimestamp(mem.timestamp).isoformat()}] (Poignancy: {mem.poignancy}) (Dominant Emotion: {mem.dominant_emotion})  {mem.diary_content}\n")
+                lines.append(f"- {datetime.fromtimestamp(mem.timestamp).isoformat()} (Poignancy: {mem.poignancy}) (Dominant Emotion: {mem.dominant_emotion})  {mem.diary_content}")
             return "[\n" + "\n".join(lines) + "\n]"
                 
         
