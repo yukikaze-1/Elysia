@@ -8,12 +8,12 @@
 # =========================================
 class MacroMemoryLLMOut:
     """LLM输出的最基础的macro memory的格式，没有timestamp和embedding"""
-    def __init__(self, diary_content: str, subject: str, poignancy: int, dominant_emotion: str):
+    def __init__(self, diary_content: str, subject: str, poignancy: int, dominant_emotion: str, keywords: list):
         self.diary_content: str = diary_content              # 日记内容
         self.subject: str = subject                       # 日记描述的谁,比如"妖梦"
         self.poignancy: int = poignancy     # 情感强度
         self.dominant_emotion: str = dominant_emotion        # 情绪影响
-        self.keywords: list = []        # 关键词
+        self.keywords: list = keywords        # 关键词
         
     def to_dict(self):
         return {
@@ -28,8 +28,7 @@ class MacroMemoryLLMOut:
 class MacroMemory(MacroMemoryLLMOut):
     """Macro Memory 的格式"""
     def __init__(self, diary_content: str, subject: str, poignancy: int, dominant_emotion: str, keywords: list, timestamp: float):
-        super().__init__(diary_content, subject, poignancy, dominant_emotion)
-        self.keywords = keywords
+        super().__init__(diary_content, subject, poignancy, dominant_emotion, keywords)
         self.timestamp = timestamp
         
          
@@ -79,9 +78,7 @@ import json
 from datetime import datetime
 from Demo.Layers.L2 import MemoryLayer
 from openai import OpenAI
-from openai.types.chat import ChatCompletionMessage, ChatCompletion 
 from Demo.Prompt import MacroReflector_SystemPrompt, MacroReflector_UserPrompt
-from Demo.Layers.Session import ChatMessage
 from Demo.Workers.Reflector.MicroReflector import MicroMemory
 from Demo.Utils import parse_json
 
@@ -171,7 +168,12 @@ class MacroReflector:
         self.logger.info(response)
         # msg.debug(self.logger)
         self.logger.info("--------------- End of Reflector L2 to L2 Raw Response ---------------")
-        
+        # {
+        #   "diary_content": "今天过得很开心，他今天带我出去玩了一整天...",
+        #   "poignancy": 75,
+        #   "dominant_emotion": "复杂, 喜悦",
+        #   "keywords": ["外出", "笑声", "陪伴"]
+        # }
         # 解析llm输出
         raw_content = response.choices[0].message.content
         if raw_content:
@@ -216,9 +218,10 @@ class MacroReflector:
             
         # 提取llm回复中的content部分，应该是一个dict
         #   {
-        #    "diary_content": "Today was a rollercoaster. He started off stressed...",
+        #    "diary_content": "今天过得很开心，他今天带我出去玩了一整天...",
         #    "poignancy": 75,
-        #    "dominant_emotion": "Bittersweet"
+        #    "dominant_emotion": "复杂, 喜悦",
+        #    "keywords": ["外出", "笑声", "陪伴"]
         #   }
         
         memories: list[dict] = parse_json(cleaned_output, self.logger)
@@ -241,7 +244,8 @@ class MacroReflector:
                     diary_content=mem['diary_content'],
                     subject="妖梦",  # TODO 这里先写死，后续可以改成参数传入
                     poignancy=mem['poignancy'],
-                    dominant_emotion=mem['dominant_emotion']
+                    dominant_emotion=mem['dominant_emotion'],
+                    keywords=mem['keywords']
                 ))
         except Exception as e:
             self.logger.error("Error! Failed to convert llm output to MacroMemoryLLMOut. In function: parse_llm_output.")

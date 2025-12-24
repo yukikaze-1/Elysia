@@ -13,4 +13,4 @@ Log/*
 CharacterSystem/demo.py
 demo.py
 Demo/Log/*
-storage/sessions/*
+Demo/storage/sessions/*

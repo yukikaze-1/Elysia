@@ -295,14 +295,16 @@ You MUST respond in a strictly valid JSON object:
 {{
   "diary_content": "String. First-person diary entry in Chinese, focusing on emotional experience.**MUST BE IN CHINESE**",
   "poignancy": Integer (0-100). Overall emotional intensity of the day,
-  "dominant_emotion": "String. The main emotion you felt today (e.g., 喜悦, 悲伤, 复杂, 挫折).**MUST BE IN CHINESE**"
+  "dominant_emotion": "String. The main emotion you felt today (e.g., 喜悦, 悲伤, 复杂, 挫折).**MUST BE IN CHINESE**",
+  "keywords": ["tag1", "tag2", "tag3"]  // Up to 5 keywords summarizing today's themes.
 }}
 
 # Output example (JSON)
 {{
   "diary_content": "今天过得很开心，他今天带我出去玩了一整天...",
   "poignancy": 75,
-  "dominant_emotion": "复杂, 喜悦"
+  "dominant_emotion": "复杂, 喜悦",
+  "keywords": ["外出", "笑声", "陪伴"]
 }}
 
 """

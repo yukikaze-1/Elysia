@@ -22,7 +22,7 @@ class SessionState:
                  role: str, 
                  max_messages_limit: int = 20, 
                  max_inner_limit = 3,
-                 persist_dir: str = "./storage/sessions"):
+                 persist_dir: str = "./Demo/storage/sessions"):
         """
         初始化会话状态
         Args:
