@@ -79,7 +79,7 @@ class MemoryLayer:
         # === 2. 初始化短期记忆 (Session) ===
         # 在单用户场景下，直接持有一个 SessionState 实例
         # 如果是多用户，这里应该是一个 Dict[user_id, SessionState]
-        self.session = SessionState(user_name="User", role="Elysia")
+        self.session = SessionState(user_name="妖梦", role="Elysia")
         self.logger.info("Initialized SessionState for short-term memory.")
         
         # 标记为已初始化

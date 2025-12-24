@@ -137,12 +137,21 @@ class SessionState:
         if messages is not None and len(messages) == 0:
             self.logger.warning("Attempted to add empty message list to SessionState.")
             return
+        
+        # 添加消息
         for msg in messages:
-            self.conversations.append(msg)
-            
+            # 仅添加有效消息
+            if self.check_message_valid(msg):
+                self.conversations.append(msg)
+                self.logger.debug(f"Added message to SessionState: {msg.to_dict()}")
+            else:
+                self.logger.warning(f"Invalid message not added to SessionState: {msg.to_dict()}")
+        
+        # 更新最后交互时间
         self.update_last_interaction_time()
         self.logger.info(f"Added {len(messages)} messages to SessionState. Total messages now: {len(self.conversations)}")
         
+        # 检查是否超出限制，若超出则修剪
         if self.check_message_overflow():
             self.logger.info("Message overflow detected. Pruning history.")
             self.prune_history()
@@ -152,7 +161,7 @@ class SessionState:
         return self.conversations
     
     
-    def get_recent_items(self, limit: int = 5) -> list[ChatMessage]:
+    def get_recent_items(self, limit: int = 6) -> list[ChatMessage]:
         """获取最近几条，用于主动性判断"""
         subset = self.conversations[-limit:]
         return subset
@@ -167,9 +176,24 @@ class SessionState:
         self.last_interaction_time = self.conversations[-1].timestamp
         return self.last_interaction_time
     
+    
     def check_message_overflow(self)-> bool:
         """检查消息是否超出限制"""
         return len(self.conversations) > self.max_messages_limit
+    
+    
+    def check_message_valid(self, message: ChatMessage) -> bool:
+        """检查消息是否有效"""
+        # 检查内容非空
+        if not message.content or message.content.strip() == "":
+            self.logger.warning("Invalid message content.")
+            return False
+        # 检查角色是否和预期一致
+        if message.role not in [self.user_name, self.role]:
+            self.logger.warning(f"Invalid message role: {message.role}. Expected: {self.user_name} or {self.role}.")
+            return False
+        return True
+    
     
     def prune_history(self):
         """ 修剪历史消息，保留最近的消息，去掉较早的inner thought """
