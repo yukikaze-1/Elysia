@@ -125,6 +125,13 @@ class MemoryLayer:
         """
         return self.session.get_recent_items(limit)
     
+    def close(self):
+        """
+        [接口方法] 关闭记忆层，释放资源
+        """
+        # 因为要将sessionstate的信息保存到磁盘
+        self.session._save_session()
+    
     
     # ===========================================================================================================================
     # 内部函数实现

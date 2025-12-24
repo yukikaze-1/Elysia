@@ -70,6 +70,10 @@ class Elysia:
                 self.reflector.force_save() 
                 self.reflector.stop()
                 
+            # 
+            if 'l2' in locals():
+                self.l2.close()
+                
             self.logger.info("System Shutdown Complete.")
 
 

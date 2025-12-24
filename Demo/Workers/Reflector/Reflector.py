@@ -111,11 +111,11 @@ class Reflector:
         """
         [新增接口] 供 Dispatcher 或 EventBus 调用，将新对话推入缓冲池
         """
-        self.logger.info(f"[Reflector] New message received for reflection.")
-        self.logger.debug(f"    {msg}")
+        self.logger.info(f"New message received for reflection.")
+        self.logger.debug(f"    {msg.to_dict()}")
         with self.buffer_lock:
             self.buffer.append(msg)
-            self.logger.info(f"[Reflector] Buffer size: {len(self.buffer)}")
+            self.logger.info(f"Buffer size: {len(self.buffer)}")
 
     # =========================================
     # 内部循环

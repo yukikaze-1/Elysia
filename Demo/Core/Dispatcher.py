@@ -181,9 +181,36 @@ class Dispatcher:
         self.logger.info("------------------------------------------------------------------------------------------------")
 
 
+        
     def _handle_system_tick(self, event: Event):
         """
-        处理心跳事件：决定是否主动发起对话 (Agency)
+        处理心跳事件：包括保存会话和主动发起对话
+        """
+        self.logger.info("System tick event received.")
+        
+        # 1. 定期保存会话状态
+        self._handle_system_tick_save_session(event)
+        
+        # 2. 检查是否需要主动发起对话
+        self._handle_system_tick_active_speak(event)
+        
+        
+    def _handle_system_tick_save_session(self, event: Event):
+        """
+        处理心跳事件：定期保存会话状态
+        """
+        # TODO 这里可以根据实际需求调整保存频率
+        self.logger.info("Saving session state...")
+        try:
+            self.l2.session._save_session()
+            self.logger.info("Session state saved successfully.")
+        except Exception as e:
+            self.logger.error(f"Error saving session state: {e}", exc_info=True)
+            
+    
+    def _handle_system_tick_active_speak(self, event: Event):
+        """
+        处理心跳事件：决定是否主动发起对话
         """
         # event.content 与 event.timestamp 是当前时间戳
         # 以l0感知到的环境信息中的的时间戳为基准进行计算，避免时间漂移

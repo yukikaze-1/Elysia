@@ -84,6 +84,17 @@ class ChatMessage:
             "inner_voice":self.inner_voice,
             "timestamp": self.timestamp
         }
+    
+    @classmethod    
+    def from_dict(cls, data: dict):
+        """ 从字典加载数据 """
+        return cls(
+            role=data.get("role", ""),
+            content=data.get("content", ""),
+            inner_voice=data.get("inner_voice", ""),
+            timestamp=data.get("timestamp", time.time())
+        )
+        
         
     def debug(self, logger: logging.Logger):
         logger.info(self.to_dict())
@@ -112,26 +123,49 @@ class ConversationSegment:
 
 from datetime import datetime
 import time
+import threading
+import os
+import json
 
 class SessionState:
     """
     [内部辅助类] 会话状态管理
     负责维护 Context Window (上下文窗口)，确保发给 LLM 的 Token 不会溢出。
     """
-    def __init__(self, user_name: str, role: str, max_messages_limit: int = 20, max_inner_limit = 3):
-        # TODO 此处logger本应该是L2传进来的，但是为了调试方便，改为sessionstate自有
+    def __init__(self, 
+                 user_name: str, 
+                 role: str, 
+                 max_messages_limit: int = 20, 
+                 max_inner_limit = 3,
+                 persist_dir: str = "./storage/sessions"):
+        """
+        初始化会话状态
+        Args:
+            user_name (str): 用户名称
+            role (str): AI 角色名称
+            max_messages_limit (int): 最大消息数限制
+            max_inner_limit (int): 最大包含内心独白的消息数限制
+            persist_dir (str): 会话持久化存储目录
+        """
+
         self.logger: logging.Logger = setup_logger("SessionState")
         self.user_name: str = user_name     # 用户的名字
         self.role: str = role               # AI的名字
         
+        if not os.path.exists(persist_dir):
+            os.makedirs(persist_dir)
+        self.file_path = os.path.join(persist_dir, f"{user_name}_{role}_history.json")
+        
         self.max_messages_limit: int = max_messages_limit    # 最大对话数(含inner voice + 不含inner voice)
         self.max_inner_limit: int = max_inner_limit     # 最大包含inner voice的对话数
         
-        # TODO 这个需要加锁吗？
+        self.lock = threading.RLock()       # 线程锁，保护会话状态的并发访问
         self.conversations: list[ChatMessage] = []  # 会话历史
         self.last_interaction_time: float = time.time()  # 最后交互时间戳
+        
+        self._load_session()
 
-
+    
     def add_messages(self, messages: list[ChatMessage]):
         """ 添加消息到会话历史 """
         if messages is not None and len(messages) == 0:
@@ -208,7 +242,6 @@ class SessionState:
             return  # 不需要修剪
         
         # 丢弃老消息
-        
         if len(self.conversations) > self.max_messages_limit:
             history = self.conversations[-self.max_messages_limit:]
             self.logger.info(f"Pruned history to last {self.max_messages_limit} messages.")
@@ -224,6 +257,59 @@ class SessionState:
         self.conversations.clear()
         self.conversations = history
         self.logger.info("Cleaned inner thoughts from older messages.")
+        
+    
+    def _load_session(self):
+        """从文件加载会话历史"""
+        if not os.path.exists(self.file_path):
+            self.logger.info(f"No history file found at {self.file_path}, starting new session.")
+            return
+
+        try:
+            with self.lock: # 读锁
+                with open(self.file_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    
+                # 恢复时间戳
+                self.last_interaction_time = data.get("last_interaction_time", 0.0)
+                
+                # 恢复消息列表
+                raw_msgs = data.get("conversations", [])
+                self.conversations = [ChatMessage.from_dict(msg) for msg in raw_msgs]
+                
+            self.logger.info(f"Loaded {len(self.conversations)} messages from history.")
+            
+        except Exception as e:
+            self.logger.error(f"Failed to load session: {e}")
+            # 如果加载失败（文件损坏），选择重置还是保留空列表视业务而定
+            self.conversations = []
+    
+    
+    def _save_session(self):
+        """将当前会话保存到文件"""
+        try:
+            # 准备数据
+            serialized_msgs = [msg.to_dict() for msg in self.conversations] 
+            
+            data = {
+                "last_interaction_time": self.last_interaction_time,
+                "conversations": serialized_msgs
+            }
+
+            with self.lock: # 写锁
+                # 使用临时文件写入再重命名的方式（Atomic Write），防止写入中途断电导致文件损坏
+                temp_file = self.file_path + ".tmp"
+                with open(temp_file, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+                
+                # 覆盖原文件
+                if os.path.exists(self.file_path):
+                    os.replace(temp_file, self.file_path)
+                else:
+                    os.rename(temp_file, self.file_path)
+                    
+        except Exception as e:
+            self.logger.error(f"Failed to save session: {e}")
     
     
     def debug(self):

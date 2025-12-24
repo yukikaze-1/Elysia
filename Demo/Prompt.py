@@ -307,9 +307,9 @@ You MUST respond in a strictly valid JSON object:
 
 """
 
-MacroReflector_UserPrompt = """
+MacroReflector_UserPrompt = """\
 {character_name}, here are your high-emotion memories from today:
-{memories_list}
+{memories_list}\
 """
 
 #################################################################################################
