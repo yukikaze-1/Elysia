@@ -203,6 +203,10 @@
         // 当前用户的名字 (用于判断是否是自己发的消息)
         const MY_NAME = "妖梦";
 
+        // 【修改】不再记录用户上次时间，而是记录 AI 消息到达的时间
+        // 初始化为当前时间，防止第一句话报错
+        let lastAiMessageTimestamp = Date.now() / 1000;
+
         function connectWebSocket() {
             websocket = new WebSocket(WS_URL);
 
@@ -233,6 +237,10 @@
 
                         // 否则认为是 Elysia 的回复
                         appendMessage('ai', data.content, 'Elysia');
+
+                        // 【新增】记录 AI 完成回复的时间点
+                        // 这意味着从这一刻开始，轮到用户回合了，计时开始
+                        lastAiMessageTimestamp = Date.now() / 1000;
                     }
                 } catch (e) {
                     console.error("解析失败，显示原始文本:", e);
@@ -251,11 +259,22 @@
             const text = messageInput.value.trim();
             if (!text || !websocket) return;
 
+            // 获取当前时间戳 (秒)
+            const currentTimestamp = Date.now() / 1000;
+
+            // 【关键修改】计算反应延迟 (当前时间 - AI 回复时间)
+            // 如果是首条消息，或者刚刷新页面，这个值可能意义不大，后端可以做个阈值判断
+            let latency = currentTimestamp - lastAiMessageTimestamp;
+
+            // 避免出现负数（极端情况下本地时钟差异），最小设为 0
+            if (latency < 0) latency = 0;
+
             // 1. 构建 JSON
             const payload = {
                 role: MY_NAME,
                 content: text,
-                timestamp: Date.now() / 1000
+                timestamp: currentTimestamp,
+                last_ai_timestamp: lastAiMessageTimestamp
             };
 
             // 2. 发送

@@ -71,33 +71,36 @@ class Amygdala:
         return l3_elysia_persona_block
 
 
-    def react(self, user_message: UserMessage, current_env: EnvironmentInformation) -> AmygdalaOutput:
-        """  杏仁核反应函数 """
+    def react(self, user_message: UserMessage, current_env: EnvironmentInformation, user_reaction_latency: float) -> AmygdalaOutput:
+        """  
+        杏仁核反应函数
+        输入：用户消息 + 当前环境信息 + 用户反应延迟
+        输出：本能感知描述 + 当前环境信息
+        """
         #  生成描述
-        sensory_description: str = self.generate_sensory_description( user_message, current_env)
-
-        return AmygdalaOutput(sensory_description, current_env)
+        sensory_description: str = self.generate_sensory_description(user_message, current_env, user_reaction_latency)
+        #  封装输出
+        res = AmygdalaOutput(sensory_description, current_env)
+        return res
     
     
-    def generate_sensory_description(self, user_message: UserMessage, envs: EnvironmentInformation)-> str:
+    def generate_sensory_description(self, user_message: UserMessage, envs: EnvironmentInformation, user_reaction_latency: float)-> str:
         """生成本能描述"""
         
-        latency_desc = envs.time_envs.user_latency
         dt = datetime.fromtimestamp(envs.time_envs.current_time)
         
         # 构建 Prompt
-        from Demo.Prompt import L0_SubConscious_System_Prompt, L0_SubConscious_User_Prompt, l3_elysia_persona_block
+        from Demo.Prompt import L0_SubConscious_System_Prompt, L0_SubConscious_User_Prompt
         system_prompt = L0_SubConscious_System_Prompt.format(
             character_name="Elysia",
             l3_persona_block=self.get_l3_core_dientity()
         )
         user_prompt = L0_SubConscious_User_Prompt.format(
-            current_time=dt.isoformat(),
+            current_time=dt.strftime("%Y-%m-%d %H:%M:%S"),
             day_of_week=dt.strftime("%A"),
             time_of_day=envs.time_envs.time_of_day,
             season=envs.time_envs.season,
-            latency=envs.time_envs.user_latency,
-            latency_description=latency_desc,
+            user_reaction_latency=int(user_reaction_latency),
             user_message=user_message.content
         )
         self.logger.info("User Prompt:")

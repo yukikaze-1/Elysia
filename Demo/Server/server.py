@@ -133,18 +133,13 @@ class ElysiaServer:
                 self.logger.debug(f"[WebSocket] Received: {data}")  
                 
                 # 2. 解析消息
-                parsed_data: dict = self.parse_websocket_message(data)  
+                parsed_data: dict = self._parse_websocket_message(data)
+                  
+                # 3. 标记来源
+                parsed_data['source'] = 'websocket'  
                 
-                # 构造符合 L0 期望的字典
-                input_payload = {
-                    "source": "websocket",
-                    "role": parsed_data.get("role", "User"),
-                    "content": parsed_data.get("content", ""),
-                    "timestamp": parsed_data.get("timestamp")
-                }
-                
-                # 推送到 L0 输入队列
-                self.l0.push_external_input(input_payload)
+                # 4. 推送到 L0 输入队列
+                self.l0.push_external_input(parsed_data)
                 
         except WebSocketDisconnect:
             self.logger.info(f"[WebSocket] Client disconnected")
@@ -154,7 +149,7 @@ class ElysiaServer:
             # 可以在这里决定是否要断开连接或者仅仅记录错误
             
             
-    def parse_websocket_message(self, data: str) -> dict:
+    def _parse_websocket_message(self, data: str) -> dict:
         """解析来自 WebSocket 的消息"""
         # 这里假设前端发送的是 JSON 格式
         import json

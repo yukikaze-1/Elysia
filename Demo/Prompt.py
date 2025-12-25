@@ -178,7 +178,7 @@ You MUST write **Chinese** in the response.
 {l3_persona_block}
 
 # Task
-Input: Raw data (Time, Latency).
+Input: Raw data (Time, Reaction Latency).
 Output: A concise summary of the internal emotional reaction called the "Core Emotion".Plus a hint on behavioral tendency called the "Behavioral Tendency".(e.g., "敦促退出" or "敦促坚持").
 """
 
@@ -187,7 +187,7 @@ L0_SubConscious_User_Prompt = """
  Time of day: {time_of_day}
  Day of Week: {day_of_week}
  Season: {season}
- Latency: {latency}s [Status: {latency_description}]
+ Reaction Latency: {user_reaction_latency}s 
  User message: {user_message}
 """
 

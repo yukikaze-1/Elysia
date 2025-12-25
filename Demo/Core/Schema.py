@@ -163,4 +163,64 @@ class ConversationSegment:
         logger.info("Conversaton Segement:")
         logger.info(f"During:{self.start_time} to {self.end_time}.Contains {len(self.messages)} messages")
         logger.info("Conversaton Segement:" + self.format_messages_to_line())
+  
+
+
+class L0InputSourceType(str, Enum):
+    """L0 输入来源类型枚举"""
+    # TODO 补充更多来源
+    WEBSOCKET = "websocket"
+    INVALID = "invalid"     # 无效来源 
+   
+   
         
+from pydantic import BaseModel, Field, computed_field, ValidationError, ConfigDict 
+       
+class WebClientMessage(BaseModel):
+    """
+    来自 Web 客户端的消息类 (Pydantic V2 版本)
+    """
+    # 1. 定义必填字段 (不写 default 值即为必填)
+    role: str = Field(..., description="发送角色，如 'user' 或 '妖梦'")
+    content: str = Field(..., min_length=1, description="消息内容，不能为空")
+    timestamp: float = Field(..., description="消息发送的时间戳")
+    last_ai_timestamp: float = Field(..., description="上一条 AI 消息完成回复的时间戳")
+
+    @computed_field
+    @property
+    def reaction_latency(self) -> float:
+        """
+        计算用户的反应延迟 (Reaction Latency)
+        逻辑：用户发送时间 - AI结束回复时间
+        """
+        latency = self.timestamp - self.last_ai_timestamp
+        # 避免因客户端时间不同步出现负数，最小为 0
+        return max(0.0, latency)
+    
+
+# 2. 假设这是未来的另一个来源 TODO 测试用
+class TelegramMessage(BaseModel):
+    chat_id: int
+    text: str
+    sender_username: str
+           
+    
+class ExternalInputEvent(BaseModel):
+    """
+    用于验证外部输入数据的 Pydantic 模型,只验证 source 字段是否合法
+    """
+    # 1. 允许传入未定义的额外字段 (如 content, user_id, timestamp 等)
+    model_config = ConfigDict(extra='allow')
+
+    # 2. 定义 source 字段，必须符合 L0InputSourceType 枚举
+    source: L0InputSourceType = Field(..., description="数据来源通道，必须是合法枚举值")
+    
+
+    
+class L0InternalQueueItem(BaseModel):
+    """
+    L0 内部消息类 (Pydantic V2 版本)
+    存放于 L0 内部队列中
+    """
+    source: L0InputSourceType = Field(..., description="消息来源")
+    payload: WebClientMessage | TelegramMessage = Field(..., description="消息载荷对象")
