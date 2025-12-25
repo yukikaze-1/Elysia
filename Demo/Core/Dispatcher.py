@@ -137,7 +137,7 @@ class Dispatcher:
 
         # 5. [L1] 调用大脑生成回复
         # 组装 Prompt 的工作通常在 L1 内部或这里完成，建议由 L1 封装
-        public_reply, inner_thought, new_mood = self.l1.generate_reply(
+        res = self.l1.generate_reply(
             user_input=user_input,
             mood=mood,
             personality=personality,
@@ -149,7 +149,7 @@ class Dispatcher:
         
         # === 构造标准消息对象 ===
         user_msg = ChatMessage.from_UserMessage(user_input)
-        ai_msg = ChatMessage(role="Elysia", content=public_reply, inner_voice=inner_thought)
+        ai_msg = ChatMessage(role="Elysia", content=res.public_reply, inner_voice=res.inner_thought)
         
         # [L0] 输出回复
         self.l0.output(ai_msg)
@@ -173,7 +173,7 @@ class Dispatcher:
         self.logger.info("Message sent to Reflector for potential long-term memory storage.")
         
         # [L3] 更新情绪
-        self.l3.update_mood(new_mood) 
+        self.l3.update_mood(res.mood) 
         self.logger.info("Persona mood updated.")
 
         self.logger.info("User input processing completed.")
@@ -251,7 +251,7 @@ class Dispatcher:
         current_time = datetime.fromtimestamp(cur_envs.time_envs.current_time)
         silence_duration = current_time - self.last_interaction_time
 
-        # 4. [L1] 决策层 (廉价 LLM 调用)
+        # 4. [L1] 决策层
         # 询问大脑："用户很久没说话了，现在是{时间}，你想说点什么吗？"
         cur_mood = self.l3.get_current_mood()
         
@@ -264,12 +264,13 @@ class Dispatcher:
             recent_conversations=recent_memories
         )
         should_speak: bool = response.should_speak
+        
         # 决定主动说话
         if should_speak:
             self.logger.info("Elysia decided to initiate conversation.")
             
             # 5. 生成主动问候语，已经在第四步完成
-            msg = ChatMessage(role="Elysia", content=response.content, inner_voice=response.reasoning)
+            msg = ChatMessage(role="Elysia", content=response.public_reply, inner_voice=response.inner_voice)
             
             # 6. 输出并记录
             self.l0.output(msg)

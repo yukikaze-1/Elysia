@@ -16,14 +16,21 @@ from Demo.Core.Schema import ChatMessage, UserMessage, DEFAULT_ERROR_INNER_THOUG
 from Demo.Logger import setup_logger
 
 
+class NormalResponse:
+    """正常对话生成模块收到的llm回复格式"""
+    def __init__(self, inner_thought: str, public_reply: str, mood: str):
+        self.inner_thought = inner_thought
+        self.public_reply = public_reply
+        self.mood = mood
+        
+
 class ActiveResponse:
     """主动开口模块收到的llm回复格式"""
-    def __init__(self, should_speak: bool, reasoning: str, mood: str, content: str):
+    def __init__(self, should_speak: bool, inner_voice: str, mood: str, public_reply: str):
         self.should_speak = should_speak
-        self.reasoning = reasoning
+        self.inner_voice = inner_voice
+        self.public_reply = public_reply
         self.mood = mood
-        self.content = content
-
         
 
 class BrainLayer:
@@ -38,7 +45,7 @@ class BrainLayer:
         self.client: OpenAI = OpenAI(api_key=os.getenv("DEEPSEEK_API_KEY"), base_url=os.getenv("DEEPSEEK_API_BETA"))
         
         # 参数配置 (可以提取到 config 文件中)
-        self.model_name = "deepseek-chat" # 或者 "deepseek-reasoner"
+        self.model_name = "deepseek-chat" 
         self.temperature = 1.3  # 较高的温度让 AI 更有人味
         
         self.logger.info("BrainLayer initialized successfully.")
@@ -52,7 +59,7 @@ class BrainLayer:
                        macro_memories: list[MacroMemory],
                        history: list[ChatMessage], 
                        l0_output: AmygdalaOutput
-                       ) -> tuple[str, str, str]:
+                       ) -> NormalResponse:
         """
         [接口方法] 核心对话生成
         采用双重思考 (Dual-Think) 模式，同时生成“内心想法”(Inner Thought) 和“公开回复”(Public Reply)
@@ -68,9 +75,7 @@ class BrainLayer:
             history: 历史对话消息列表
             l0_output: L0 模块输出的感知信息
         返回值:
-            inner_thought: AI 的内心想法
-            public_reply: AI 面向用户的公开回复
-            mood: AI 当前的情绪描述
+            NormalResponse: 包含内心想法、公开回复和情绪的对象
         """
         self.logger.info("Generating reply for user input.")
         # TODO 测试用，实际调用时请传入真实的参数
@@ -112,14 +117,16 @@ class BrainLayer:
             self.logger.info("----- End of LLM Raw Response -----")
 
             # 4. 解析
-            inner_thought, public_reply, new_mood = self.parse_llm_dual_think_response(raw_content)
+            res = self.parse_llm_dual_think_response(raw_content)
             
             self.logger.info(f"This turn useage: Token:{response.usage}")
-            return public_reply, inner_thought, new_mood
+            return res
 
         except Exception as e:
             self.logger.error(f"[L1 Error] Generate reply failed: {e}", exc_info=True)
-            return "(系统想法: 模型输出格式错误，可能是被截断或触发过滤)", "哎呀，我刚刚走神了，没听清你在说什么，能再说一遍吗？", "" # 发生错误时的兜底回复，保持沉默或简单的拟声词
+            return NormalResponse(inner_thought="(系统想法: 模型输出格式错误，可能是被截断或触发过滤)", 
+                                  public_reply="哎呀，我刚刚走神了，没听清你在说什么，能再说一遍吗？", 
+                                  mood="") # 发生错误时的兜底回复，保持沉默或简单的拟声词
     
     
     def decide_to_act(self, 
@@ -289,9 +296,9 @@ class BrainLayer:
             
             res = ActiveResponse(
                 should_speak=data['should_speak'],
-                reasoning=data['reasoning'],
-                mood=data['mood'],
-                content=data['content']
+                inner_voice=data['inner_voice'],
+                public_reply=data['public_reply'],
+                mood=data['mood']
             )
             self.logger.info("LLM output parsed into ActiveResponse.")
             return res
@@ -300,7 +307,7 @@ class BrainLayer:
             raise e
             
         
-    def parse_llm_dual_think_response(self, llm_raw_output)-> tuple[str, str, str]:
+    def parse_llm_dual_think_response(self, llm_raw_output)-> NormalResponse:
         """ 解析 LLM 双重思考回复 """
         # 1. 打印原始内容的 repr()，这样能看到空格、换行符等不可见字符
         self.logger.info(f"DEBUG: Raw Output type: {type(llm_raw_output)}")
@@ -314,7 +321,11 @@ class BrainLayer:
         try:
             data = json.loads(cleaned_output)
             self.logger.info("LLM output parsed into dual think response.")
-            return data["inner_voice"], data["reply"], data["mood"]
+            return NormalResponse(
+                inner_thought=data["inner_voice"],
+                public_reply=data["reply"],
+                mood=data["mood"]
+            )
         except json.JSONDecodeError as e:
             self.logger.error("!!! JSON 解析失败 !!!", exc_info=True)
             self.logger.error(f"错误信息: {e}")
@@ -322,5 +333,5 @@ class BrainLayer:
             
             # 3. 兜底策略 (Fallback)
             # 如果解析失败，与其让程序崩溃，不如返回一个默认回复，保证对话继续
-            return DEFAULT_ERROR_INNER_THOUGHT, DEFAULT_ERROR_PUBLIC_REPLY, DEFAULT_ERROR_MOOD
+            return NormalResponse(DEFAULT_ERROR_INNER_THOUGHT, DEFAULT_ERROR_PUBLIC_REPLY, DEFAULT_ERROR_MOOD)
     

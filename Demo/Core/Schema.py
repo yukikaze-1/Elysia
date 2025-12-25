@@ -102,16 +102,16 @@ import logging
 
 class ChatMessage:
     """聊天消息类，包含角色、内容、内心独白、时间戳等信息"""
-    def __init__(self, role: str, content , inner_voice: str , timestamp: float | None = None):
+    def __init__(self, role: str, content: str , inner_voice: str , timestamp: float | None = None):
         self.role: str = role
-        self.content = content
+        self.content: str = content
         self.inner_voice: str = inner_voice
         self.timestamp: float = timestamp if timestamp else time.time()
     
     @classmethod
     def from_ChatCompletionMessage(cls, message: ChatCompletionMessage, timestamp: int):
         return cls(role=message.role, 
-                   content=message.content, 
+                   content=message.content if message.content else "", 
                    inner_voice="",
                    timestamp=float(timestamp))
     
