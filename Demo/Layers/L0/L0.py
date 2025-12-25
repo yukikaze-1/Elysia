@@ -95,13 +95,13 @@ class SensorLayer:
         self.logger.info(f"Output channel {channel.__class__.__name__} added to L0 SensorLayer.")    
         
         
-    def output(self, msg: ChatMessage):
-        """[接口方法] 遍历所有通道进行广播"""
-        for channel in self.channels:
-            try:
-                channel.send_message(msg)
-            except Exception as e:
-                print(f"[L0 Error] Channel send failed: {e}")
+    # def output(self, msg: ChatMessage):
+    #     """[接口方法] 遍历所有通道进行广播"""
+    #     for channel in self.channels:
+    #         try:
+    #             channel.send_message(msg)
+    #         except Exception as e:
+    #             print(f"[L0 Error] Channel send failed: {e}")
                 
                 
     def push_external_input(self, data: dict):

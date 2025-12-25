@@ -323,7 +323,7 @@ class BrainLayer:
             self.logger.info("LLM output parsed into dual think response.")
             return NormalResponse(
                 inner_thought=data["inner_voice"],
-                public_reply=data["reply"],
+                public_reply=data["public_reply"],
                 mood=data["mood"]
             )
         except json.JSONDecodeError as e:

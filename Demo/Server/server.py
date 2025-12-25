@@ -1,4 +1,5 @@
 import asyncio
+from math import e
 import threading
 from contextlib import asynccontextmanager
 from typing import Optional
@@ -16,6 +17,7 @@ from Demo.Layers.L0.L0 import SensorLayer
 from Demo.Layers.L1 import BrainLayer
 from Demo.Layers.L2 import MemoryLayer
 from Demo.Layers.L3 import PersonaLayer
+from Demo.Layers.Actuator.ActuatorLayer import ActuatorLayer, ActionType
 from Demo.Workers.Reflector.Reflector import Reflector
 from Demo.Server.ConnectionManager import ConnectionManager
 from Demo.Logger import setup_logger
@@ -33,15 +35,16 @@ class ElysiaServer:
         self.l1 = BrainLayer()
         self.l2 = MemoryLayer()
         self.l3 = PersonaLayer()
-        self.reflector = Reflector()
+        self.reflector = Reflector(event_bus=self.bus)
+        self.actuator = ActuatorLayer(event_bus=self.bus)
         
         # 初始化调度器
         self.dispatcher = Dispatcher(
-            self.bus, self.l0, self.l1, self.l2, self.l3, self.reflector
+            self.bus, self.l0, self.l1, self.l2, self.l3, self.actuator, self.reflector, 
         )
 
         # 线程句柄
-        self.dispatcher_thread: Optional[threading.Thread] = None
+        self.dispatcher_thread: Optional[threading.Thread] = None   # Dispatcher 线程句柄
 
         # 2. 初始化 FastAPI App
         # 注意：这里将 self.lifespan 传递给 FastAPI
@@ -60,11 +63,13 @@ class ElysiaServer:
             allow_headers=["*"],
         )
 
+
     def _setup_routes(self):
         """注册路由"""
         # 注意：这里直接绑定类的方法
         self.app.get("/")(self.root)
         self.app.websocket("/ws")(self.websocket_endpoint)
+
 
     @asynccontextmanager
     async def lifespan(self, app: FastAPI):
@@ -79,8 +84,8 @@ class ElysiaServer:
         except RuntimeError:
             self.logger.warning(">>> [Warning] No running event loop found for ConnectionManager.")
 
-        # 2. 关键：将 WebSocket 管理器注册为 L0 的输出通道 (嘴巴)
-        self.l0.add_channel(self.manager)
+        # 2. 关键：将 WebSocket 管理器注册为 Actuator 的输出通道 (嘴巴)
+        self.actuator.add_channel(self.manager)
 
         # 3. 启动各个组件的线程
         self.logger.info(">>> [System] Starting Layer Threads...")
@@ -122,6 +127,7 @@ class ElysiaServer:
                 "dispatcher": "Running" if self.dispatcher_thread and self.dispatcher_thread.is_alive() else "Stopped"
             }
         }
+
 
     async def websocket_endpoint(self, websocket: WebSocket):
         """WebSocket 连接处理"""

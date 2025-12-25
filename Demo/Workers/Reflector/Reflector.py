@@ -21,9 +21,9 @@ class Reflector:
     Reflector Worker (包装器)
     负责调度 MemoryReflector 在后台运行，不阻塞主对话流程。
     """
-    def __init__(self):
+    def __init__(self, event_bus: EventBus = global_event_bus):
         self.logger: Logger = setup_logger("Reflector")
-        self.bus: EventBus = global_event_bus
+        self.bus: EventBus = event_bus
         self.running: bool = False
         
         # 1. 实例化你的业务逻辑核心

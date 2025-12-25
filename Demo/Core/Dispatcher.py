@@ -11,6 +11,7 @@ from Demo.Layers.L1 import ActiveResponse, BrainLayer
 from Demo.Layers.L2 import MemoryLayer
 from Demo.Layers.L3 import PersonaLayer
 from Demo.Workers.Reflector.Reflector import Reflector
+from Demo.Layers.Actuator.ActuatorLayer import ActuatorLayer, ActionType
 from Demo.Logger import setup_logger
 
 from Demo.Utils import timedelta_to_text
@@ -29,7 +30,9 @@ class Dispatcher:
                  l1: BrainLayer = BrainLayer(), 
                  l2: MemoryLayer = MemoryLayer(),
                  l3: PersonaLayer = PersonaLayer(), 
-                 reflector: Reflector = Reflector()):
+                 actuator: ActuatorLayer = ActuatorLayer(),
+                 reflector: Reflector = Reflector()
+                 ):
         """
         初始化调度器，注入所有依赖层
         """
@@ -39,6 +42,7 @@ class Dispatcher:
         self.l1: BrainLayer = l1  # 大脑层
         self.l2: MemoryLayer = l2  # 记忆层
         self.l3: PersonaLayer = l3  # 人格层
+        self.actuator: ActuatorLayer = actuator  # 执行层
         self.reflector: Reflector = reflector # 反思者
         
         self.running = False
@@ -119,12 +123,13 @@ class Dispatcher:
         self.logger.info(f"Processing user input: {user_input.to_str()}")
         
         # 输出用户输入
-        self.l0.output(ChatMessage.from_UserMessage(user_input))
+        # self.l0.output(ChatMessage.from_UserMessage(user_input))
+        self.actuator.perform_action(ActionType.SPEECH, ChatMessage.from_UserMessage(user_input))
 
         # 1. 更新交互时间
         self.last_interaction_time = datetime.now()
         
-        # 2. [L0] 输出
+        # 2. [Actuator] 输出
         l0_output = event.metadata.get("AmygdalaOutput", AmygdalaOutput("", EnvironmentInformation(TimeInfo())) )
 
         # 3. [L2] 检索相关记忆 (Short-term + Long-term)
@@ -151,8 +156,9 @@ class Dispatcher:
         user_msg = ChatMessage.from_UserMessage(user_input)
         ai_msg = ChatMessage(role="Elysia", content=res.public_reply, inner_voice=res.inner_thought)
         
-        # [L0] 输出回复
-        self.l0.output(ai_msg)
+        # [Actuator] 输出回复
+        # self.l0.output(ai_msg)
+        self.actuator.perform_action(ActionType.SPEECH, ai_msg)
         
         # 6. [L2] 写入短时记忆
         # === 分发给 L2 (为了下一句能接上话) ===
@@ -254,8 +260,9 @@ class Dispatcher:
         # 4. [L1] 决策层
         # 询问大脑："用户很久没说话了，现在是{时间}，你想说点什么吗？"
         cur_mood = self.l3.get_current_mood()
-        
+        # 读取近期记忆
         recent_memories = self.l2.get_recent_summary(limit=5)
+        # 调用LLM
         response: ActiveResponse = self.l1.decide_to_act(
             silence_duration=silence_duration,
             last_speaker=self.last_speaker,
@@ -272,15 +279,17 @@ class Dispatcher:
             # 5. 生成主动问候语，已经在第四步完成
             msg = ChatMessage(role="Elysia", content=response.public_reply, inner_voice=response.inner_voice)
             
-            # 6. 输出并记录
-            self.l0.output(msg)
-            # 发送给L2，存入session
+            # 6. 输出
+            self.actuator.perform_action(ActionType.SPEECH, msg)
+            
+            # 7. 记忆更新
             self.l2.add_short_term_memory(messages=[msg])
-            # 发送给Reflector，存入长期记忆
             self.reflector.on_new_message(msg)
-            # 更新情绪
+            
+            # 8. 更新情绪
             self.l3.update_mood(response.mood)
-            # 重置主动交互时间，避免连续触发
+            
+            # 9. 重置主动交互时间，避免连续触发
             tmp_time = datetime.now()
             self.last_ai_reply_time = tmp_time
             self.last_interaction_time = tmp_time
