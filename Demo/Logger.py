@@ -16,7 +16,7 @@ def setup_logger(name: str, log_dir: str = DEFAULT_LOG_PATH) -> logging.Logger:
     """
     # 1. 获取 logger
     logger = logging.getLogger(name)
-    logger.setLevel(logging.DEBUG)  # TODO 可根据需要调整日志级别
+    logger.setLevel(logging.INFO)  # TODO 可根据需要调整日志级别
 
     # 2. 【关键】检查是否已经添加过 handler，防止重复打印！
     if logger.handlers:

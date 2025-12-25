@@ -11,7 +11,6 @@ from typing import Optional
 import threading
 import time
 import os
-import uuid
 import queue
 from datetime import datetime
 
@@ -44,7 +43,8 @@ class SensorLayer:
         self.bus: EventBus = event_bus  # 事件总线
         self.running: bool = False
         
-        self._listener_thread: Optional[threading.Thread] = None  # 输入监听线程
+        # 线程句柄
+        # self._listener_thread: Optional[threading.Thread] = None  # 输入监听线程 // 已弃用
         self._processor_thread: Optional[threading.Thread] = None # 新增处理线程
         self._tick_thread: Optional[threading.Thread] = None    # 心跳线程
 
@@ -62,10 +62,11 @@ class SensorLayer:
         
         self.running = True
         
-        # 1. 启动console 监听线程 (Producer) 
-        self._listener_thread = threading.Thread(target=self._console_listener_loop, daemon=True)
-        self._listener_thread.start()
-        self.logger.info("L0 SensorLayer listener thread started.")
+        # 弃用控制台监听，改为外部推送输入
+        # # 1. 启动console 监听线程 (Producer) 
+        # self._listener_thread = threading.Thread(target=self._console_listener_loop, daemon=True)
+        # self._listener_thread.start()
+        # self.logger.info("L0 SensorLayer listener thread started.")
         
         # 2. 启动处理线程 (Consumer) 
         self.logger.info("L0 SensorLayer starting processor thread...")
@@ -112,28 +113,29 @@ class SensorLayer:
     # === 内部线程方法 ===
     # ===============================================================================================
     
-    def _console_listener_loop(self):
-        """
-        [生产者] 纯粹的 IO 监听。
-        只负责：阻塞等待用户输入 -> 放入队列。
-        """
-        self.logger.info(">>> IO Listener started (Console Mode)")
-        while self.running:
-            try:
-                # 这一步是阻塞的，如果是 WebSocket，这里就是 await websocket.recv()
-                raw_input: str = input("User: ")
+    # 已弃用
+    # def _console_listener_loop(self):
+    #     """
+    #     [生产者] 纯粹的 IO 监听。
+    #     只负责：阻塞等待用户输入 -> 放入队列。
+    #     """
+    #     self.logger.info(">>> IO Listener started (Console Mode)")
+    #     while self.running:
+    #         try:
+    #             # 这一步是阻塞的，如果是 WebSocket，这里就是 await websocket.recv()
+    #             raw_input: str = input("User: ")
                 
-                if not raw_input.strip():
-                    continue
+    #             if not raw_input.strip():
+    #                 continue
                     
-                # 将原始素材放入队列，立即返回监听下一句，不阻塞 IO
-                self.input_queue.put(raw_input)
+    #             # 将原始素材放入队列，立即返回监听下一句，不阻塞 IO
+    #             self.input_queue.put(raw_input)
                 
-            except EOFError:
-                self.stop_threads()
-                break
-            except Exception as e:
-                self.logger.error(f"Listener Error: {e}")
+    #         except EOFError:
+    #             self.stop_threads()
+    #             break
+    #         except Exception as e:
+    #             self.logger.error(f"Listener Error: {e}")
                 
                 
     def _input_processing_loop(self):
