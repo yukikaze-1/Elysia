@@ -266,7 +266,9 @@ You will receive a transcript containing:
   }}
 ]
 """
-MicroReflector_UserPrompt = """Here is the recent raw interaction log:\n\n{transcript}"""
+MicroReflector_UserPrompt = """Here is the recent raw interaction log:
+{transcript}\
+"""
 
 
 MacroReflector_SystemPrompt ="""

@@ -38,7 +38,6 @@ class SensorLayer:
         # 业务组件
         self.sensory_processor: SensoryProcessor = SensoryProcessor(self.logger)    # 感官处理器
         self.amygdala: Amygdala = Amygdala(self.openai_client, self.logger)         # 本能反应器
-        self.channels: list[OutputChannel] = [ConsoleChannel()]                     # 输出通道 
         
         # 输入缓冲队列
         self.input_queue: queue.Queue = queue.Queue()
@@ -48,7 +47,6 @@ class SensorLayer:
         self.running: bool = False
         
         # 线程句柄
-        # self._listener_thread: Optional[threading.Thread] = None  # 输入监听线程 // 已弃用
         self._processor_thread: Optional[threading.Thread] = None # 新增处理线程
         self._tick_thread: Optional[threading.Thread] = None    # 心跳线程
 
@@ -57,6 +55,17 @@ class SensorLayer:
     # ===============================================================================================
     # === 对外接口方法 ===
     # ===============================================================================================
+    
+    def get_status(self) -> dict:
+        """获取 L0 模块状态"""
+        status = {
+            "sensory_processor": self.sensory_processor.get_status(),
+            "amygdala": self.amygdala.get_status(),
+            "running": self.running,
+            "input_queue_size": self.input_queue.qsize()
+        }
+        return status
+    
 
     def start_threads(self):
         """[接口方法] 启动感知线程"""
@@ -77,31 +86,13 @@ class SensorLayer:
         self._tick_thread = threading.Thread(target=self._tick_loop, daemon=True)
         self._tick_thread.start()
         self.logger.info("L0 SensorLayer tick thread started.")
-    
-    # =================================================================================================
-    # === 对外暴露的接口方法 ===
-    # =================================================================================================    
+
         
     def stop_threads(self):
         """[接口方法] 停止感知"""
         self.running = False
         # 线程会随着 while 循环条件变为 False 而自然结束
         self.logger.info("L0 SensorLayer threads stopping...")
-    
-    
-    def add_channel(self, channel: OutputChannel):
-        """[接口方法] 添加输出通道"""
-        self.channels.append(channel)
-        self.logger.info(f"Output channel {channel.__class__.__name__} added to L0 SensorLayer.")    
-        
-        
-    # def output(self, msg: ChatMessage):
-    #     """[接口方法] 遍历所有通道进行广播"""
-    #     for channel in self.channels:
-    #         try:
-    #             channel.send_message(msg)
-    #         except Exception as e:
-    #             print(f"[L0 Error] Channel send failed: {e}")
                 
                 
     def push_external_input(self, data: dict):
@@ -116,19 +107,21 @@ class SensorLayer:
         # 2. Pydantic 核心校验逻辑
         try:
             event = ExternalInputEvent.model_validate(data)
-            
         except ValidationError as e:
             error_msg = e.json(include_url=False) # include_url=False 去掉文档链接，精简日志
             self.logger.warning(f"Rejected invalid external input: {error_msg}")
             return
 
         source_enum: L0InputSourceType = event.source
-        
         self.logger.info(f"Received external input from source: {source_enum.value}")
         
         # 4. 推送到内部队列
         self._push_external_input(source_enum, event.model_dump(exclude={"source"}))
             
+    
+    # =================================================================================================
+    # === 内部线程方法 ===
+    # =================================================================================================
     
     def _push_external_input(self, source: L0InputSourceType, data: dict):
         """ 根据不同来源构造不同消息类型 """
@@ -153,10 +146,6 @@ class SensorLayer:
                 return
         else:
             self.logger.warning(f"Unsupported external input source: {source}. Input ignored.")
-    
-    # =================================================================================================
-    # === 内部线程方法 ===
-    # =================================================================================================
                 
     def _input_processing_loop(self):
         """

@@ -144,20 +144,12 @@ from datetime import datetime
 class TimeSensor:
     def __init__(self, logger: logging.Logger):
         self.logger: logging.Logger = logger
-        # self.last_message_timestamp = 0.0  # 上次消息时间戳
     
     def get_time(self)->TimeInfo:
         """获取时间信息"""
         self.logger.info("TimeSensor: Getting current time information...")
         current_time  = time.time()
-        # # TODO 只是为了测试加上的-100，待修改
-        # if self.last_message_timestamp == 0.0:
-        #     self.last_message_timestamp = current_time - 100  
-        # user_latency = current_time - self.last_message_timestamp
-        res = TimeInfo(current_time=current_time, 
-                    #    user_latency=user_latency, 
-                    #    last_message_timestamp=self.last_message_timestamp
-        )
+        res = TimeInfo(current_time=current_time)
         self.logger.info(f"TimeSensor: Current time information: {res.to_dict()}")
         return res
     
@@ -186,4 +178,11 @@ class SensoryProcessor:
         self.logger.info("Environment information perception completed.")
         return EnvironmentInformation(time_envs=time_envs)
 
+
+    def get_status(self) -> dict:
+        """获取 SensoryProcessor 状态"""
+        status = {
+            "sensors": ["TimeSensor"]
+        }
+        return status
     

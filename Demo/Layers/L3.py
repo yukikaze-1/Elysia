@@ -364,6 +364,8 @@ class CoreIdentity:
 from Demo.Logger import setup_logger
 import logging
 from Demo.Core.Schema import DEFAULT_ERROR_MOOD
+from Demo.Prompt import l3_persona_example
+
 
 class PersonaLayer:
     """
@@ -375,6 +377,7 @@ class PersonaLayer:
         # 在实际项目中，这里应该从 JSON/YAML 加载设定
         # self.character_identity = self._load_from_config(config_path)
         self.mood: str = "Elysia 当前心情愉快，渴望与用户深入交流。"
+        self.prompt:str =  l3_persona_example
         self.logger.info("PersonaLayer initialized with CoreIdentity.")
         
     # =========================================
@@ -398,8 +401,7 @@ class PersonaLayer:
     def get_persona_prompt(self)->str:
         """生成人设prompt"""
         # TODO 这会很复杂
-        from Demo.Prompt import l3_persona_example
-        return l3_persona_example
+        return self.prompt
     
     # =========================================
     # 接口 3: 主动性判断 (被 Dispatcher 的 Heartbeat 逻辑调用)
@@ -408,11 +410,24 @@ class PersonaLayer:
         """ 是否具备主动发起对话的条件 """
         return True  # TODO 待实现，调用llm判断
     
-    
+    # =========================================
+    # 接口 4: 获取当前心情描述 
+    # =========================================
     def get_current_mood(self)->str:
         """获取当前心情描述"""
         # TODO 待实现
         return self.mood
+    
+    # =========================================
+    # 接口 5: 获取当前状态快照 (DashBoard 调用)
+    # =========================================
+    def get_status(self)->dict:
+        """获取当前状态快照"""
+        return {
+            "mood": self.mood,
+            "prompt": self.prompt,
+            # TODO 添加更多状态信息
+        }
     
 # @dataclass
 # class CoreIdentity:

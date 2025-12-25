@@ -21,6 +21,13 @@ class ActuatorLayer:
         self.bus: EventBus = event_bus
         self.channels: List[OutputChannel] = []
         self.logger.info(">>> ActuatorLayer Initialized.")
+        
+    def get_status(self) -> dict:
+        """获取 ActuatorLayer 状态"""
+        status = {
+            "registered_channels": [channel.__class__.__name__ for channel in self.channels]
+        }
+        return status
 
 
     def add_channel(self, channel: OutputChannel):
@@ -31,7 +38,7 @@ class ActuatorLayer:
     def perform_action(self, action_type: ActionType, content: Any):
         """
         执行动作的总入口
-        Dispatcher 不再调用 l0.output，而是调用 actuator.perform_action
+        Dispatcher调用 
         """
         if action_type == ActionType.SPEECH:
             self._speak(content)

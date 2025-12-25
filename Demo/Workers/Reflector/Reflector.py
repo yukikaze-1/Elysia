@@ -28,7 +28,6 @@ class Reflector:
         
         # 1. 实例化你的业务逻辑核心
         # 注意：这里我们让 MemoryReflector 自己管理它的 MemoryLayer 连接
-        # 如果你想共享连接，需要修改 MemoryReflector 的 __init__ 接受外部传入的 l2_agent
         self.reflector = MemoryReflector(self.logger) 
 
         # 2. 缓冲池
@@ -40,13 +39,26 @@ class Reflector:
         # 比如 1. 空闲10分钟触发 2. buffer满触发 
         # 此处简单的以 buffer 满足一定数量触发
         self.micro_threshold = 5
+        # TODO 应该写在文件中，记录上次运行时间，每次启动时从文件中读取
         self.last_macro_run = datetime.now()
         
         # 4. 后台线程
         self._worker_thread = None
         
         self.logger.info(">>> Reflector Worker Initialized.")
-
+        
+    
+    def get_status(self) -> dict:
+        """获取 Reflector Worker 状态"""
+        status = {
+            "running": self.running,
+            "buffer_size": len(self.buffer),
+            "micro_threshold": self.micro_threshold,
+            "last_macro_run": self.last_macro_run.strftime("%Y-%m-%d %H:%M:%S"),
+            "micro_reflector_status": self.reflector.micro_reflector.get_status(),
+            "macro_reflector_status": self.reflector.macro_reflector.get_status(),
+        }
+        return status
 
     def start(self):
         """启动后台监视线程"""

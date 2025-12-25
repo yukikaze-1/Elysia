@@ -49,6 +49,20 @@ class SessionState:
         self.last_interaction_time: float = time.time()  # 最后交互时间戳
         
         self._load_session()
+        
+    
+    def get_status(self) -> dict:
+        """获取当前会话状态的摘要信息"""
+        status = {
+            "user_name": self.user_name,
+            "role": self.role,
+            "max_messages_limit": self.max_messages_limit,
+            "max_inner_limit": self.max_inner_limit,
+            "total_messages": len(self.conversations),
+            "last_interaction_time": self.last_interaction_time,
+            "last_few_messages": [msg.to_dict() for msg in self.conversations[-10:]]  # 最近10条消息
+        }
+        return status
 
     
     def add_messages(self, messages: list[ChatMessage]):

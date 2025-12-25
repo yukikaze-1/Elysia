@@ -85,6 +85,7 @@ from Demo.Utils import parse_json
 from openai import OpenAI
 from datetime import datetime
 from logging import Logger
+import time
 
 
 class MicroReflector:
@@ -96,6 +97,23 @@ class MicroReflector:
         self.milvus_agent: 'MemoryLayer' = milvus_agent
         self.system_prompt: str = MicroReflector_SystemPrompt
         self.user_prompt: str = MicroReflector_UserPrompt
+        
+        self.last_micro_reflection_time: float = 0.0  # 上一次micro reflection的时间
+        self.last_micro_reflection_log: list[MicroMemory] = []  # 上一次micro reflection的结果日志(Dashboard用)
+        
+    
+    def get_status(self) -> dict:
+        """获取当前 MicroReflector 状态的摘要信息"""
+        # TODO 加一个计数器，计算处理了多少条记忆，生成了多少条记忆，然后保存在文件中,启动时从文件加载
+        status = {
+            "collection_name": self.collection_name,
+            "system_prompt": self.system_prompt,
+            "user_prompt": self.user_prompt,
+            "last_micro_reflection_time": datetime.fromtimestamp(self.last_micro_reflection_time).strftime("%Y-%m-%d %H:%M:%S") if self.last_micro_reflection_time > 0 else "Never",
+            "last_micro_reflection_log_count": len(self.last_micro_reflection_log),
+            "last_micro_reflection_log": [mem.to_dict() for mem in self.last_micro_reflection_log]
+        }
+        return status
     
     
     def run_micro_reflection(self, conversations: list[ChatMessage])->list[MicroMemory]:
@@ -106,15 +124,20 @@ class MicroReflector:
         
         self.logger.info("--- [Reflector] Starting Micro-Reflection ---")
         
+        # 1. 进行对话切割
         segments: list[ConversationSegment] = self.conversation_split(conversations)
         memories: list[MicroMemory] = []
         
-        # 对每一个对话块进行抽取
+        # 2. 对每一个对话块进行抽取
         for segment in segments:
             memory = self._run_micro_reflection_aux(segment)
             memories += memory
             
-        # 存储
+        # 4. 记录日志
+        self.last_micro_reflection_log = memories
+        self.last_micro_reflection_time = time.time()
+        
+        # 5. 存储
         self.save_reflection_results(memories)
         
         return memories

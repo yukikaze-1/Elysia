@@ -23,6 +23,14 @@ class NormalResponse:
         self.public_reply = public_reply
         self.mood = mood
         
+    def to_dict(self) -> dict:
+        """将 NormalResponse 转换为字典格式"""
+        return {
+            "inner_thought": self.inner_thought,
+            "public_reply": self.public_reply,
+            "mood": self.mood
+        }
+        
 
 class ActiveResponse:
     """主动开口模块收到的llm回复格式"""
@@ -31,6 +39,15 @@ class ActiveResponse:
         self.inner_voice = inner_voice
         self.public_reply = public_reply
         self.mood = mood
+        
+    def to_dict(self) -> dict:
+        """将 ActiveResponse 转换为字典格式"""
+        return {
+            "should_speak": self.should_speak,
+            "inner_voice": self.inner_voice,
+            "public_reply": self.public_reply,
+            "mood": self.mood
+        }
         
 
 class BrainLayer:
@@ -48,8 +65,23 @@ class BrainLayer:
         self.model_name = "deepseek-chat" 
         self.temperature = 1.3  # 较高的温度让 AI 更有人味
         
-        self.logger.info("BrainLayer initialized successfully.")
+        # 最后一次思考日志
+        self.last_thinking_log : NormalResponse | ActiveResponse | None = None
         
+        self.logger.info("BrainLayer initialized successfully.")
+    
+    # ===========================================================================================================================
+    # 接口方法
+    # ===========================================================================================================================
+    
+    def get_status(self) -> dict:
+        """获取当前大脑层状态的摘要信息"""
+        status = {
+            "model_name": self.model_name,
+            "temperature": self.temperature,
+            "last_thinking_log": self.last_thinking_log.to_dict() if self.last_thinking_log else None
+        }
+        return status    
 
     def generate_reply(self, 
                        user_input: UserMessage, 
@@ -117,7 +149,10 @@ class BrainLayer:
             self.logger.info("----- End of LLM Raw Response -----")
 
             # 4. 解析
-            res = self.parse_llm_dual_think_response(raw_content)
+            res: NormalResponse = self.parse_llm_dual_think_response(raw_content)
+            
+            # 5. 将最后一次思考日志保存到属性中
+            self.last_thinking_log = res
             
             self.logger.info(f"This turn useage: Token:{response.usage}")
             return res
@@ -151,14 +186,14 @@ class BrainLayer:
         self.logger.info("Deciding whether to initiate conversation.")
         current_mood =  cur_mood
         
-        # 格式化最近对话
+        # 1. 格式化最近对话
         lines = []
         for msg in recent_conversations:
             lines.append(f'  {msg.role}: {msg.content} | {msg.timestamp} | {datetime.fromtimestamp(msg.timestamp)}')
         recent_convs =  "[\n" + "\n".join(lines) + "\n]"
         self.logger.info(f"Recent conversations formatted: {recent_convs}")
         
-        # 构造system prompt
+        # 2. 构造system prompt
         system_prompt = l1_decide_to_act_template.format(
             user_name="妖梦",
             last_speaker=last_speaker,
@@ -174,14 +209,14 @@ class BrainLayer:
         messages.append({"role": "assistant", "content": "{\n", "prefix": True})
         self.logger.info("Messages for decide_to_act constructed.")
         
-        # 调用llm
+        # 3. 调用llm
         response = self.client.chat.completions.create(
             model="deepseek-chat",
             messages=messages,
             stream=False
         )
         self.logger.info("LLM response received for decide_to_act.")
-        # 处理回复
+        # 4. 处理回复
         # 因为是对话前缀续写，需要手动加上'{'组成完整的json格式
         raw_content = response.choices[0].message.content
         if raw_content:
@@ -190,8 +225,11 @@ class BrainLayer:
         self.logger.info(raw_content)
         self.logger.info("----- End of LLM Raw Response -----")
         
-        # 解析
+        # 5. 解析
         res: ActiveResponse = self.parse_llm_decide_to_act_response(raw_content)
+        
+        # 6. 将最后一次思考日志保存到属性中
+        self.last_thinking_log = res
         self.logger.info("------------------------------------------------------------------------------------------------")
         return res
     

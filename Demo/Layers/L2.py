@@ -50,27 +50,8 @@ class MemoryLayer:
         self.micro_memeory_collection_name = micro_memeory_collection_name if micro_memeory_collection_name else "micro_memory"
         self.macro_memeory_collection_name = macro_memeory_collection_name if macro_memeory_collection_name else "macro_memory"
         
-        # 检查并创建micro memory集合
-        if not self.milvus_client.has_collection(self.micro_memeory_collection_name):
-            self.logger.warning(f"No collection named {self.micro_memeory_collection_name}!")
-            self.logger.info("Creating...")
-            create_micro_memory_collection(self.micro_memeory_collection_name, self.milvus_client)
-            self.logger.info(f"Created collection '{self.micro_memeory_collection_name}'")
-        else:
-            # 预加载
-            self.milvus_client.load_collection(self.micro_memeory_collection_name)
-            self.logger.info(f"Loaded collection '{self.micro_memeory_collection_name}'")
-            
-        # 检查并创建macro memory集合
-        if not self.milvus_client.has_collection(self.macro_memeory_collection_name):
-            self.logger.warning(f"No collection named {self.macro_memeory_collection_name}!")
-            self.logger.info("Creating...")
-            create_macro_memory_collection(self.macro_memeory_collection_name, self.milvus_client)
-            self.logger.info(f"Created collection '{self.macro_memeory_collection_name}'")
-        else:
-            # 预加载
-            self.milvus_client.load_collection(self.macro_memeory_collection_name)
-            self.logger.info(f"Loaded collection '{self.macro_memeory_collection_name}'")
+        # 检查并创建集合
+        self._check_milvus_collections()
             
         # 初始化 Embedding 模型
         self.embedding_model: HuggingFaceEmbeddings = create_embedding_model(debug_info="L2 Memory Layer Embedding Model")
@@ -131,11 +112,48 @@ class MemoryLayer:
         """
         # 因为要将sessionstate的信息保存到磁盘
         self.session._save_session()
+        
+    
+    def get_status(self) -> dict:
+        """
+        [接口方法] 获取记忆层状态信息(Dashboard 用)
+        返回: 状态字典
+        """
+        status = {
+            "micro_memory_collection": self.micro_memeory_collection_name,
+            "macro_memory_collection": self.macro_memeory_collection_name,
+            "session_status": self.session.get_status()
+        }
+        return status
     
     
     # ===========================================================================================================================
     # 内部函数实现
     # ===========================================================================================================================
+    
+    def _check_milvus_collections(self):
+         # 检查并创建micro memory集合
+        if not self.milvus_client.has_collection(self.micro_memeory_collection_name):
+            self.logger.warning(f"No collection named {self.micro_memeory_collection_name}!")
+            self.logger.info("Creating...")
+            create_micro_memory_collection(self.micro_memeory_collection_name, self.milvus_client)
+            self.logger.info(f"Created collection '{self.micro_memeory_collection_name}'")
+        else:
+            # 预加载
+            self.milvus_client.load_collection(self.micro_memeory_collection_name)
+            self.logger.info(f"Loaded collection '{self.micro_memeory_collection_name}'")
+            
+        # 检查并创建macro memory集合
+        if not self.milvus_client.has_collection(self.macro_memeory_collection_name):
+            self.logger.warning(f"No collection named {self.macro_memeory_collection_name}!")
+            self.logger.info("Creating...")
+            create_macro_memory_collection(self.macro_memeory_collection_name, self.milvus_client)
+            self.logger.info(f"Created collection '{self.macro_memeory_collection_name}'")
+        else:
+            # 预加载
+            self.milvus_client.load_collection(self.macro_memeory_collection_name)
+            self.logger.info(f"Loaded collection '{self.macro_memeory_collection_name}'")
+            
     
     def save_micro_memory(self, memories: list[MicroMemory]):
         """

@@ -94,6 +94,24 @@ class MacroReflector:
         self.system_prompt: str = MacroReflector_SystemPrompt
         self.user_prompt: str = MacroReflector_UserPrompt
         
+        self.last_macro_reflection_time: float = 0.0  # 上一次macro reflection的时间
+        self.last_macro_reflection_log: list[MacroMemory] = []  # 上一次macro reflection的结果日志(Dashboard用) 
+        
+    
+    def get_status(self) -> dict:
+        """获取 MacroReflector 状态"""
+        # TODO 加一个计数器，计算处理了多少条记忆，生成了多少条记忆，然后保存在文件中,启动时从文件加载
+        status = {
+            "collection_name": self.collection_name,
+            "system_prompt": self.system_prompt,
+            "user_prompt": self.user_prompt,
+            "last_macro_reflection_time": datetime.fromtimestamp(self.last_macro_reflection_time).strftime("%Y-%m-%d %H:%M:%S") if self.last_macro_reflection_time > 0 else "Never",
+            "last_macro_reflection_log_count": len(self.last_macro_reflection_log),
+            # "last_macro_reflection_log": self.last_macro_reflection_log[0].to_dict() if len(self.last_macro_reflection_log) > 0 else None
+            "last_macro_reflection_log": [mem.to_dict() for mem in self.last_macro_reflection_log]
+        }
+        return status
+        
         
     def gather_daily_memories(self)-> list[MicroMemory]:
         """汇集一天的记忆"""
@@ -184,6 +202,10 @@ class MacroReflector:
         macro_memories: list[MacroMemory] = []
         for mem in macro_memories_llm_out:
             macro_memories.append(MacroMemory.from_macro_memory_llm_out(mem, timestamp))
+            
+        # 记录日志
+        self.last_macro_reflection_log = macro_memories
+        self.last_macro_reflection_time = time.time()
             
         # 将结果存入数据库milvus
         self.save_reflection_results(macro_memories)

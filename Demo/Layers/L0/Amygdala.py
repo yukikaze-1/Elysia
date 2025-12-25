@@ -61,10 +61,18 @@ class Amygdala:
     def __init__(self, openai_client: OpenAI, logger: logging.Logger):
         self.openai_client = openai_client
         self.logger = logger
-        self.l3_core_dientity: str = self.get_l3_core_dientity()
+        self.l3_core_identity: str = self.get_l3_core_identity()
         
+    
+    def get_status(self) -> dict:
+        """获取当前杏仁核状态的摘要信息"""
+        status = {
+            "l3_core_identity": self.l3_core_identity
+        }
+        return status
+    
         
-    def get_l3_core_dientity(self):
+    def get_l3_core_identity(self)->str:
         """获取L3核心身份信息"""
         # TODO 从L3模块获取
         from Demo.Prompt import l3_elysia_persona_block
@@ -93,7 +101,7 @@ class Amygdala:
         from Demo.Prompt import L0_SubConscious_System_Prompt, L0_SubConscious_User_Prompt
         system_prompt = L0_SubConscious_System_Prompt.format(
             character_name="Elysia",
-            l3_persona_block=self.get_l3_core_dientity()
+            l3_persona_block=self.get_l3_core_identity()
         )
         user_prompt = L0_SubConscious_User_Prompt.format(
             current_time=dt.strftime("%Y-%m-%d %H:%M:%S"),

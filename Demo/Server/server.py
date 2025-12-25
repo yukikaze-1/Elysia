@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 # === 引入你的 Agent 核心组件 ===
 from Demo.Core.EventBus import EventBus, Event, global_event_bus
 from Demo.Core.Dispatcher import Dispatcher
-from Demo.Core.Schema import EventType, EventContentType, EventSource, UserMessage
+from Demo.Core.Schema import EventType, EventContentType, EventSource, UserMessage, L0InputSourceType
 from Demo.Layers.L0.L0 import SensorLayer
 from Demo.Layers.L1 import BrainLayer
 from Demo.Layers.L2 import MemoryLayer
@@ -69,7 +69,42 @@ class ElysiaServer:
         # 注意：这里直接绑定类的方法
         self.app.get("/")(self.root)
         self.app.websocket("/ws")(self.websocket_endpoint)
+        
+        # === 新增：Dashboard 专用接口 ===
+        self.app.get("/dashboard/snapshot")(self.get_system_snapshot)
+        # self.app.post("/dashboard/control")(self.control_system) # (可选) 用于手动控制
 
+    # 2. 新增 handler 方法：获取系统快照
+    async def get_system_snapshot(self):
+        """
+        上帝视角：聚合所有层级的状态
+        Streamlit 将每隔几秒调用一次这个接口
+        """
+        return {
+            "system": {
+                "dispatcher_alive": self.dispatcher_thread.is_alive() if self.dispatcher_thread else False,
+                "online_clients": len(self.manager.active_connections) if hasattr(self.manager, 'active_connections') else 0
+            },
+            "l3_persona": self.l3.get_status(),
+            "l2_memory": self.l2.get_status(),
+            "l1_brain": self.l1.get_status(),
+            "l0_sensor": self.l0.get_status(),
+            "actuator": self.actuator.get_status(),
+            "reflector": self.reflector.get_status()
+        }
+
+    # # 3. (可选) 新增 handler 方法：反向控制
+    # async def control_system(self, command: dict):
+    #     """接收 Dashboard 的指令来修改 AI 状态"""
+    #     action = command.get("action")
+        
+    #     # 示例：强制修改精力值
+    #     if action == "set_energy":
+    #         new_val = int(command.get("value", 50))
+    #         self.l3.character_identity.energy_level = new_val
+    #         self.logger.info(f"[Dashboard] Manually set energy to {new_val}")
+            
+    #     return {"status": "executed", "action": action}
 
     @asynccontextmanager
     async def lifespan(self, app: FastAPI):
@@ -142,7 +177,7 @@ class ElysiaServer:
                 parsed_data: dict = self._parse_websocket_message(data)
                   
                 # 3. 标记来源
-                parsed_data['source'] = 'websocket'  
+                parsed_data['source'] = L0InputSourceType.WEBSOCKET.value
                 
                 # 4. 推送到 L0 输入队列
                 self.l0.push_external_input(parsed_data)

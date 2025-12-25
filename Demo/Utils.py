@@ -138,6 +138,7 @@ def timedelta_to_text(td: timedelta) -> str:
 
 from logging import Logger
 import json
+
 def parse_json(raw_content, logger: Logger)-> list[dict]:
     """Parse JSON content from raw string."""
     if not raw_content:
