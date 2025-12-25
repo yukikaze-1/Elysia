@@ -4,16 +4,16 @@ import os
 from datetime import datetime, timedelta
 from openai import OpenAI
 from dotenv import load_dotenv
-from Demo.Prompt import (SystemPromptTemplate, 
+from Prompt import (SystemPromptTemplate, 
                          l2_memory_block_template, 
                          l1_decide_to_act_template,
                          current_state_template)
-from Demo.Layers.L0.Sensor import EnvironmentInformation
-from Demo.Layers.L0.Amygdala import AmygdalaOutput 
-from Demo.Workers.Reflector.MacroReflector import MacroMemory
-from Demo.Workers.Reflector.MicroReflector import MicroMemory
-from Demo.Core.Schema import ChatMessage, UserMessage, DEFAULT_ERROR_INNER_THOUGHT, DEFAULT_ERROR_PUBLIC_REPLY, DEFAULT_ERROR_MOOD
-from Demo.Logger import setup_logger
+from Layers.L0.Sensor import EnvironmentInformation
+from Layers.L0.Amygdala import AmygdalaOutput 
+from Workers.Reflector.MacroReflector import MacroMemory
+from Workers.Reflector.MicroReflector import MicroMemory
+from Core.Schema import ChatMessage, UserMessage, DEFAULT_ERROR_INNER_THOUGHT, DEFAULT_ERROR_PUBLIC_REPLY, DEFAULT_ERROR_MOOD
+from Logger import setup_logger
 
 
 class NormalResponse:

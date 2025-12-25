@@ -9,11 +9,11 @@ import numpy as np
 import threading
 from pymilvus import MilvusClient
 
-from Demo.Utils import create_embedding_model, create_micro_memory_collection, create_macro_memory_collection
-from Demo.Layers.Session import SessionState, ChatMessage
-from Demo.Workers.Reflector.MacroReflector import MacroMemory
-from Demo.Workers.Reflector.MicroReflector import MicroMemory
-from Demo.Logger import setup_logger
+from Utils import create_embedding_model, create_micro_memory_collection, create_macro_memory_collection
+from Layers.Session import SessionState, ChatMessage
+from Workers.Reflector.MacroReflector import MacroMemory
+from Workers.Reflector.MicroReflector import MicroMemory
+from Logger import setup_logger
 
 
 class MemoryLayer:

@@ -2,8 +2,8 @@
 from typing import Literal
 from datetime import datetime
 
-from Demo.Layers.CoreIdentity import CoreIdentityTemplate
-from Demo.Core.Schema import UserMessage
+from Layers.CoreIdentity import CoreIdentityTemplate
+from Core.Schema import UserMessage
 
 #  ====================================================================================
 #  Layer 1: Profile & Biometrics (基础与生理层)
@@ -361,10 +361,10 @@ class CoreIdentity:
         self.runtime_state: RuntimeState 
 
 
-from Demo.Logger import setup_logger
+from Logger import setup_logger
 import logging
-from Demo.Core.Schema import DEFAULT_ERROR_MOOD
-from Demo.Prompt import l3_persona_example
+from Core.Schema import DEFAULT_ERROR_MOOD
+from Prompt import l3_persona_example
 
 
 class PersonaLayer:

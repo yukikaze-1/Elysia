@@ -7,7 +7,7 @@ from datetime import datetime
 import asyncio
 import threading
 import concurrent.futures
-from Utils import MessageIDGenerator, SyncMessageIDGenerator, create_embedding_model
+from Utils__ import MessageIDGenerator, SyncMessageIDGenerator, create_embedding_model
 
 class GlobalChatMessageHistory(BaseChatMessageHistory):
     """全局单例聊天历史"""

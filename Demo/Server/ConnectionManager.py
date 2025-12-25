@@ -2,8 +2,8 @@ import asyncio
 import json
 from typing import List
 from fastapi import WebSocket
-from Demo.Core.OutputChannel import OutputChannel
-from Demo.Layers.Session import  ChatMessage
+from Core.OutputChannel import OutputChannel
+from Layers.Session import  ChatMessage
 
 class ConnectionManager(OutputChannel):
     """

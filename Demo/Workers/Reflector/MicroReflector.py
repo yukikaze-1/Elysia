@@ -76,12 +76,12 @@ from typing import TYPE_CHECKING
 
 # 仅在类型检查时导入，运行时不会执行这行代码
 if TYPE_CHECKING:
-    from Demo.Layers.L2 import MemoryLayer
+    from Layers.L2 import MemoryLayer
     
-from Demo.Core.Schema import ChatMessage, ConversationSegment
-from Demo.Prompt import MicroReflector_SystemPrompt, MicroReflector_UserPrompt
+from Core.Schema import ChatMessage, ConversationSegment
+from Prompt import MicroReflector_SystemPrompt, MicroReflector_UserPrompt
 from openai.types.chat import ChatCompletionMessage, ChatCompletion
-from Demo.Utils import parse_json
+from Utils import parse_json
 from openai import OpenAI
 from datetime import datetime
 from logging import Logger

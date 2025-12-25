@@ -2,10 +2,10 @@
 from typing import List, Any
 from enum import Enum
 
-from Demo.Core.OutputChannel import OutputChannel
-from Demo.Core.EventBus import EventBus, global_event_bus
-from Demo.Core.Schema import ChatMessage
-from Demo.Logger import setup_logger
+from Core.OutputChannel import OutputChannel
+from Core.EventBus import EventBus, global_event_bus
+from Core.Schema import ChatMessage
+from Logger import setup_logger
 
 class ActionType(str, Enum):
     SPEECH = "SPEECH"

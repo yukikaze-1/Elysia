@@ -5,8 +5,8 @@
 import queue
 import logging
 from typing import Callable, List, Dict
-from Demo.Core.Schema import Event
-from Demo.Logger import setup_logger
+from Core.Schema import Event
+from Logger import setup_logger
 
 class EventBus:
     def __init__(self):

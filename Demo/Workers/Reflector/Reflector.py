@@ -7,13 +7,13 @@ import time
 from datetime import datetime
 from logging import Logger
 
-from Demo.Workers.Reflector.MicroReflector import MicroReflector, MicroMemory
-from Demo.Workers.Reflector.MacroReflector import MacroReflector, MacroMemory
-from Demo.Layers.L2 import MemoryLayer
-from Demo.Layers.Session import ChatMessage
-from Demo.Core.EventBus import EventBus, global_event_bus
-from Demo.Core.Schema import Event, EventType, EventContentType, EventSource
-from Demo.Logger import setup_logger
+from Workers.Reflector.MicroReflector import MicroReflector, MicroMemory
+from Workers.Reflector.MacroReflector import MacroReflector, MacroMemory
+from Layers.L2 import MemoryLayer
+from Layers.Session import ChatMessage
+from Core.EventBus import EventBus, global_event_bus
+from Core.Schema import Event, EventType, EventContentType, EventSource
+from Logger import setup_logger
 
 
 class Reflector:

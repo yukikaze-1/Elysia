@@ -3,7 +3,7 @@
 """
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 from datetime import datetime
 import time
 import uuid

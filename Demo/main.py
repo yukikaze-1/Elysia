@@ -1,17 +1,21 @@
-import sys
-import time
+"""
+Elysia 主程序入口(单机版本)fastapi版本见 Demo/Server/server.py
+负责初始化各个组件并启动服务
+该版本采用阻塞式主循环，适合单机运行和测试，不支持dashboard，只支持终端输入
+最后更新时间： 2025-12-26
+"""
 import logging
 
 # 1. 引入核心架构组件
-from Demo.Core.EventBus import EventBus, global_event_bus
-from Demo.Core.Dispatcher import Dispatcher
-from Demo.Layers.L0.L0 import SensorLayer
-from Demo.Layers.L1 import BrainLayer
-from Demo.Layers.L2 import MemoryLayer
-from Demo.Layers.L3 import PersonaLayer
-from Demo.Workers.Reflector.Reflector import Reflector
+from Core.EventBus import EventBus, global_event_bus
+from Core.Dispatcher import Dispatcher
+from Layers.L0.L0 import SensorLayer
+from Layers.L1 import BrainLayer
+from Layers.L2 import MemoryLayer
+from Layers.L3 import PersonaLayer
+from Workers.Reflector.Reflector import Reflector
 
-from Demo.Logger import setup_logger
+from Logger import setup_logger
 
 
 class Elysia:

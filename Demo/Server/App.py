@@ -1,3 +1,7 @@
+"""
+Elysia Server 主程序入口 (FastAPI 版本)单机版本见 Demo/main.py
+负责初始化各个组件并启动 FastAPI 服务
+"""
 import asyncio
 from math import e
 import threading
@@ -10,17 +14,17 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 # === 引入你的 Agent 核心组件 ===
-from Demo.Core.EventBus import EventBus, Event, global_event_bus
-from Demo.Core.Dispatcher import Dispatcher
-from Demo.Core.Schema import EventType, EventContentType, EventSource, UserMessage, L0InputSourceType
-from Demo.Layers.L0.L0 import SensorLayer
-from Demo.Layers.L1 import BrainLayer
-from Demo.Layers.L2 import MemoryLayer
-from Demo.Layers.L3 import PersonaLayer
-from Demo.Layers.Actuator.ActuatorLayer import ActuatorLayer, ActionType
-from Demo.Workers.Reflector.Reflector import Reflector
-from Demo.Server.ConnectionManager import ConnectionManager
-from Demo.Logger import setup_logger
+from Core.EventBus import EventBus, Event, global_event_bus
+from Core.Dispatcher import Dispatcher
+from Core.Schema import EventType, EventContentType, EventSource, UserMessage, L0InputSourceType
+from Layers.L0.L0 import SensorLayer
+from Layers.L1 import BrainLayer
+from Layers.L2 import MemoryLayer
+from Layers.L3 import PersonaLayer
+from Layers.Actuator.ActuatorLayer import ActuatorLayer, ActionType
+from Workers.Reflector.Reflector import Reflector
+from Server.ConnectionManager import ConnectionManager
+from Logger import setup_logger
 
 
 class ElysiaServer:

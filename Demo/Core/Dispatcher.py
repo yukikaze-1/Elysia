@@ -1,20 +1,20 @@
 import logging
 from datetime import datetime, timedelta
 from typing import Literal
-from Demo.Core.EventBus import EventBus, global_event_bus
-from Demo.Core.Schema import Event, EventType
-from Demo.Layers.L0.Amygdala import AmygdalaOutput
-from Demo.Layers.L0.Sensor import EnvironmentInformation, TimeInfo
-from Demo.Core.Schema import UserMessage, ChatMessage
-from Demo.Layers.L0.L0 import SensorLayer
-from Demo.Layers.L1 import ActiveResponse, BrainLayer
-from Demo.Layers.L2 import MemoryLayer
-from Demo.Layers.L3 import PersonaLayer
-from Demo.Workers.Reflector.Reflector import Reflector
-from Demo.Layers.Actuator.ActuatorLayer import ActuatorLayer, ActionType
-from Demo.Logger import setup_logger
+from Core.EventBus import EventBus, global_event_bus
+from Core.Schema import Event, EventType
+from Layers.L0.Amygdala import AmygdalaOutput
+from Layers.L0.Sensor import EnvironmentInformation, TimeInfo
+from Core.Schema import UserMessage, ChatMessage
+from Layers.L0.L0 import SensorLayer
+from Layers.L1 import ActiveResponse, BrainLayer
+from Layers.L2 import MemoryLayer
+from Layers.L3 import PersonaLayer
+from Workers.Reflector.Reflector import Reflector
+from Layers.Actuator.ActuatorLayer import ActuatorLayer, ActionType
+from Logger import setup_logger
 
-from Demo.Utils import timedelta_to_text
+from Utils import timedelta_to_text
 
 class Dispatcher:
     """
@@ -157,7 +157,6 @@ class Dispatcher:
         ai_msg = ChatMessage(role="Elysia", content=res.public_reply, inner_voice=res.inner_thought)
         
         # [Actuator] 输出回复
-        # self.l0.output(ai_msg)
         self.actuator.perform_action(ActionType.SPEECH, ai_msg)
         
         # 6. [L2] 写入短时记忆

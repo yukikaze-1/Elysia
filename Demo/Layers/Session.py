@@ -9,8 +9,8 @@ import time
 import threading
 import os
 import json
-from Demo.Logger import setup_logger
-from Demo.Core.Schema import ChatMessage
+from Logger import setup_logger
+from Core.Schema import ChatMessage
 
 class SessionState:
     """
@@ -22,7 +22,7 @@ class SessionState:
                  role: str, 
                  max_messages_limit: int = 20, 
                  max_inner_limit = 3,
-                 persist_dir: str = "./Demo/storage/sessions"):
+                 persist_dir: str = "/home/yomu/Elysia/Demo/storage/sessions"):
         """
         初始化会话状态
         Args:
@@ -30,7 +30,7 @@ class SessionState:
             role (str): AI 角色名称
             max_messages_limit (int): 最大消息数限制
             max_inner_limit (int): 最大包含内心独白的消息数限制
-            persist_dir (str): 会话持久化存储目录
+            persist_dir (str): 会话持久化存储目录 TODO 这个可以改成配置项
         """
 
         self.logger: logging.Logger = setup_logger("SessionState")

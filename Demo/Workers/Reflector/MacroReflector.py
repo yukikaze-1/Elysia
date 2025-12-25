@@ -76,11 +76,11 @@ class MacroMemoryStorage(MacroMemory):
 import time
 import json   
 from datetime import datetime
-from Demo.Layers.L2 import MemoryLayer
+from Layers.L2 import MemoryLayer
 from openai import OpenAI
-from Demo.Prompt import MacroReflector_SystemPrompt, MacroReflector_UserPrompt
-from Demo.Workers.Reflector.MicroReflector import MicroMemory
-from Demo.Utils import parse_json
+from Prompt import MacroReflector_SystemPrompt, MacroReflector_UserPrompt
+from Workers.Reflector.MicroReflector import MicroMemory
+from Utils import parse_json
 
 from logging import Logger
 

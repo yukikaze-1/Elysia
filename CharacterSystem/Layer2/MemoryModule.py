@@ -2,7 +2,7 @@ from gc import collect
 import httpx
 from sklearn.utils import resample
 from sympy import limit, true
-from Utils import create_embedding_model
+from Utils__ import create_embedding_model
 from pymilvus import MilvusClient, DataType
 from datetime import datetime
 from ChatMessage import ChatMessage, MessageAttachment, AttachmentFile

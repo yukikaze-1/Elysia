@@ -32,7 +32,7 @@ ps:
     如果你想要 Elysia 偶尔“理智控制不住情绪”，或者“嘴硬心软”，那么保留 L0 是必须的，因为它代表了那个“无法控制的身体本能”
 """
 
-from Demo.Layers.L0.Sensor import EnvironmentInformation
+from Layers.L0.Sensor import EnvironmentInformation
 
 class AmygdalaOutput:
     """ L0_b Amygdala 输出类"""
@@ -52,8 +52,8 @@ class AmygdalaOutput:
 
 from openai import OpenAI
 from datetime import datetime
-from Demo.Layers.L0.Sensor import TimeInfo
-from Demo.Core.Schema import  UserMessage
+from Layers.L0.Sensor import TimeInfo
+from Core.Schema import  UserMessage
 import logging
 
 class Amygdala:
@@ -75,7 +75,7 @@ class Amygdala:
     def get_l3_core_identity(self)->str:
         """获取L3核心身份信息"""
         # TODO 从L3模块获取
-        from Demo.Prompt import l3_elysia_persona_block
+        from Prompt import l3_elysia_persona_block
         return l3_elysia_persona_block
 
 
@@ -98,7 +98,7 @@ class Amygdala:
         dt = datetime.fromtimestamp(envs.time_envs.current_time)
         
         # 构建 Prompt
-        from Demo.Prompt import L0_SubConscious_System_Prompt, L0_SubConscious_User_Prompt
+        from Prompt import L0_SubConscious_System_Prompt, L0_SubConscious_User_Prompt
         system_prompt = L0_SubConscious_System_Prompt.format(
             character_name="Elysia",
             l3_persona_block=self.get_l3_core_identity()

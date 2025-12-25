@@ -15,15 +15,15 @@ import queue
 from datetime import datetime
 from pydantic import ValidationError
 
-from Demo.Core.OutputChannel import OutputChannel, ConsoleChannel
-from Demo.Layers.L0.Sensor import SensoryProcessor, EnvironmentInformation
-from Demo.Layers.L0.Amygdala import AmygdalaOutput, Amygdala
-from Demo.Core.Schema import (Event, EventType, EventContentType, EventSource, 
+from Core.OutputChannel import OutputChannel, ConsoleChannel
+from Layers.L0.Sensor import SensoryProcessor, EnvironmentInformation
+from Layers.L0.Amygdala import AmygdalaOutput, Amygdala
+from Core.Schema import (Event, EventType, EventContentType, EventSource, 
                               ChatMessage, UserMessage, WebClientMessage, 
                               L0InputSourceType, ExternalInputEvent,
                               L0InternalQueueItem)
-from Demo.Core.EventBus import EventBus, global_event_bus
-from Demo.Logger import setup_logger
+from Core.EventBus import EventBus, global_event_bus
+from Logger import setup_logger
 
 from dotenv import load_dotenv
 

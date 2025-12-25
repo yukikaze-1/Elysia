@@ -4,8 +4,8 @@
 
 import sys
 from datetime import datetime
-from Demo.Layers.Session import  ChatMessage
-from Demo.Logger import setup_logger
+from Layers.Session import  ChatMessage
+from Logger import setup_logger
 from abc import ABC, abstractmethod
 
 
