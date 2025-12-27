@@ -60,6 +60,19 @@ st.markdown("""
         color: #333;
     }
     
+    /* 进度条容器优化 */
+    .stProgress > div > div > div > div {
+        background-image: linear-gradient(to right, #4caf50, #8bc34a);
+    }
+    
+    /* 给不同状态定义颜色类 (需配合 st.markdown 使用 html 渲染，但 Streamlit 原生 progress 颜色受限，
+       这里主要优化文字显示) */
+    .stat-label { font-size: 0.8rem; color: #666; margin-bottom: -5px; }
+    .stat-value { font-size: 1.5rem; font-weight: bold; }
+    .warning { color: #ff9800; }
+    .danger { color: #dc3545; }
+    .success { color: #28a745; }
+    
     /* 记忆日志表格优化 */
     .dataframe { font-size: 0.8rem !important; }
 </style>
@@ -96,17 +109,20 @@ while True:
             time.sleep(2)
             continue
 
-        # ==========================================
-        # 1. 顶栏：系统健康度 & 核心指标 (System & L3)
-        # ==========================================
+        # 获取各层数据
         sys = state.get("system", {})
         l3 = state.get("l3_persona", {})
         l0 = state.get("l0_sensor", {})
         actuator = state.get("actuator", {})
-        
-        # 使用 HTML 自定义状态栏
+        psyche = state.get("psyche", {})     # <--- 获取新增的 Psyche 数据
+        psyche_cfg = psyche.get("config", {}) # 获取配置
+
+        # ==========================================
+        # 1. 顶栏：系统健康度 & L3 人设状态
+        # ==========================================
         dispatcher_status = "status-on" if sys.get("dispatcher_alive") else "status-off"
         
+        # 定义 5 列布局
         cols = st.columns([1, 1, 1, 1, 2])
         
         with cols[0]:
@@ -119,16 +135,96 @@ while True:
             st.markdown(f'<div class="metric-card"><b>Input Queue</b><br>📥 {l0.get("input_queue_size", 0)}</div>', unsafe_allow_html=True)
 
         with cols[3]:
-            # Mood 显示
-            mood = l3.get("mood", "Neutral")
-            mood_color = "orange" if mood in ["Sad", "Angry"] else "green"
-            st.markdown(f'<div class="metric-card"><b>Current Mood</b><br><span style="color:{mood_color}; font-weight:bold">{mood}</span></div>', unsafe_allow_html=True)
+            # === [展示 1] L3 Mood (人设表现出的心情 - String) ===
+            l3_mood = l3.get("mood", "Neutral")
+            mood_color = "orange" if l3_mood in ["Sad", "Angry"] else "green"
+            st.markdown(f'<div class="metric-card"><b>L3 Persona Mood</b><br><span style="color:{mood_color}; font-weight:bold">{l3_mood}</span></div>', unsafe_allow_html=True)
 
         with cols[4]:
-            # Actuator Channels
             channels = actuator.get("registered_channels", [])
             st.markdown(f'<div class="metric-card"><b>Actuator Channels</b><br>📢 {", ".join(channels)}</div>', unsafe_allow_html=True)
 
+        st.divider()
+
+        # ==========================================
+        # 2. [新增] 生理与心理监控 (Psyche System)
+        #    这里插入你的新模块，位于 Top Bar 和 Tabs 之间
+        # ==========================================
+        st.subheader("🧬 Physiological & Internal State")
+        
+        # 布局：4 列 (精力 | 社交 | 无聊 | 内在心情)
+        p1, p2, p3, p4 = st.columns(4)
+        
+        # --- A. Energy (精力) ---
+        with p1:
+            energy = float(psyche.get("energy", 100))
+            max_energy = float(psyche_cfg.get("max_energy", 100))
+            energy_pct = max(0.0, min(1.0, energy / max_energy)) if max_energy > 0 else 0
+            
+            e_icon = "🔋" if energy > 50 else "🪫"
+            if energy < 20: e_icon = "💤"
+            
+            st.markdown(f"<div class='stat-label'>Physical Energy {e_icon}</div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='stat-value'>{energy:.1f}</div>", unsafe_allow_html=True)
+            st.progress(energy_pct)
+            
+            # 显示恢复/消耗速率
+            drain = psyche_cfg.get("energy_drain_rate", 0)
+            recover = psyche_cfg.get("energy_recover_rate", 0)
+            st.caption(f"Drain: -{drain}/h | Sleep: +{recover}/h")
+
+        # --- B. Social Battery (社交电量) ---
+        with p2:
+            social = float(psyche.get("social_battery", 100))
+            max_social = float(psyche_cfg.get("max_social_battery", 100))
+            social_pct = max(0.0, min(1.0, social / max_social)) if max_social > 0 else 0
+            
+            s_icon = "💬" if social > 30 else "😶"
+            
+            st.markdown(f"<div class='stat-label'>Social Battery {s_icon}</div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='stat-value'>{social:.1f}</div>", unsafe_allow_html=True)
+            st.progress(social_pct)
+            
+            st.caption(f"Cost (Passive): -{psyche_cfg.get('cost_speak_passive', 0)}/msg")
+
+        # --- C. Boredom (表达欲) ---
+        with p3:
+            boredom = float(psyche.get("boredom", 0))
+            threshold = float(psyche_cfg.get("boredom_threshold", 80))
+            
+            # 计算无聊进度
+            boredom_pct = max(0.0, min(1.0, boredom / threshold)) if threshold > 0 else 0
+            
+            b_icon = "🥱"
+            b_val_color = "inherit"
+            if boredom >= threshold:
+                b_icon = "📢" # 触发阈值
+                b_val_color = "#dc3545" # 变红
+            
+            st.markdown(f"<div class='stat-label'>Boredom / Drive {b_icon}</div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='stat-value' style='color:{b_val_color}'>{boredom:.1f} <span style='font-size:1rem;color:#999'>/ {threshold}</span></div>", unsafe_allow_html=True)
+            st.progress(boredom_pct)
+            
+            growth = psyche_cfg.get("base_boredom_growth", 0)
+            st.caption(f"Growth: +{growth}/h")
+
+        # --- D. [展示 2] Psyche Mood (内在基调 - Numeric/String) ---
+        with p4:
+            # 获取 Psyche Mood
+            psyche_mood = psyche.get("mood", "Stable") 
+            
+            # 渲染一个卡片或者大字显示
+            st.markdown(f"<div class='stat-label'>Internal Psyche Mood 🧠</div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='stat-value' style='color:#4e8cff'>{psyche_mood}</div>", unsafe_allow_html=True)
+            st.caption("Base emotional substrate")
+
+        # --- E. 配置详情 (折叠) ---
+        with st.expander("🧬 View Psyche DNA Configuration", expanded=False):
+            if psyche_cfg:
+                c_df = pd.DataFrame([{"Parameter": k, "Value": v} for k, v in psyche_cfg.items()])
+                st.dataframe(c_df, use_container_width=True, hide_index=True)
+            else:
+                st.info("No configuration data received.")
         # ==========================================
         # 2. 核心功能区 (Tabs)
         # ==========================================

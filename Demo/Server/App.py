@@ -18,6 +18,7 @@ from Core.EventBus import EventBus, Event, global_event_bus
 from Core.Dispatcher import Dispatcher
 from Core.Schema import EventType, EventContentType, EventSource, UserMessage, L0InputSourceType
 from Layers.L0.L0 import SensorLayer
+from Layers.L0.PsycheSystem import PsycheConfig, EnvironmentalStimuli, InternalState, PsycheSystem
 from Layers.L1 import BrainLayer
 from Layers.L2 import MemoryLayer
 from Layers.L3 import PersonaLayer
@@ -41,10 +42,11 @@ class ElysiaServer:
         self.l3 = PersonaLayer()
         self.reflector = Reflector(event_bus=self.bus)
         self.actuator = ActuatorLayer(event_bus=self.bus)
+        self.psyche_system = PsycheSystem()  
         
         # 初始化调度器
         self.dispatcher = Dispatcher(
-            self.bus, self.l0, self.l1, self.l2, self.l3, self.actuator, self.reflector, 
+            self.bus, self.l0, self.l1, self.l2, self.l3, self.actuator, self.reflector, self.psyche_system
         )
 
         # 线程句柄
@@ -94,6 +96,7 @@ class ElysiaServer:
             "l1_brain": self.l1.get_status(),
             "l0_sensor": self.l0.get_status(),
             "actuator": self.actuator.get_status(),
+            "psyche": self.psyche_system.get_status(),
             "reflector": self.reflector.get_status()
         }
 

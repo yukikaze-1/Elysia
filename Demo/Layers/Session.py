@@ -20,7 +20,7 @@ class SessionState:
     def __init__(self, 
                  user_name: str, 
                  role: str, 
-                 max_messages_limit: int = 20, 
+                 max_messages_limit: int = 30, 
                  max_inner_limit = 3,
                  persist_dir: str = "/home/yomu/Elysia/Demo/storage/sessions"):
         """

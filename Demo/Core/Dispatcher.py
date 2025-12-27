@@ -7,6 +7,7 @@ from Layers.L0.Amygdala import AmygdalaOutput
 from Layers.L0.Sensor import EnvironmentInformation, TimeInfo
 from Core.Schema import UserMessage, ChatMessage
 from Layers.L0.L0 import SensorLayer
+from Layers.L0.PsycheSystem import PsycheSystem, EnvironmentalStimuli
 from Layers.L1 import ActiveResponse, BrainLayer
 from Layers.L2 import MemoryLayer
 from Layers.L3 import PersonaLayer
@@ -31,7 +32,8 @@ class Dispatcher:
                  l2: MemoryLayer = MemoryLayer(),
                  l3: PersonaLayer = PersonaLayer(), 
                  actuator: ActuatorLayer = ActuatorLayer(),
-                 reflector: Reflector = Reflector()
+                 reflector: Reflector = Reflector(),
+                 psyche_system: PsycheSystem = PsycheSystem(),
                  ):
         """
         初始化调度器，注入所有依赖层
@@ -44,6 +46,7 @@ class Dispatcher:
         self.l3: PersonaLayer = l3  # 人格层
         self.actuator: ActuatorLayer = actuator  # 执行层
         self.reflector: Reflector = reflector # 反思者
+        self.psyche_system: PsycheSystem = psyche_system  # 心理系统
         
         self.running = False
         
@@ -54,12 +57,10 @@ class Dispatcher:
         self.last_ai_reply_time: datetime = tmp_time        # last_ai_reply_time：AI最后一次说话的时间
         self.last_user_reply_time: datetime = tmp_time      # last_user_reply_time：用户最后一次说话的时间
         self.last_speaker: Literal['Elysia', '妖梦'] = "Elysia"  # 记录上次发言者，初始为 AI
+
+        # 用于计算两次心跳之间的时间差 (dt)
+        self.last_tick_time = datetime.now()
         
-        # 冷却时间：AI 主动说话后，至少安静 100 秒
-        # TODO 此处限制并没有被使用
-        self.active_cooldown: timedelta = timedelta(seconds=60) 
-        # 触发阈值：用户沉默超过 60 秒才考虑主动说话
-        self.silence_threshold: timedelta = timedelta(seconds=60)
 
     def start(self):
         """启动调度主循环 (阻塞式)"""
@@ -123,14 +124,20 @@ class Dispatcher:
         self.logger.info(f"Processing user input: {user_input.to_str()}")
         
         # 输出用户输入
-        # self.l0.output(ChatMessage.from_UserMessage(user_input))
+        # TODO web端可以不用，但本地终端调试时需要看到
         self.actuator.perform_action(ActionType.SPEECH, ChatMessage.from_UserMessage(user_input))
 
+        # === [ADD] 1. 刺激生效：用户理我了！ ===
+        # 这会瞬间清空 Boredom，并恢复一点 Social Battery
+        # TODO: 如果未来有情感分析模块，可以将情感分数传进去 self.psyche.on_user_interaction(sentiment)
+        self.psyche_system.on_user_interaction()
+        self.logger.info(f"[PsycheSystem] User interaction received. State reset. {self.psyche_system.state}")
+        
         # 1. 更新交互时间
         self.last_interaction_time = datetime.now()
         
         # 2. [Actuator] 输出
-        l0_output = event.metadata.get("AmygdalaOutput", AmygdalaOutput("", EnvironmentInformation(TimeInfo())) )
+        amygdala_output = event.metadata.get("AmygdalaOutput", AmygdalaOutput("", EnvironmentInformation(TimeInfo())) )
 
         # 3. [L2] 检索相关记忆 (Short-term + Long-term)
         # 获取 3条相关记忆 + 昨天的日记摘要
@@ -149,7 +156,7 @@ class Dispatcher:
             micro_memories=micro_memories,
             macro_memories=macro_memories,
             history=history,
-            l0_output=l0_output
+            l0_output=amygdala_output
         )
         
         # === 构造标准消息对象 ===
@@ -158,6 +165,10 @@ class Dispatcher:
         
         # [Actuator] 输出回复
         self.actuator.perform_action(ActionType.SPEECH, ai_msg)
+        
+        # === [ADD] 2. 消耗生效：AI 被动回复 ===
+        # 虽然是被动回复，但也会消耗少量的 Energy 和 Social Battery
+        self.psyche_system.on_ai_passive_reply()
         
         # 6. [L2] 写入短时记忆
         # === 分发给 L2 (为了下一句能接上话) ===
@@ -223,33 +234,47 @@ class Dispatcher:
         current_time: datetime = datetime.fromtimestamp(event.timestamp)
         self.logger.info(f"System tick received at {current_time.isoformat()}")
         
-        # 1. 计算沉默时长
+        # 0. 计算沉默时长
         silence_duration_since_last_ai_reply: timedelta = current_time - self.last_ai_reply_time
         silence_duration_since_last_user_reply: timedelta = current_time - self.last_user_reply_time
         self.logger.info(f"Silence duration since last AI reply: {timedelta_to_text(silence_duration_since_last_ai_reply)}, \
             since last user reply: {timedelta_to_text(silence_duration_since_last_user_reply)}"
         )
         
-        # 2. 检查硬性条件 (避免频繁打扰)
-        if silence_duration_since_last_ai_reply < self.silence_threshold:
-            self.logger.info(f"Event time: {current_time.isoformat()}, 'silence_duration_since_last_ai_reply': {timedelta_to_text(silence_duration_since_last_ai_reply)}, \
-                last interaction: {self.last_interaction_time.isoformat()}")
-            self.logger.info(f"Silence duration below threshold '{timedelta_to_text(self.silence_threshold)}', not initiating conversation.")
-            return # 还没到寂寞的时候，直接返回
+        # 1. 计算时间差 (dt) - 生理模拟需要精确的时间流逝
+        dt_seconds = (current_time - self.last_tick_time).total_seconds()
+        self.last_tick_time = current_time
         
-        if self.last_speaker == "Elysia" and silence_duration_since_last_ai_reply < self.active_cooldown:
-            self.logger.info(f"Last speaker was AI and still in cooldown period '{timedelta_to_text(self.active_cooldown)}', not initiating conversation.")
-            return
-
-        # 检查是否还在冷却期内 (比如刚主动说完话)
-        # 这里需要额外的逻辑记录 "last_active_message_time"，简化起见暂略
+        # 避免 dt 过大（比如系统休眠后唤醒），限制最大 dt 为 60秒
+        dt_seconds = min(dt_seconds, 60)  
         
-        # 3. [L3] 检查人格状态 (是否具备主动性)
-        # 比如：如果是“高冷”性格，可能永远不主动
-        # TODO 待考虑修改, 目前L3没有这个接口，返回True
-        if not self.l3.should_initiate_conversation():
+        # 2. 构建环境刺激 (Stimuli)
+        # 简单判定：如果用户在过去 5 分钟内说过话，就算 "User Present"
+        is_user_present = (current_time - self.last_user_reply_time).total_seconds() < 300
+        
+        env = EnvironmentalStimuli(
+            current_time=current_time,
+            is_user_present=is_user_present
+        )
+        
+        # 3. [L0] 更新生理系统状态
+        # update 返回 True 仅代表“身体有冲动”，不代表“必须说话”
+        has_urge_to_speak = self.psyche_system.update(dt_seconds, env)
+        self.logger.info(f"[Psyche Tick] {self.psyche_system.state}")
+        
+        if not has_urge_to_speak:
+            self.logger.info("No strong urge to speak detected. Skipping active speaking process.")
             return
-        self.logger.info("Persona allows initiating conversation.")
+        
+        # ==========================================================
+        # 阈值突破！身体发出强烈信号："我好无聊/我想说话"
+        # ==========================================================
+        self.logger.info(">>> Biological Drive Threshold Reached! Waking up LLM... <<<")
+        
+        # 4. 准备传给 LLM 的“感觉描述”
+        internal_sensation = self.psyche_system.get_internal_state_description()
+        self.logger.info(f"Internal Sensation: {internal_sensation}")
+        
         
         # 3.5 感知当前环境
         cur_envs: EnvironmentInformation = self.l0.sensory_processor.active_perception_envs()
@@ -267,7 +292,8 @@ class Dispatcher:
             last_speaker=self.last_speaker,
             cur_mood=cur_mood,
             cur_envs=cur_envs,
-            recent_conversations=recent_memories
+            recent_conversations=recent_memories,
+            cur_psyche_state=internal_sensation
         )
         should_speak: bool = response.should_speak
         
@@ -285,6 +311,9 @@ class Dispatcher:
             self.l2.add_short_term_memory(messages=[msg])
             self.reflector.on_new_message(msg)
             
+            # === [ADD] 生理反馈：释放压力，消耗能量 ===
+            self.psyche_system.on_ai_active_speak()
+            
             # 8. 更新情绪
             self.l3.update_mood(response.mood)
             
@@ -294,7 +323,13 @@ class Dispatcher:
             self.last_interaction_time = tmp_time
             self.last_speaker = "Elysia"
         else:
-            self.logger.info("Elysia decided not to initiate conversation at this time.")
+            # 7. AI 决定克制冲动 (Rational Suppression)
+            # 可能是因为太晚了，或者觉得没话题
+            self.logger.info("Elysia felt the urge but decided to STAY SILENT (Suppression).")
+            
+            # === [ADD] 强制抑制 ===
+            # 必须手动降低无聊值，否则下一个 Tick (10秒后) 又会触发，导致死循环
+            self.psyche_system.suppress_drive()
             
         self.logger.info("System tick processing completed.")
 

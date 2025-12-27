@@ -1,0 +1,3 @@
+Session:
+ - session_capacity: 30
+ - inner_capacity: 3

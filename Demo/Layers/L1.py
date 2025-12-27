@@ -169,7 +169,8 @@ class BrainLayer:
                       last_speaker: str,
                       cur_mood: str,
                       cur_envs: EnvironmentInformation, 
-                      recent_conversations: list[ChatMessage]
+                      recent_conversations: list[ChatMessage],
+                      cur_psyche_state: str = ""
                       )-> ActiveResponse:
         """
         决定是否主动开口
@@ -179,6 +180,7 @@ class BrainLayer:
             cur_mood: 当前心情描述
             cur_envs: 当前环境信息
             recent_conversations: 最近的对话列表
+            cur_psyche_state: 当前心理状态描述
         返回值:
             ActiveResponse: 包含是否开口及相关信息的对象
         """
@@ -199,6 +201,7 @@ class BrainLayer:
             last_speaker=last_speaker,
             silence_duration=silence_duration.__str__(),
             current_mood=current_mood,
+            current_psyche_state=cur_psyche_state,
             current_time_envs=cur_envs.time_envs.to_l1_decide_to_act_dict(),
             recent_conversations=recent_convs,
         )
