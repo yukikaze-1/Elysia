@@ -28,6 +28,7 @@ class EventSource(str, Enum):
     SYSTEM = "SYSTEM"    
     WEB_CLIENT = "WEB_CLIENT"       # 来自 Web 前端客户端
     ACTIVE_SENSOR = "ACTIVE_SENSOR" # 来自主动传感器模块(L0主动感知)
+    SYSTEM_CLOCK = "SYSTEM_CLOCK" # 来自系统时钟模块
 
 class EventContentType(str, Enum):
     """事件内容类型枚举"""

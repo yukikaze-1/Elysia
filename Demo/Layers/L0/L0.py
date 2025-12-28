@@ -55,12 +55,9 @@ class SensorLayer:
         self.bus: EventBus = event_bus  # 事件总线
         self.running: bool = False
         
-        # 心跳
-        self.heartbeat_interval: float = self.config.SensorLayer.heartbeat_interval # 心跳间隔，单位秒
         
         # 线程句柄
         self._processor_thread: Optional[threading.Thread] = None # 新增处理线程
-        self._tick_thread: Optional[threading.Thread] = None    # 心跳线程
 
         self.logger.info("L0 SensorLayer initialized.")
 
@@ -92,12 +89,6 @@ class SensorLayer:
         self._processor_thread = threading.Thread(target=self._input_processing_loop, daemon=True)
         self._processor_thread.start()
         self.logger.info("L0 SensorLayer processor thread started.")
-        
-        # 3. 启动心跳线程 (Heartbeat Loop)
-        self.logger.info("L0 SensorLayer starting tick thread...")
-        self._tick_thread = threading.Thread(target=self._tick_loop, daemon=True)
-        self._tick_thread.start()
-        self.logger.info("L0 SensorLayer tick thread started.")
 
         
     def stop_threads(self):
@@ -183,27 +174,7 @@ class SensorLayer:
                 self.logger.error(f"Processor Error: {e}", exc_info=True)
                 
                 
-    def _tick_loop(self):
-        """
-        内部逻辑: 产生时间心跳
-        """
-        while self.running:
-            # 每 10 秒产生一次心跳
-            time.sleep(self.heartbeat_interval)
-            self.logger.info("L0 SensorLayer tick event generated.")
-            # TODO 你也可以在这里让 Amygdala 检查是否有持续的环境威胁
-            # ...
-            timestamp = time.time()
-            event = Event(
-                type=EventType.SYSTEM_TICK,
-                content_type=EventContentType.TIME,
-                content=timestamp,
-                source=EventSource.L0_CLOCK,
-                timestamp=timestamp
-            )
-            self.bus.publish(event)
-            self.logger.info(f"System tick event published to EventBus at {datetime.fromtimestamp(timestamp).isoformat()}.")      
-        
+    
     # ===============================================================================================
     # === 内部业务逻辑方法 ===
     # ===============================================================================================      

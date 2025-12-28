@@ -11,10 +11,16 @@ DashBoard:
 Core:
   EventBus:
     logger_name: "EventBus"
+
   Dispatcher:
     logger_name: "Dispatcher"
+
   Actuator:
     logger_name: "ActuatorLayer"
+
+  SystemClock:
+    logger_name: "SystemClock"
+    heartbeat_interval: 10.0 # 系统时钟滴答间隔，单位秒
 
 L0:
   SensorLayer:

@@ -23,6 +23,7 @@ from Layers.L1 import BrainLayer
 from Layers.L2.L2 import MemoryLayer
 from Layers.L3 import PersonaLayer
 from Core.ActuatorLayer import ActuatorLayer, ActionType
+from Core.SystemClock import SystemClock
 from Workers.Reflector.Reflector import Reflector
 from Server.ConnectionManager import ConnectionManager
 from Logger import setup_logger
@@ -44,8 +45,10 @@ class ElysiaServer:
         self.log_level = self.config.Server.App.log_level
         
         # 1. 初始化核心组件 (但不启动线程)
-        self.bus: EventBus = EventBus(logger_name=self.config.Core.EventBus.logger_name)
+        self.bus: EventBus = EventBus(logger_name=self.config.Core.EventBus.logger_name)    # 全局事件总线
         self.manager = ConnectionManager()
+        self.clock = SystemClock(event_bus=self.bus, config=self.config.Core.SystemClock)
+        
         
         # 初始化层级
         self.l0 = SensorLayer(event_bus=self.bus, config=self.config.L0)
@@ -140,13 +143,16 @@ class ElysiaServer:
 
         # 2. 关键：将 WebSocket 管理器注册为 Actuator 的输出通道 (嘴巴)
         self.actuator.add_channel(self.manager)
+        
+        # 3. 启动时钟
+        self.clock.start()
 
-        # 3. 启动各个组件的线程
+        # 4. 启动各个组件的线程
         self.logger.info(">>> [System] Starting Layer Threads...")
-        self.l0.start_threads()  # L0 心跳/监听
+        self.l0.start_threads()  # L0 监听
         self.reflector.start()   # 反思者
 
-        # 4. 启动 Dispatcher (独立线程)
+        # 5. 启动 Dispatcher (独立线程)
         self.logger.info(">>> [System] Starting Dispatcher...")
         self.dispatcher_thread = threading.Thread(target=self.dispatcher.start, daemon=True)
         self.dispatcher_thread.start()

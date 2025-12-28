@@ -50,12 +50,18 @@ class DispatcherConfig:
 @dataclass
 class ActuatorConfig:
     logger_name: str = "ActuatorLayer"
+    
+@dataclass
+class SystemClockConfig:
+    logger_name: str = "SystemClock"
+    heartbeat_interval: float = 10.0 # 系统时钟滴答间隔，单位秒
 
 @dataclass
 class CoreConfig:
     EventBus: EventBusConfig = field(default_factory=EventBusConfig)
     Dispatcher: DispatcherConfig = field(default_factory=DispatcherConfig)
     Actuator: ActuatorConfig = field(default_factory=ActuatorConfig)
+    SystemClock: SystemClockConfig = field(default_factory=SystemClockConfig)
     
 
 
@@ -65,7 +71,6 @@ class CoreConfig:
 @dataclass
 class SensorLayerConfig:
     logger_name: str = "SensorLayer"
-    heartbeat_interval: float = 10.0
     LLM_API_KEY: str = field(default_factory=lambda: _load_env("DEEPSEEK_API_KEY", ""))
     LLM_URL: str = field(default_factory=lambda: _load_env("DEEPSEEK_API_BASE", "https://api.deepseek.com/"))
 
