@@ -14,8 +14,7 @@ import os
 from Utils import create_embedding_model
 from Core.Schema import ChatMessage
 from Layers.L2.SessionState import SessionState
-from Workers.Reflector.MacroReflector import MacroMemory
-from Workers.Reflector.MicroReflector import MicroMemory
+from Workers.Reflector.MemorySchema import MacroMemory, MicroMemory
 from Config import L2Config
 from Logger import setup_logger
 
@@ -50,7 +49,9 @@ class MemoryLayer:
         
         load_dotenv()
         # === 1. 初始化长期记忆 (Milvus) === 
-        self.milvus_client = MilvusClient(uri=os.getenv("MILVUS_URI", ""), token=os.getenv("MILVUS_TOKEN", ""))
+        # self.milvus_client = MilvusClient(uri=os.getenv("MILVUS_URI", ""), token=os.getenv("MILVUS_TOKEN", ""))
+        self.milvus_client = MilvusClient(uri=self.config.MemoryLayer.MILVUS_URI, 
+                                          token=self.config.MemoryLayer.MILVUS_TOKEN)
         self.micro_memeory_collection_name = self.config.MemoryLayer.micro_memory_collection
         self.macro_memeory_collection_name = self.config.MemoryLayer.macro_memory_collection
         

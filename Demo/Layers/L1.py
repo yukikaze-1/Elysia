@@ -1,6 +1,4 @@
 import json
-import os
-
 from datetime import datetime, timedelta
 from openai import OpenAI
 from dotenv import load_dotenv
@@ -10,8 +8,7 @@ from Prompt import (SystemPromptTemplate,
                          current_state_template)
 from Layers.L0.Sensor import EnvironmentInformation
 from Layers.L0.Amygdala import AmygdalaOutput 
-from Workers.Reflector.MacroReflector import MacroMemory
-from Workers.Reflector.MicroReflector import MicroMemory
+from Workers.Reflector.MemorySchema import MicroMemory, MacroMemory
 from Core.Schema import ChatMessage, UserMessage, DEFAULT_ERROR_INNER_THOUGHT, DEFAULT_ERROR_PUBLIC_REPLY, DEFAULT_ERROR_MOOD
 from Logger import setup_logger
 from Config import L1Config

@@ -1,5 +1,4 @@
 import os
-from dotenv import load_dotenv
 from openai import OpenAI
 from typing import List, Any
 import threading
@@ -7,8 +6,9 @@ import time
 from datetime import datetime
 from logging import Logger
 
-from Workers.Reflector.MicroReflector import MicroReflector, MicroMemory
-from Workers.Reflector.MacroReflector import MacroReflector, MacroMemory
+from Workers.Reflector.MicroReflector import MicroReflector
+from Workers.Reflector.MacroReflector import MacroReflector
+from Workers.Reflector.MemorySchema import MicroMemory, MacroMemory
 from Layers.L2.L2 import MemoryLayer
 from Layers.L2.SessionState import ChatMessage
 from Core.EventBus import EventBus

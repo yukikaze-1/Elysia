@@ -1,83 +1,8 @@
 """
 存放 Micro Reflector 相关的类和逻辑
-包括 MicroMemory 的数据结构定义
 """
 
-# =========================================
-# 数据结构定义
-# =========================================
-class MicroMemoryLLMOut:
-    """LLM输出的最基础的micro memory的格式，没有timestamp和embedding"""
-    def __init__(self, content: str, subject: str,memory_type: str, poignancy: int, keywords: list[str]):
-        self.content: str = content
-        self.subject: str = subject
-        self.memory_type: str = memory_type
-        self.poignancy: int = poignancy
-        self.keywords: list[str] = keywords
-        
-    def to_dict(self):
-        return {
-            "content":self.content,
-            "subject":self.subject,
-            "memory_type": self.memory_type,
-            "poignancy": self.poignancy,
-            "keywords":self.keywords
-        }
-
-
-class MicroMemory(MicroMemoryLLMOut):
-    """Micro Memory 的格式"""
-    def __init__(self, content: str, subject: str, memory_type: str, poignancy: int, keywords: list[str], timestamp: float):
-        super().__init__(content=content, subject=subject, memory_type=memory_type, poignancy=poignancy, keywords=keywords)
-        self.timestamp = timestamp
-        
-    @classmethod
-    def from_micro_memory_llm_out(cls, llm_out: MicroMemoryLLMOut, timestamp: float):
-        return cls(
-            content=llm_out.content,
-            subject=llm_out.subject,
-            memory_type=llm_out.memory_type,
-            poignancy=llm_out.poignancy,
-            keywords=llm_out.keywords,
-            timestamp=timestamp,
-        )
-        
-    def to_dict(self):
-        s = super().to_dict()
-        s['timestamp'] = self.timestamp
-        return s
-        
-
-class MicroMemoryStorage(MicroMemory):
-    """Micro Memory 的milvus存储格式"""
-    def __init__(self, content: str, subject: str, memory_type: str, poignancy: int, keywords: list[str], timestamp: float, embedding: list[float]):
-        super().__init__(content, subject, memory_type, poignancy, keywords, timestamp)
-        self.embedding = embedding
-
-    @classmethod
-    def from_memory(cls, memory: MicroMemory, embedding: list[float]):
-        return cls(
-            content=memory.content,
-            subject=memory.subject,
-            memory_type=memory.memory_type,
-            poignancy=memory.poignancy,
-            keywords=memory.keywords,
-            timestamp=memory.timestamp,
-            embedding=embedding,
-        )
-        
-    def to_dict(self):
-        s = super().to_dict()
-        s['embedding']=self.embedding
-        return s
-
-
-from typing import TYPE_CHECKING
-
-# 仅在类型检查时导入，运行时不会执行这行代码
-if TYPE_CHECKING:
-    from Layers.L2.L2 import MemoryLayer
-    
+from Layers.L2.L2 import MemoryLayer    
 from Core.Schema import ChatMessage, ConversationSegment
 from Prompt import MicroReflector_SystemPrompt, MicroReflector_UserPrompt
 from openai.types.chat import ChatCompletionMessage, ChatCompletion
@@ -87,19 +12,20 @@ from datetime import datetime
 from logging import Logger
 import time
 from Config import MicroReflectorConfig
+from Workers.Reflector.MemorySchema import MicroMemory, MicroMemoryLLMOut, MicroMemoryStorage
 
 
 class MicroReflector:
     """负责从l1 的对话中提取记忆"""
     def __init__(self, openai_client: OpenAI, 
-                 milvus_agent: 'MemoryLayer', 
+                 milvus_agent: MemoryLayer, 
                  logger: Logger,
                  config: MicroReflectorConfig):
         self.config: MicroReflectorConfig = config
         self.logger: Logger = logger
         self.openai_client: OpenAI = openai_client
         self.collection_name: str = self.config.milvus_collection
-        self.milvus_agent: 'MemoryLayer' = milvus_agent
+        self.milvus_agent: MemoryLayer = milvus_agent
         self.system_prompt: str = MicroReflector_SystemPrompt
         self.user_prompt: str = MicroReflector_UserPrompt
         
