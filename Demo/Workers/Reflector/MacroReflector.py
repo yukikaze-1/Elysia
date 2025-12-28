@@ -100,7 +100,7 @@ class MacroReflector:
         self.user_prompt: str = MacroReflector_UserPrompt
         
         # TODO 这个一天的记忆有待商榷
-        self.gather_memory_time_interval_seconds: float = self.config.gather_memory_time_interval_seconds  # 汇集记忆的时间间隔，单位秒，默认一天
+        self.gather_memory_time_interval_seconds: int = self.config.gather_memory_time_interval_seconds  # 汇集记忆的时间间隔，单位秒，默认一天
         
         # TODO 这些参数要存入json
         self.last_macro_reflection_time: float = 0.0  # 上一次macro reflection的时间

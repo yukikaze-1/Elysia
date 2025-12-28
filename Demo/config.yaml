@@ -107,7 +107,7 @@ L3: {}
 Reflector:
   logger_name: "Reflector"
   micro_threshold: 10  # 微观反思触发阈值(10条 ChatMessage)(约等于5轮对话)
-  macro_interval_seconds: 86400  # 宏观反思触发间隔，单位秒（默认24小时）
+  macro_interval_seconds: 120  # 宏观反思触发间隔，单位秒（默认24小时）
   worker_sleep_interval: 2.0  # 反思工作线程休眠间隔，单位秒
   MemoryReflector:
     MicroReflector: 
@@ -123,7 +123,7 @@ Reflector:
 
     MacroReflector:
       logger_name: "MacroReflector"
-      gather_memory_time_interval_seconds: 86400.0  # 汇集记忆的时间间隔，单位秒，默认一天
+      gather_memory_time_interval_seconds: 86400  # 汇集记忆的时间间隔，单位秒，默认一天
       milvus_collection: "macro_memory"
       model: "deepseek-chat"
       use_prefix: true

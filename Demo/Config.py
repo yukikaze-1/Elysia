@@ -236,7 +236,7 @@ class MicroReflectorConfig:
 @dataclass
 class MacroReflectorConfig:
     logger_name: str = "MacroReflector"
-    gather_memory_time_interval_seconds: float = 86400.0
+    gather_memory_time_interval_seconds: int = 86400
     milvus_collection: str = "macro_memory"
     model: str = "deepseek-chat"
     use_prefix: bool = True
