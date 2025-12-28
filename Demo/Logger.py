@@ -9,14 +9,15 @@ from logging.handlers import TimedRotatingFileHandler
 
 # 定义默认日志路径，方便修改
 DEFAULT_LOG_PATH = "/home/yomu/Elysia/Demo/Log"
+DEFAULT_LOG_LEVEL = logging.INFO
 
-def setup_logger(name: str, log_dir: str = DEFAULT_LOG_PATH) -> logging.Logger:
+def setup_logger(name: str, log_dir: str = DEFAULT_LOG_PATH, logger_level = DEFAULT_LOG_LEVEL) -> logging.Logger:
     """
     配置并返回一个日志记录器 (单例模式安全)
     """
     # 1. 获取 logger
     logger = logging.getLogger(name)
-    logger.setLevel(logging.INFO)  # TODO 可根据需要调整日志级别
+    logger.setLevel(logger_level)  # TODO 可根据需要调整日志级别
 
     # 2. 【关键】检查是否已经添加过 handler，防止重复打印！
     if logger.handlers:

@@ -3,7 +3,7 @@ import json
 from typing import List
 from fastapi import WebSocket
 from Core.OutputChannel import OutputChannel
-from Layers.Session import  ChatMessage
+from Layers.L2.SessionState import ChatMessage
 
 class ConnectionManager(OutputChannel):
     """

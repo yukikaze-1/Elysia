@@ -7,9 +7,9 @@ from Layers.L0.Amygdala import AmygdalaOutput
 from Layers.L0.Sensor import EnvironmentInformation, TimeInfo
 from Core.Schema import UserMessage, ChatMessage
 from Layers.L0.L0 import SensorLayer
-from Layers.L0.PsycheSystem import PsycheSystem, EnvironmentalStimuli
+from Layers.PsycheSystem import PsycheSystem, EnvironmentalStimuli
 from Layers.L1 import ActiveResponse, BrainLayer
-from Layers.L2 import MemoryLayer
+from Layers.L2.L2 import MemoryLayer
 from Layers.L3 import PersonaLayer
 from Workers.Reflector.Reflector import Reflector
 from Layers.Actuator.ActuatorLayer import ActuatorLayer, ActionType
@@ -52,6 +52,7 @@ class Dispatcher:
         
         # === 主动性控制参数 ===
         # 记录上次交互时间
+        # TODO 这些运行时参数应该持久化到文件中
         tmp_time = datetime.now()
         self.last_interaction_time: datetime = tmp_time     # last_interaction_time：AI 或用户最后一次说话的时间
         self.last_ai_reply_time: datetime = tmp_time        # last_ai_reply_time：AI最后一次说话的时间

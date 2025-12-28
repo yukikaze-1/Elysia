@@ -76,7 +76,7 @@ class MacroMemoryStorage(MacroMemory):
 import time
 import json   
 from datetime import datetime
-from Layers.L2 import MemoryLayer
+from Layers.L2.L2 import MemoryLayer
 from openai import OpenAI
 from Prompt import MacroReflector_SystemPrompt, MacroReflector_UserPrompt
 from Workers.Reflector.MicroReflector import MicroMemory
@@ -86,13 +86,19 @@ from logging import Logger
 
 class MacroReflector:
     """负责从l2 的记忆中精炼记忆"""
-    def __init__(self, openai_client: OpenAI, milvus_agent: MemoryLayer, collection_name: str, logger: Logger):
+    def __init__(self, openai_client: OpenAI, 
+                 milvus_agent: MemoryLayer, 
+                 collection_name: str, 
+                 logger: Logger):
         self.logger: Logger = logger
         self.openai_client: OpenAI = openai_client
         self.collection_name: str = collection_name
         self.milvus_agent: MemoryLayer = milvus_agent
         self.system_prompt: str = MacroReflector_SystemPrompt
         self.user_prompt: str = MacroReflector_UserPrompt
+        
+        # TODO 这个一天的记忆有待商榷
+        self.gather_memory_time_interval_seconds: float = 86400.0  # 汇集记忆的时间间隔，单位秒，默认一天
         
         self.last_macro_reflection_time: float = 0.0  # 上一次macro reflection的时间
         self.last_macro_reflection_log: list[MacroMemory] = []  # 上一次macro reflection的结果日志(Dashboard用) 
@@ -107,16 +113,16 @@ class MacroReflector:
             "user_prompt": self.user_prompt,
             "last_macro_reflection_time": datetime.fromtimestamp(self.last_macro_reflection_time).strftime("%Y-%m-%d %H:%M:%S") if self.last_macro_reflection_time > 0 else "Never",
             "last_macro_reflection_log_count": len(self.last_macro_reflection_log),
-            # "last_macro_reflection_log": self.last_macro_reflection_log[0].to_dict() if len(self.last_macro_reflection_log) > 0 else None
             "last_macro_reflection_log": [mem.to_dict() for mem in self.last_macro_reflection_log]
         }
         return status
         
         
-    def gather_daily_memories(self)-> list[MicroMemory]:
+    def gather_daily_memories(self, time_interval: float | None = None)-> list[MicroMemory]:
         """汇集一天的记忆"""
-        # TODO 这个一天的记忆有待商榷
-        start_time = int(time.time()) - 86400 
+        if time_interval is None:
+            time_interval = self.gather_memory_time_interval_seconds
+        start_time = int(time.time()) - time_interval
     
         # Milvus 表达式查询 (Hybrid Search)
         # 查出今天发生的高权重记忆
@@ -179,19 +185,11 @@ class MacroReflector:
             messages=messgaes,
             stream=False
         )
-        # raw_message: ChatCompletionMessage = response.choices[0].message
-        # msg = ChatMessage.from_ChatCompletionMessage(raw_message, response.created)
         
         self.logger.info("--------------- Reflector L2 to L2 Raw Response ---------------")
         self.logger.info(response)
-        # msg.debug(self.logger)
         self.logger.info("--------------- End of Reflector L2 to L2 Raw Response ---------------")
-        # {
-        #   "diary_content": "今天过得很开心，他今天带我出去玩了一整天...",
-        #   "poignancy": 75,
-        #   "dominant_emotion": "复杂, 喜悦",
-        #   "keywords": ["外出", "笑声", "陪伴"]
-        # }
+
         # 解析llm输出
         raw_content = response.choices[0].message.content
         if raw_content:
@@ -228,7 +226,16 @@ class MacroReflector:
         
     def parse_macro_llm_output(self, llm_raw_output)-> list[MacroMemoryLLMOut]:
         """处理llm的原生回复，提取出MacroMemoryLLMOut列表"""
+        # 提取llm回复中的content部分，应该是一个dict
+        #   {
+        #    "diary_content": "今天过得很开心，他今天带我出去玩了一整天...",
+        #    "poignancy": 75,
+        #    "dominant_emotion": "复杂, 喜悦",
+        #    "keywords": ["外出", "笑声", "陪伴"]
+        #   }
+        
         self.logger.info("Parsing Macro LLM Output...")
+        
         # 1. 打印原始内容的 repr()，这样能看到空格、换行符等不可见字符
         self.logger.info(f"DEBUG: Raw Output type: {type(llm_raw_output)}")
         self.logger.info(f"DEBUG: Raw Output repr: {repr(llm_raw_output)}") 
@@ -238,14 +245,6 @@ class MacroReflector:
         if cleaned_output.startswith("```"):
             cleaned_output = cleaned_output.replace("```json", "").replace("```", "")
             
-        # 提取llm回复中的content部分，应该是一个dict
-        #   {
-        #    "diary_content": "今天过得很开心，他今天带我出去玩了一整天...",
-        #    "poignancy": 75,
-        #    "dominant_emotion": "复杂, 喜悦",
-        #    "keywords": ["外出", "笑声", "陪伴"]
-        #   }
-        
         memories: list[dict] = parse_json(cleaned_output, self.logger)
         if not memories or len(memories) == 0:
             print("Error! Parse JSON failed.")

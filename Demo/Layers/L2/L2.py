@@ -8,9 +8,12 @@ from langchain_huggingface import HuggingFaceEmbeddings
 import numpy as np
 import threading
 from pymilvus import MilvusClient
+from dotenv import load_dotenv
+import os
 
-from Utils import create_embedding_model, create_micro_memory_collection, create_macro_memory_collection
-from Layers.Session import SessionState, ChatMessage
+from Utils import create_embedding_model
+from Core.Schema import ChatMessage
+from Layers.L2.SessionState import SessionState
 from Workers.Reflector.MacroReflector import MacroMemory
 from Workers.Reflector.MicroReflector import MicroMemory
 from Logger import setup_logger
@@ -45,8 +48,9 @@ class MemoryLayer:
             return
         self.logger = setup_logger("MemoryLayer")
         
-        # === 1. 初始化长期记忆 (Milvus) ===
-        self.milvus_client = MilvusClient(uri="http://localhost:19530", token="root:Milvus")
+        load_dotenv()
+        # === 1. 初始化长期记忆 (Milvus) === 
+        self.milvus_client = MilvusClient(uri=os.getenv("MILVUS_URI", ""), token=os.getenv("MILVUS_TOKEN", ""))
         self.micro_memeory_collection_name = micro_memeory_collection_name if micro_memeory_collection_name else "micro_memory"
         self.macro_memeory_collection_name = macro_memeory_collection_name if macro_memeory_collection_name else "macro_memory"
         
@@ -60,7 +64,11 @@ class MemoryLayer:
         # === 2. 初始化短期记忆 (Session) ===
         # 在单用户场景下，直接持有一个 SessionState 实例
         # 如果是多用户，这里应该是一个 Dict[user_id, SessionState]
-        self.session = SessionState(user_name="妖梦", role="Elysia")
+        self.session = SessionState(user_name="妖梦", 
+                                    role="Elysia", 
+                                    max_messages_limit=30, 
+                                    max_inner_limit=3,
+                                    persist_dir="/home/yomu/Elysia/Demo/storage/sessions")
         self.logger.info("Initialized SessionState for short-term memory.")
         
         # 标记为已初始化
@@ -500,4 +508,89 @@ class MemoryLayer:
                 )
             self.logger.info(f"Total Micro memories: {micro}")
             self.logger.info(f"Total Macro memories: {macro}")
-            
+ 
+# ============================================================================================================================
+# 辅助函数
+# ============================================================================================================================           
+
+def create_micro_memory_collection(collection_name: str, milvus_client: MilvusClient):
+    """  创建用于Micro Memory 的 Milvus Collection  """
+    #  TODO 如果存在先删除 (测试用，生产环境请注释)
+    if milvus_client.has_collection(collection_name):
+        milvus_client.drop_collection(collection_name)
+        
+    from pymilvus import DataType
+        
+    schema = milvus_client.create_schema(
+        collection_name=collection_name,
+        auto_id=True,
+        enable_dynamic_field=True
+    )
+    schema.add_field(field_name="id", datatype=DataType.INT64, is_primary=True, auto_id=True)
+    schema.add_field(field_name="embedding", datatype=DataType.FLOAT_VECTOR, dim=1024)
+    schema.add_field(field_name="subject", datatype=DataType.VARCHAR, max_length=255)
+    schema.add_field(field_name="content", datatype=DataType.VARCHAR, max_length=65535)
+    schema.add_field(field_name="memory_type", datatype=DataType.VARCHAR, max_length=20)
+    schema.add_field(field_name="poignancy", datatype=DataType.INT8)
+    schema.add_field(field_name="timestamp", datatype=DataType.INT64)
+    schema.add_field(field_name="keywords", datatype=DataType.ARRAY, element_type=DataType.VARCHAR, max_length=128,max_capacity=50)
+    
+    milvus_client.create_collection(collection_name=collection_name, schema=schema)
+    
+    # 创建索引 (加快检索)
+    index_params = milvus_client.prepare_index_params()
+    index_params.add_index(
+        field_name="embedding",
+        index_type="IVF_FLAT",
+        metric_type="L2",
+        params={"nlist": 1024}
+    )
+    milvus_client.create_index(
+        collection_name=collection_name, 
+        index_params=index_params
+    )
+    milvus_client.load_collection(collection_name=collection_name) # 加载到内存
+    print("Created Micro Memory collection.")
+    print(f"Collection {collection_name} ready.")
+
+
+def create_macro_memory_collection(collection_name: str, milvus_client: MilvusClient):
+    """  创建用于Macro Memory 的 Milvus Collection  """
+    # TODO 如果存在先删除 (测试用，生产环境请注释)
+    if milvus_client.has_collection(collection_name):
+        milvus_client.drop_collection(collection_name)
+        
+    from pymilvus import DataType
+        
+    schema = milvus_client.create_schema(
+        collection_name=collection_name,
+        auto_id=True,
+        enable_dynamic_field=True
+    )
+    schema.add_field(field_name="id", datatype=DataType.INT64, is_primary=True, auto_id=True)
+    schema.add_field(field_name="embedding", datatype=DataType.FLOAT_VECTOR, dim=1024)
+    schema.add_field(field_name="diary_content", datatype=DataType.VARCHAR, max_length=65535)
+    schema.add_field(field_name="subject", datatype=DataType.VARCHAR, max_length=255)
+    schema.add_field(field_name="dominant_emotion", datatype=DataType.VARCHAR, max_length=65535)
+    schema.add_field(field_name="poignancy", datatype=DataType.INT8)
+    schema.add_field(field_name="timestamp", datatype=DataType.INT64)
+    schema.add_field(field_name="keywords", datatype=DataType.ARRAY, element_type=DataType.VARCHAR, max_length=128,max_capacity=50)
+    
+    milvus_client.create_collection(collection_name=collection_name, schema=schema)
+    
+    # 创建索引 (加快检索)
+    index_params = milvus_client.prepare_index_params()
+    index_params.add_index(
+        field_name="embedding",
+        index_type="IVF_FLAT",
+        metric_type="L2",
+        params={"nlist": 1024}
+    )
+    milvus_client.create_index(
+        collection_name=collection_name, 
+        index_params=index_params
+    )
+    milvus_client.load_collection(collection_name=collection_name) # 加载到内存
+    print("Created Micro Memory collection.")
+    print(f"Collection {collection_name} ready.")        
+  

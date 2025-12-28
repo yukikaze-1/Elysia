@@ -9,8 +9,8 @@ from logging import Logger
 
 from Workers.Reflector.MicroReflector import MicroReflector, MicroMemory
 from Workers.Reflector.MacroReflector import MacroReflector, MacroMemory
-from Layers.L2 import MemoryLayer
-from Layers.Session import ChatMessage
+from Layers.L2.L2 import MemoryLayer
+from Layers.L2.SessionState import ChatMessage
 from Core.EventBus import EventBus, global_event_bus
 from Core.Schema import Event, EventType, EventContentType, EventSource
 from Logger import setup_logger
@@ -38,12 +38,16 @@ class Reflector:
         # TODO 待修改，我想让micro reflector有多种触发模式
         # 比如 1. 空闲10分钟触发 2. buffer满触发 
         # 此处简单的以 buffer 满足一定数量触发
-        self.micro_threshold = 5
+        self.micro_threshold: int = 10
+        self.macro_interval_seconds: int = 86400  # 24小时触发一次
+        
         # TODO 应该写在文件中，记录上次运行时间，每次启动时从文件中读取
-        self.last_macro_run = datetime.now()
+        self.last_macro_run: datetime = datetime.now()
         
         # 4. 后台线程
         self._worker_thread = None
+        # 后台线程sleep间隔
+        self.worker_sleep_interval: float = 2.0  # 2秒
         
         self.logger.info(">>> Reflector Worker Initialized.")
         
@@ -54,6 +58,7 @@ class Reflector:
             "running": self.running,
             "buffer_size": len(self.buffer),
             "micro_threshold": self.micro_threshold,
+            "macro_interval_seconds": self.macro_interval_seconds,
             "last_macro_run": self.last_macro_run.strftime("%Y-%m-%d %H:%M:%S"),
             "micro_reflector_status": self.reflector.micro_reflector.get_status(),
             "macro_reflector_status": self.reflector.macro_reflector.get_status(),
@@ -179,7 +184,7 @@ class Reflector:
             # 先测试一下
             self._check_macro_trigger()
             
-            time.sleep(2) # 休息一下，避免死循环空转
+            time.sleep(self.worker_sleep_interval) # 休息一下，避免死循环空转
             
         self.logger.info(">>> Reflector Worker Stopped.")
         
@@ -187,13 +192,8 @@ class Reflector:
     def _check_macro_trigger(self):
         """检查是否需要运行宏观反思 (例如: 每天一次)"""
         now = datetime.now()
-        # 简单逻辑：如果你想每天凌晨 3 点跑，或者距离上次跑超过 24 小时
-        # 这里演示简单版：每 24 小时跑一次
-        # if (now - self.last_macro_run).total_seconds() > 86400:
-        #     threading.Thread(target=self._run_macro_async).start()
-        #     self.last_macro_run = now
-        # TODO 待修改，目前测试会调低间隔, 例如每2分钟跑一次
-        if (now - self.last_macro_run).total_seconds() > 120:
+
+        if (now - self.last_macro_run).total_seconds() > self.macro_interval_seconds:
             threading.Thread(target=self._run_macro_async).start()
             self.last_macro_run = now
 
@@ -226,12 +226,30 @@ class MemoryReflector:
         self.logger: Logger = logger
         load_dotenv()
         self.openai_client = OpenAI(api_key=os.getenv("DEEPSEEK_API_KEY"), base_url=os.getenv("DEEPSEEK_API_BETA"))
+        
+        # 配置openai client
+        # TODO 目前micro和macro共用一个client
+        micro_client = self.openai_client
+        macro_client = self.openai_client
+        
+        # 配置数据库
         self.micro_memory_collection_name = "micro_memory"
         self.macro_memory_collection_name = "macro_memory"
-        self.milvus_agent = MemoryLayer()
+        self.milvus_agent = MemoryLayer()   # MemoryLayer 是全局单例
+        
+        # 配置logger
+        micro_logger = self.logger.getChild("MicroReflector")
+        macro_logger = self.logger.getChild("MacroReflector")
 
-        self.micro_reflector = MicroReflector(self.openai_client, self.milvus_agent, self.micro_memory_collection_name, self.logger)
-        self.macro_reflector = MacroReflector(self.openai_client, self.milvus_agent, self.macro_memory_collection_name, self.logger)
+        self.micro_reflector = MicroReflector(openai_client=micro_client, 
+                                              milvus_agent=self.milvus_agent, 
+                                              collection_name=self.micro_memory_collection_name, 
+                                              logger=micro_logger)
+        
+        self.macro_reflector = MacroReflector(openai_client=macro_client, 
+                                              milvus_agent=self.milvus_agent, 
+                                              collection_name=self.macro_memory_collection_name, 
+                                              logger=macro_logger)
 
     def run_macro_reflection(self, store_flag: bool = True) -> list[MacroMemory]:
         """运行 Macro 反思，从 Micro Memories 中提炼 Macro Memories"""

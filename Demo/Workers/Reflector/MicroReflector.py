@@ -76,7 +76,7 @@ from typing import TYPE_CHECKING
 
 # 仅在类型检查时导入，运行时不会执行这行代码
 if TYPE_CHECKING:
-    from Layers.L2 import MemoryLayer
+    from Layers.L2.L2 import MemoryLayer
     
 from Core.Schema import ChatMessage, ConversationSegment
 from Prompt import MicroReflector_SystemPrompt, MicroReflector_UserPrompt
@@ -90,13 +90,19 @@ import time
 
 class MicroReflector:
     """负责从l1 的对话中提取记忆"""
-    def __init__(self, openai_client: OpenAI, milvus_agent: 'MemoryLayer', collection_name: str, logger: Logger):
+    def __init__(self, openai_client: OpenAI, 
+                 milvus_agent: 'MemoryLayer', 
+                 collection_name: str, 
+                 logger: Logger):
         self.logger: Logger = logger
         self.openai_client: OpenAI = openai_client
         self.collection_name: str = collection_name
         self.milvus_agent: 'MemoryLayer' = milvus_agent
         self.system_prompt: str = MicroReflector_SystemPrompt
         self.user_prompt: str = MicroReflector_UserPrompt
+        
+        # TODO 这个参数简单粗暴，后续考虑升级
+        self.conversation_split_gap_seconds: float = 1800.0  # 对话切割的时间间隔，单位秒，默认30分钟
         
         self.last_micro_reflection_time: float = 0.0  # 上一次micro reflection的时间
         self.last_micro_reflection_log: list[MicroMemory] = []  # 上一次micro reflection的结果日志(Dashboard用)
@@ -206,16 +212,6 @@ class MicroReflector:
     def parse_micro_llm_output(self, llm_raw_output)-> list[MicroMemoryLLMOut]:
         """处理llm的原生回复，提取出MicroMemory"""
         
-        self.logger.info("Parsing Micro LLM Output...")
-        # 1. 打印原始内容的 repr()，这样能看到空格、换行符等不可见字符
-        self.logger.info(f"DEBUG: Raw Output type: {type(llm_raw_output)}")
-        self.logger.info(f"DEBUG: Raw Output repr: {repr(llm_raw_output)}") 
-        
-        # 2. 清洗数据（防止模型输出 ```json ... ``` 包裹）
-        cleaned_output = llm_raw_output.strip()
-        if cleaned_output.startswith("```"):
-            cleaned_output = cleaned_output.replace("```json", "").replace("```", "")
-            
         # 提取llm回复中的content部分，应该是一个list[dict]
         # [
         #   {
@@ -228,6 +224,16 @@ class MicroReflector:
         # ]
         # raw_content:str = raw_response.choices[0].message.content
         
+        self.logger.info("Parsing Micro LLM Output...")
+        # 1. 打印原始内容的 repr()，这样能看到空格、换行符等不可见字符
+        self.logger.info(f"DEBUG: Raw Output type: {type(llm_raw_output)}")
+        self.logger.info(f"DEBUG: Raw Output repr: {repr(llm_raw_output)}") 
+        
+        # 2. 清洗数据（防止模型输出 ```json ... ``` 包裹）
+        cleaned_output = llm_raw_output.strip()
+        if cleaned_output.startswith("```"):
+            cleaned_output = cleaned_output.replace("```json", "").replace("```", "")
+            
         memories: list[dict] = parse_json(cleaned_output, self.logger)
         if not memories:
             self.logger.error("Error! Parse JSON failed.")
@@ -260,10 +266,14 @@ class MicroReflector:
         return "[\n" + "\n".join(lines) + "\n]"
     
     
-    def conversation_split(self, conversations: list[ChatMessage], gap_seconds: float = 1800.0)->list[ConversationSegment]:
+    def conversation_split(self, conversations: list[ChatMessage], gap_seconds: float | None = None)->list[ConversationSegment]:
         """将对话按时间来进行切割"""
         if len(conversations) == 0:
             return []
+        
+        if gap_seconds is None:
+            gap_seconds = self.conversation_split_gap_seconds
+            
         self.logger.info(f"Splitting {len(conversations)} messages into conversation segments. By gap_seconds={gap_seconds}") 
         self.logger.debug("Messages to split:")
         for msg in conversations:

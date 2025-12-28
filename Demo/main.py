@@ -11,7 +11,7 @@ from Core.EventBus import EventBus, global_event_bus
 from Core.Dispatcher import Dispatcher
 from Layers.L0.L0 import SensorLayer
 from Layers.L1 import BrainLayer
-from Layers.L2 import MemoryLayer
+from Layers.L2.L2 import MemoryLayer
 from Layers.L3 import PersonaLayer
 from Workers.Reflector.Reflector import Reflector
 

@@ -1,3 +1,130 @@
-Session:
- - session_capacity: 30
- - inner_capacity: 3
+Logger:
+  DEFAULT_LOG_PATH: "/home/yomu/Elysia/Demo/Log"
+  DEFAULT_LOG_LEVEL : "logging.INFO"
+
+
+DashBoard:
+  API_URL: "http://192.168.1.18:8000"
+  REFRESH_RATE: 1.0  # 刷新频率(秒)
+
+
+Core:
+  EventBus:
+    logger_name: "EventBus"
+  Dispatcher:
+    logger_name: "Dispatcher"
+
+L0:
+  L0:
+    logger_name: "SensorLayer"
+    heartbeat_interval: 10.0  # 心跳间隔，单位秒
+    model: "deepseek-chat" 
+    use_prefix: true
+    max_tokens: 1500
+    temperature: 1.2
+    LLM_API_KEY: ""  # TODO 放在 .env 文件中
+    LLM_URL: "https://api.deepseek.com/beta"  # TODO 放在 .env 文件中
+
+  Sensor: {}
+
+  Amygdala: {}
+
+  PsycheSystem:
+    psyche_config:
+      # === 基础代谢 ===
+      max_energy: 100.0
+      sleep_start_hour: 2   # 凌晨 2 点开始犯困
+      sleep_end_hour: 8     # 早上 8 点起床
+      energy_drain_rate: 5.0  # 每小时自然消耗的精力
+      energy_recover_rate: 15.0 # 睡眠时每小时恢复的精力
+  
+      # === 社交属性 ===
+      max_social_battery: 100.0
+      social_battery_recover_rate: 10.0 # 独处时每小时恢复的电量
+      
+      # === 表达欲 (驱动力) ===
+      boredom_threshold: 80.0  # 超过这个值尝试说话
+      base_boredom_growth: 30.0 # 每小时无聊值增长的基础速度 (话唠程度)
+      
+      # === 消耗成本 ===
+      cost_speak_active: 15.0  # 主动说话消耗的社恐电量
+      cost_speak_passive: 5.0  # 被动回复消耗的社恐电量
+      relief_boredom_active: 50.0 # 主动说话释放的无聊值
+      
+      # === [ADD] 对话惯性参数 ===
+      # 刚刚结束对话时的惯性倍率 (例如 10 倍速增长)
+      momentum_multiplier: 50.0 
+      # 惯性衰减半衰期 (分钟)：多少分钟后惯性消失一半
+      momentum_decay_half_life: 10.0
+
+    internal_state:
+      energy: 100.0
+      social_battery: 100.0
+      boredom: 0.0
+      mood: 0.0
+      conversation_momentum: 0.0
+
+L1:
+  BrainLayer:
+    model: "deepseek-chat" 
+    use_prefix: true
+    temperature: 1.3
+    max_tokens: 2000
+    LLM_API_KEY: ""  # TODO 放在 .env 文件中
+    LLM_URL: "https://api.deepseek.com/beta"  # TODO 放在 .env 文件中
+
+L2:
+  MemoryLayer:
+    logger_name: "MemoryLayer"
+    micro_memory_collection: "micro_memory"
+    macro_memory_collection: "macro_memory"
+    MILVUS_URI: "http://localhost:19530" # TODO 放在 .env 文件中
+    MILVUS_TOKEN: "root:Milvus" # TODO 放在 .env 文件中
+
+  SessionState:
+    logger_name: "SessionState"
+    user_name: "妖梦"
+    role: "Elysia"
+    session_capacity: 30
+    inner_capacity: 3
+    persist_dir: "/home/yomu/Elysia/Demo/storage/sessions"
+
+L3: {}
+
+Reflector:
+  logger_name: "Reflector"
+  micro_threshold: 10  # 微观反思触发阈值(10条 ChatMessage)(约等于5轮对话)
+  macro_interval_seconds: 86400  # 宏观反思触发间隔，单位秒（默认24小时）
+  work_sleep_interval: 2.0  # 反思工作线程休眠间隔，单位秒
+  MemoryReflector:
+    MicroReflector:
+      logger_name: "MicroReflector"
+      conversation_split_gap_seconds: 1800.0  # 对话切割的时间间隔，单位秒，默认30分钟
+      milvus_collection: "micro_memory"
+      model: "deepseek-chat"
+      use_prefix: true
+      temperature: 1.2
+      max_tokens: 1500
+      LLM_API_KEY: ""  # TODO 放在 .env 文件中
+      LLM_URL: "https://api.deepseek.com/beta"  # TODO 放在 .env 文件中
+
+    MacroReflector:
+      logger_name: "MacroReflector"
+      gather_memory_time_interval_seconds: 86400.0  # 汇集记忆的时间间隔，单位秒，默认一天
+      milvus_collection: "macro_memory"
+      model: "deepseek-chat"
+      use_prefix: true
+      temperature: 1.0
+      max_tokens: 3000
+      LLM_API_KEY: ""  # TODO 放在 .env 文件中
+      LLM_URL: "https://api.deepseek.com/beta"  # TODO 放在 .env 文件中
+
+
+Server:
+  App:
+    logger_name: "ElysiaServer"
+    host: "0.0.0.0"
+    port: 8000
+    reload: true
+    log_level: "info"
+  

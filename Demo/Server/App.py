@@ -18,9 +18,9 @@ from Core.EventBus import EventBus, Event, global_event_bus
 from Core.Dispatcher import Dispatcher
 from Core.Schema import EventType, EventContentType, EventSource, UserMessage, L0InputSourceType
 from Layers.L0.L0 import SensorLayer
-from Layers.L0.PsycheSystem import PsycheConfig, EnvironmentalStimuli, InternalState, PsycheSystem
+from Layers.PsycheSystem import PsycheConfig, EnvironmentalStimuli, InternalState, PsycheSystem
 from Layers.L1 import BrainLayer
-from Layers.L2 import MemoryLayer
+from Layers.L2.L2 import MemoryLayer
 from Layers.L3 import PersonaLayer
 from Layers.Actuator.ActuatorLayer import ActuatorLayer, ActionType
 from Workers.Reflector.Reflector import Reflector
@@ -31,6 +31,13 @@ from Logger import setup_logger
 class ElysiaServer:
     def __init__(self):
         self.logger = setup_logger("ElysiaServer")
+        
+        # 初始化uvicorn配置参数
+        self.host = "0.0.0.0"
+        self.port = 8000
+        self.reload = True
+        self.log_level = "info"
+        
         # 1. 初始化核心组件 (但不启动线程)
         self.bus: EventBus = global_event_bus
         self.manager = ConnectionManager()
@@ -80,7 +87,7 @@ class ElysiaServer:
         self.app.get("/dashboard/snapshot")(self.get_system_snapshot)
         # self.app.post("/dashboard/control")(self.control_system) # (可选) 用于手动控制
 
-    # 2. 新增 handler 方法：获取系统快照
+
     async def get_system_snapshot(self):
         """
         上帝视角：聚合所有层级的状态
@@ -210,7 +217,11 @@ class ElysiaServer:
             
     def run(self):
         """运行 FastAPI 应用"""
-        uvicorn.run(self.app, host="0.0.0.0", port=8000)
+        uvicorn.run(self.app, 
+                    host=self.host, 
+                    port=self.port, 
+                    reload=self.reload, 
+                    log_level=self.log_level)
 
 
 if __name__ == "__main__":

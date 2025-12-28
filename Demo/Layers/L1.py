@@ -61,7 +61,7 @@ class BrainLayer:
         self.logger = setup_logger("L1_BrainLayer")
         self.client: OpenAI = OpenAI(api_key=os.getenv("DEEPSEEK_API_KEY"), base_url=os.getenv("DEEPSEEK_API_BETA"))
         
-        # 参数配置 (可以提取到 config 文件中)
+        # TODO 参数配置 (可以提取到 config 文件中)
         self.model_name = "deepseek-chat" 
         self.temperature = 1.3  # 较高的温度让 AI 更有人味
         

@@ -33,11 +33,17 @@ class SensorLayer:
     def __init__(self, event_bus: EventBus = global_event_bus):
         load_dotenv()
         self.logger = setup_logger("L0_SensorLayer")
+        # 初始化 OpenAI 客户端
         self.openai_client: OpenAI = OpenAI(api_key=os.getenv("DEEPSEEK_API_KEY"), base_url=os.getenv("DEEPSEEK_API_BASE"))
         
+        amygdala_client = self.openai_client  # 目前使用同一个 LLM 客户端，未来可以分开配置
+        amygdala_logger = self.logger.getChild("Amygdala")
+        
+        sensor_logger = self.logger.getChild("SensoryProcessor")
+        
         # 业务组件
-        self.sensory_processor: SensoryProcessor = SensoryProcessor(self.logger)    # 感官处理器
-        self.amygdala: Amygdala = Amygdala(self.openai_client, self.logger)         # 本能反应器
+        self.sensory_processor: SensoryProcessor = SensoryProcessor(sensor_logger)    # 感官处理器
+        self.amygdala: Amygdala = Amygdala(amygdala_client, amygdala_logger)         # 本能反应器
         
         # 输入缓冲队列
         self.input_queue: queue.Queue = queue.Queue()
@@ -45,6 +51,9 @@ class SensorLayer:
         # 对接逻辑
         self.bus: EventBus = event_bus  # 事件总线
         self.running: bool = False
+        
+        # 心跳
+        self.heartbeat_interval: float = 10.0  # 心跳间隔，单位秒
         
         # 线程句柄
         self._processor_thread: Optional[threading.Thread] = None # 新增处理线程
@@ -177,7 +186,7 @@ class SensorLayer:
         """
         while self.running:
             # 每 10 秒产生一次心跳
-            time.sleep(10)
+            time.sleep(self.heartbeat_interval)
             self.logger.info("L0 SensorLayer tick event generated.")
             # TODO 你也可以在这里让 Amygdala 检查是否有持续的环境威胁
             # ...
