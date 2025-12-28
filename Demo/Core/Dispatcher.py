@@ -1,7 +1,7 @@
 import logging
 from datetime import datetime, timedelta
 from typing import Literal
-from Core.EventBus import EventBus, global_event_bus
+from Core.EventBus import EventBus
 from Core.Schema import Event, EventType
 from Layers.L0.Amygdala import AmygdalaOutput
 from Layers.L0.Sensor import EnvironmentInformation, TimeInfo
@@ -12,7 +12,7 @@ from Layers.L1 import ActiveResponse, BrainLayer
 from Layers.L2.L2 import MemoryLayer
 from Layers.L3 import PersonaLayer
 from Workers.Reflector.Reflector import Reflector
-from Layers.Actuator.ActuatorLayer import ActuatorLayer, ActionType
+from Core.ActuatorLayer import ActuatorLayer, ActionType
 from Logger import setup_logger
 
 from Utils import timedelta_to_text
@@ -26,14 +26,14 @@ class Dispatcher:
     4. 实现主动性逻辑 (Agency)，决定何时让 AI 主动发起对话
     5. 处理错误和异常，确保系统稳定运行
     """
-    def __init__(self, event_bus: EventBus = global_event_bus, 
-                 l0: SensorLayer = SensorLayer(), 
-                 l1: BrainLayer = BrainLayer(), 
-                 l2: MemoryLayer = MemoryLayer(),
-                 l3: PersonaLayer = PersonaLayer(), 
-                 actuator: ActuatorLayer = ActuatorLayer(),
-                 reflector: Reflector = Reflector(),
-                 psyche_system: PsycheSystem = PsycheSystem(),
+    def __init__(self, event_bus: EventBus, 
+                 l0: SensorLayer, 
+                 l1: BrainLayer, 
+                 l2: MemoryLayer,
+                 l3: PersonaLayer, 
+                 actuator: ActuatorLayer,
+                 reflector: Reflector,
+                 psyche_system: PsycheSystem,
                  ):
         """
         初始化调度器，注入所有依赖层

@@ -14,6 +14,8 @@ from Workers.Reflector.MacroReflector import MacroMemory
 from Workers.Reflector.MicroReflector import MicroMemory
 from Core.Schema import ChatMessage, UserMessage, DEFAULT_ERROR_INNER_THOUGHT, DEFAULT_ERROR_PUBLIC_REPLY, DEFAULT_ERROR_MOOD
 from Logger import setup_logger
+from Config import L1Config
+from openai.types.chat import ChatCompletion
 
 
 class NormalResponse:
@@ -56,14 +58,20 @@ class BrainLayer:
     不再持有 MemoryLayer 实例，不再主动检索数据库。
     只负责接收上下文(Context)，进行推理(Inference)，并返回结果(Result)。
     """
-    def __init__(self):
+    def __init__(self, config: L1Config):
         load_dotenv()
-        self.logger = setup_logger("L1_BrainLayer")
-        self.client: OpenAI = OpenAI(api_key=os.getenv("DEEPSEEK_API_KEY"), base_url=os.getenv("DEEPSEEK_API_BETA"))
+        self.config: L1Config = config
+        self.logger = setup_logger(self.config.BrainLayer.logger_name)
+        self.client: OpenAI = OpenAI(api_key=self.config.BrainLayer.LLM_API_KEY, 
+                                     base_url=self.config.BrainLayer.LLM_URL)
         
-        # TODO 参数配置 (可以提取到 config 文件中)
-        self.model_name = "deepseek-chat" 
-        self.temperature = 1.3  # 较高的温度让 AI 更有人味
+        # 参数配置 
+        # 主动生成 LLM 参数
+        self.active_generate_model_name = self.config.BrainLayer.ActiveGenerate.model
+        self.active_generate_temperature = self.config.BrainLayer.ActiveGenerate.temperature
+        # 正常生成 LLM 参数
+        self.normal_generate_model_name = self.config.BrainLayer.NormalGenerate.model
+        self.normal_temperature = self.config.BrainLayer.NormalGenerate.temperature
         
         # 最后一次思考日志
         self.last_thinking_log : NormalResponse | ActiveResponse | None = None
@@ -77,8 +85,10 @@ class BrainLayer:
     def get_status(self) -> dict:
         """获取当前大脑层状态的摘要信息"""
         status = {
-            "model_name": self.model_name,
-            "temperature": self.temperature,
+            "active_generate_model_name": self.active_generate_model_name,
+            "active_generate_temperature": self.active_generate_temperature,
+            "normal_generate_model_name": self.normal_generate_model_name,
+            "normal_temperature": self.normal_temperature,
             "last_thinking_log": self.last_thinking_log.to_dict() if self.last_thinking_log else None
         }
         return status    
@@ -117,6 +127,7 @@ class BrainLayer:
         # 将记忆格式化为文本格式
         memories: str =  self._construct_memories(micro_memories, macro_memories)
         
+        
         try:
             # 1. 构建系统级 Prompt (System Prompt)
             # 将人格设定和记忆注入到 System 区域，确保模型遵循人设
@@ -133,28 +144,34 @@ class BrainLayer:
             
             # 2. 调用 LLM
             response = self.client.chat.completions.create(
-                model=self.model_name,
+                model=self.normal_generate_model_name,
                 messages=messages,
-                temperature=self.temperature,
-                stream=False
+                temperature=self.normal_temperature,
+                max_tokens=self.config.BrainLayer.NormalGenerate.max_tokens,
+                stream=self.config.BrainLayer.NormalGenerate.stream
             )
             
             # 3. 处理返回结果
-            # 因为是对话前缀续写，需要手动加上'{'组成完整的json格式
-            raw_content = response.choices[0].message.content
-            if raw_content:
-                raw_content = '{' + raw_content
-            self.logger.info("----- LLM Raw Response -----")
-            self.logger.info(raw_content)
-            self.logger.info("----- End of LLM Raw Response -----")
+            if isinstance(response, ChatCompletion):
+                # 因为是对话前缀续写，需要手动加上'{'组成完整的json格式
+                raw_content = response.choices[0].message.content
+                if raw_content:
+                    raw_content = '{' + raw_content
+                self.logger.info("----- LLM Raw Response -----")
+                self.logger.info(raw_content)
+                self.logger.info("----- End of LLM Raw Response -----")
 
-            # 4. 解析
-            res: NormalResponse = self.parse_llm_dual_think_response(raw_content)
+                # 4. 解析
+                res: NormalResponse = self.parse_llm_dual_think_response(raw_content)
+                
+                # 5. 将最后一次思考日志保存到属性中
+                self.last_thinking_log = res
+                self.logger.info(f"This turn useage: Token:{response.usage}")
+                
+            else:
+                # 流式处理 TODO 
+                res = NormalResponse(inner_thought="", public_reply="", mood="")
             
-            # 5. 将最后一次思考日志保存到属性中
-            self.last_thinking_log = res
-            
-            self.logger.info(f"This turn useage: Token:{response.usage}")
             return res
 
         except Exception as e:
@@ -214,26 +231,33 @@ class BrainLayer:
         
         # 3. 调用llm
         response = self.client.chat.completions.create(
-            model="deepseek-chat",
+            model=self.active_generate_model_name,
             messages=messages,
-            stream=False
+            temperature=self.active_generate_temperature,
+            max_tokens=self.config.BrainLayer.ActiveGenerate.max_tokens,
+            stream=self.config.BrainLayer.ActiveGenerate.stream
         )
         self.logger.info("LLM response received for decide_to_act.")
         # 4. 处理回复
-        # 因为是对话前缀续写，需要手动加上'{'组成完整的json格式
-        raw_content = response.choices[0].message.content
-        if raw_content:
-                raw_content = '{' + raw_content
-        self.logger.info("----- LLM Raw Response -----")
-        self.logger.info(raw_content)
-        self.logger.info("----- End of LLM Raw Response -----")
+        if isinstance(response, ChatCompletion):
+            # 因为是对话前缀续写，需要手动加上'{'组成完整的json格式
+            raw_content = response.choices[0].message.content
+            if raw_content:
+                    raw_content = '{' + raw_content
+            self.logger.info("----- LLM Raw Response -----")
+            self.logger.info(raw_content)
+            self.logger.info("----- End of LLM Raw Response -----")
+            
+            # 5. 解析
+            res: ActiveResponse = self.parse_llm_decide_to_act_response(raw_content)
+            
+            # 6. 将最后一次思考日志保存到属性中
+            self.last_thinking_log = res
+            self.logger.info("------------------------------------------------------------------------------------------------")
+        else:
+            # 流式处理 TODO 
+            res = ActiveResponse(should_speak=False, inner_voice="", public_reply="", mood="")
         
-        # 5. 解析
-        res: ActiveResponse = self.parse_llm_decide_to_act_response(raw_content)
-        
-        # 6. 将最后一次思考日志保存到属性中
-        self.last_thinking_log = res
-        self.logger.info("------------------------------------------------------------------------------------------------")
         return res
     
     # ===========================================================================================================================

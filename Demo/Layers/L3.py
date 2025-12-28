@@ -365,16 +365,20 @@ from Logger import setup_logger
 import logging
 from Core.Schema import DEFAULT_ERROR_MOOD
 from Prompt import l3_persona_example
+from Config import L3Config
 
 
 class PersonaLayer:
     """
     人格层：负责管理角色的人格特征、情绪状态和表达风格
     """
-    def __init__(self) :
-        self.logger: logging.Logger = setup_logger("PersonaLayer")
-        self.character_identity: CoreIdentity = CoreIdentity() # 角色所有信息
-        # 在实际项目中，这里应该从 JSON/YAML 加载设定
+    def __init__(self, config: L3Config):
+        """初始化 PersonaLayer
+        """ 
+        self.config: L3Config = config
+        self.logger: logging.Logger = setup_logger(self.config.logger_name)
+        # self.character_identity: CoreIdentity = CoreIdentity() # 角色所有信息
+        # TODO 在实际项目中，这里应该从 JSON/YAML 加载设定
         # self.character_identity = self._load_from_config(config_path)
         self.mood: str = "Elysia 当前心情愉快，渴望与用户深入交流。"
         self.prompt:str =  l3_persona_example

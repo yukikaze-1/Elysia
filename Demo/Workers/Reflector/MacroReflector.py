@@ -81,6 +81,7 @@ from openai import OpenAI
 from Prompt import MacroReflector_SystemPrompt, MacroReflector_UserPrompt
 from Workers.Reflector.MicroReflector import MicroMemory
 from Utils import parse_json
+from Config import MacroReflectorConfig
 
 from logging import Logger
 
@@ -88,18 +89,20 @@ class MacroReflector:
     """负责从l2 的记忆中精炼记忆"""
     def __init__(self, openai_client: OpenAI, 
                  milvus_agent: MemoryLayer, 
-                 collection_name: str, 
-                 logger: Logger):
+                 logger: Logger,
+                 config: MacroReflectorConfig):
+        self.config: MacroReflectorConfig = config
         self.logger: Logger = logger
         self.openai_client: OpenAI = openai_client
-        self.collection_name: str = collection_name
+        self.collection_name: str = config.milvus_collection
         self.milvus_agent: MemoryLayer = milvus_agent
         self.system_prompt: str = MacroReflector_SystemPrompt
         self.user_prompt: str = MacroReflector_UserPrompt
         
         # TODO 这个一天的记忆有待商榷
-        self.gather_memory_time_interval_seconds: float = 86400.0  # 汇集记忆的时间间隔，单位秒，默认一天
+        self.gather_memory_time_interval_seconds: float = self.config.gather_memory_time_interval_seconds  # 汇集记忆的时间间隔，单位秒，默认一天
         
+        # TODO 这些参数要存入json
         self.last_macro_reflection_time: float = 0.0  # 上一次macro reflection的时间
         self.last_macro_reflection_log: list[MacroMemory] = []  # 上一次macro reflection的结果日志(Dashboard用) 
         

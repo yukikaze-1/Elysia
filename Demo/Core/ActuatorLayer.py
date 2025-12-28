@@ -1,11 +1,13 @@
 
 from typing import List, Any
+import logging
 from enum import Enum
 
 from Core.OutputChannel import OutputChannel
-from Core.EventBus import EventBus, global_event_bus
+from Core.EventBus import EventBus
 from Core.Schema import ChatMessage
 from Logger import setup_logger
+from Config import ActuatorConfig
 
 class ActionType(str, Enum):
     SPEECH = "SPEECH"
@@ -16,8 +18,9 @@ class ActuatorLayer:
     """
     执行层/表达层：负责将 AI 的决策转化为外部世界的行动 (说话、动作、指令)
     """
-    def __init__(self, event_bus: EventBus = global_event_bus):
-        self.logger = setup_logger("ActuatorLayer")
+    def __init__(self, event_bus: EventBus, config: ActuatorConfig):
+        self.config: ActuatorConfig = config
+        self.logger: logging.Logger = setup_logger(self.config.logger_name)
         self.bus: EventBus = event_bus
         self.channels: List[OutputChannel] = []
         self.logger.info(">>> ActuatorLayer Initialized.")

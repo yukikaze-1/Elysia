@@ -14,7 +14,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 # === 引入你的 Agent 核心组件 ===
-from Core.EventBus import EventBus, Event, global_event_bus
+from Core.EventBus import EventBus, Event
 from Core.Dispatcher import Dispatcher
 from Core.Schema import EventType, EventContentType, EventSource, UserMessage, L0InputSourceType
 from Layers.L0.L0 import SensorLayer
@@ -22,34 +22,39 @@ from Layers.PsycheSystem import PsycheConfig, EnvironmentalStimuli, InternalStat
 from Layers.L1 import BrainLayer
 from Layers.L2.L2 import MemoryLayer
 from Layers.L3 import PersonaLayer
-from Layers.Actuator.ActuatorLayer import ActuatorLayer, ActionType
+from Core.ActuatorLayer import ActuatorLayer, ActionType
 from Workers.Reflector.Reflector import Reflector
 from Server.ConnectionManager import ConnectionManager
 from Logger import setup_logger
 
+from Config import GlobalConfig
 
 class ElysiaServer:
-    def __init__(self):
-        self.logger = setup_logger("ElysiaServer")
+    def __init__(self, config: GlobalConfig):
+        """
+        初始化 Elysia Server 及其组件
+        :param config: 全局配置对象
+        """
+        self.config: GlobalConfig = config
         
+        self.logger = setup_logger(self.config.Server.App.logger_name)
         # 初始化uvicorn配置参数
-        self.host = "0.0.0.0"
-        self.port = 8000
-        self.reload = True
-        self.log_level = "info"
+        self.host = self.config.Server.App.host
+        self.port = self.config.Server.App.port
+        self.log_level = self.config.Server.App.log_level
         
         # 1. 初始化核心组件 (但不启动线程)
-        self.bus: EventBus = global_event_bus
+        self.bus: EventBus = EventBus(logger_name=self.config.Core.EventBus.logger_name)
         self.manager = ConnectionManager()
         
         # 初始化层级
-        self.l0 = SensorLayer(event_bus=self.bus)
-        self.l1 = BrainLayer()
-        self.l2 = MemoryLayer()
-        self.l3 = PersonaLayer()
-        self.reflector = Reflector(event_bus=self.bus)
-        self.actuator = ActuatorLayer(event_bus=self.bus)
-        self.psyche_system = PsycheSystem()  
+        self.l0 = SensorLayer(event_bus=self.bus, config=self.config.L0)
+        self.l1 = BrainLayer(config=self.config.L1)
+        self.l2 = MemoryLayer(config=self.config.L2)
+        self.l3 = PersonaLayer(config=self.config.L3)
+        self.reflector = Reflector(event_bus=self.bus, config=self.config.Reflector, memory_layer=self.l2)
+        self.actuator = ActuatorLayer(event_bus=self.bus, config=self.config.Core.Actuator)
+        self.psyche_system = PsycheSystem(config=self.config.L0.PsycheSystem)  
         
         # 初始化调度器
         self.dispatcher = Dispatcher(
@@ -220,12 +225,8 @@ class ElysiaServer:
         uvicorn.run(self.app, 
                     host=self.host, 
                     port=self.port, 
-                    reload=self.reload, 
                     log_level=self.log_level)
 
 
-if __name__ == "__main__":
-    elysia = ElysiaServer()
-    elysia.run()
         
         

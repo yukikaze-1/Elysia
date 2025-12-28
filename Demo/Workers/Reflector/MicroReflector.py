@@ -86,24 +86,27 @@ from openai import OpenAI
 from datetime import datetime
 from logging import Logger
 import time
+from Config import MicroReflectorConfig
 
 
 class MicroReflector:
     """负责从l1 的对话中提取记忆"""
     def __init__(self, openai_client: OpenAI, 
                  milvus_agent: 'MemoryLayer', 
-                 collection_name: str, 
-                 logger: Logger):
+                 logger: Logger,
+                 config: MicroReflectorConfig):
+        self.config: MicroReflectorConfig = config
         self.logger: Logger = logger
         self.openai_client: OpenAI = openai_client
-        self.collection_name: str = collection_name
+        self.collection_name: str = self.config.milvus_collection
         self.milvus_agent: 'MemoryLayer' = milvus_agent
         self.system_prompt: str = MicroReflector_SystemPrompt
         self.user_prompt: str = MicroReflector_UserPrompt
         
         # TODO 这个参数简单粗暴，后续考虑升级
-        self.conversation_split_gap_seconds: float = 1800.0  # 对话切割的时间间隔，单位秒，默认30分钟
+        self.conversation_split_gap_seconds: float = self.config.conversation_split_gap_seconds  # 对话切割的时间间隔，单位秒，默认30分钟
         
+        # TODO 这些参数要存入json
         self.last_micro_reflection_time: float = 0.0  # 上一次micro reflection的时间
         self.last_micro_reflection_log: list[MicroMemory] = []  # 上一次micro reflection的结果日志(Dashboard用)
         

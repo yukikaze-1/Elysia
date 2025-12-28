@@ -16,6 +16,7 @@ from Core.Schema import ChatMessage
 from Layers.L2.SessionState import SessionState
 from Workers.Reflector.MacroReflector import MacroMemory
 from Workers.Reflector.MicroReflector import MicroMemory
+from Config import L2Config
 from Logger import setup_logger
 
 
@@ -37,22 +38,21 @@ class MemoryLayer:
                     cls._instance = super(MemoryLayer, cls).__new__(cls)
         return cls._instance
     
-    def __init__(self, 
-                 micro_memeory_collection_name: str | None = None,
-                 macro_memeory_collection_name: str | None = None
-                 ):
+    def __init__(self, config: L2Config):
         # 防止重复初始化
         # 因为 __new__ 返回同一个实例后，Python 依然会调用 __init__
         # 所以必须判断是否已经初始化过
         if hasattr(self, "_initialized") and self._initialized:
             return
-        self.logger = setup_logger("MemoryLayer")
+        
+        self.config: L2Config = config
+        self.logger = setup_logger(self.config.MemoryLayer.logger_name)
         
         load_dotenv()
         # === 1. 初始化长期记忆 (Milvus) === 
         self.milvus_client = MilvusClient(uri=os.getenv("MILVUS_URI", ""), token=os.getenv("MILVUS_TOKEN", ""))
-        self.micro_memeory_collection_name = micro_memeory_collection_name if micro_memeory_collection_name else "micro_memory"
-        self.macro_memeory_collection_name = macro_memeory_collection_name if macro_memeory_collection_name else "macro_memory"
+        self.micro_memeory_collection_name = self.config.MemoryLayer.micro_memory_collection
+        self.macro_memeory_collection_name = self.config.MemoryLayer.macro_memory_collection
         
         # 检查并创建集合
         self._check_milvus_collections()
@@ -64,11 +64,7 @@ class MemoryLayer:
         # === 2. 初始化短期记忆 (Session) ===
         # 在单用户场景下，直接持有一个 SessionState 实例
         # 如果是多用户，这里应该是一个 Dict[user_id, SessionState]
-        self.session = SessionState(user_name="妖梦", 
-                                    role="Elysia", 
-                                    max_messages_limit=30, 
-                                    max_inner_limit=3,
-                                    persist_dir="/home/yomu/Elysia/Demo/storage/sessions")
+        self.session = SessionState(config=self.config.SessionState)
         self.logger.info("Initialized SessionState for short-term memory.")
         
         # 标记为已初始化

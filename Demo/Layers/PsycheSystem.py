@@ -8,55 +8,55 @@ import logging
 # 1. 配置与数据结构
 # ==========================================
 
-@dataclass
-class PsycheConfig:
-    """
-    生理参数配置表 (Game Design / Tuning)
-    调整这里的数值可以改变 AI 的性格 (Elysia 的体质)
-    """
-    # === 基础代谢 ===
-    max_energy: float = 100.0
-    sleep_start_hour: int = 2   # 凌晨 2 点开始犯困
-    sleep_end_hour: int = 8     # 早上 8 点起床
-    energy_drain_rate: float = 5.0  # 每小时自然消耗的精力
-    energy_recover_rate: float = 15.0 # 睡眠时每小时恢复的精力
+# @dataclass
+# class PsycheConfig:
+#     """
+#     生理参数配置表 (Game Design / Tuning)
+#     调整这里的数值可以改变 AI 的性格 (Elysia 的体质)
+#     """
+#     # === 基础代谢 ===
+#     max_energy: float = 100.0
+#     sleep_start_hour: int = 2   # 凌晨 2 点开始犯困
+#     sleep_end_hour: int = 8     # 早上 8 点起床
+#     energy_drain_rate: float = 5.0  # 每小时自然消耗的精力
+#     energy_recover_rate: float = 15.0 # 睡眠时每小时恢复的精力
 
-    # === 社交属性 ===
-    max_social_battery: float = 100.0
-    social_battery_recover_rate: float = 10.0 # 独处时每小时恢复的电量
+#     # === 社交属性 ===
+#     max_social_battery: float = 100.0
+#     social_battery_recover_rate: float = 10.0 # 独处时每小时恢复的电量
     
-    # === 表达欲 (驱动力) ===
-    boredom_threshold: float = 80.0  # 超过这个值尝试说话
-    base_boredom_growth: float = 30.0 # 每小时无聊值增长的基础速度 (话唠程度)
+#     # === 表达欲 (驱动力) ===
+#     boredom_threshold: float = 80.0  # 超过这个值尝试说话
+#     base_boredom_growth: float = 30.0 # 每小时无聊值增长的基础速度 (话唠程度)
     
-    # === 消耗成本 ===
-    cost_speak_active: float = 15.0  # 主动说话消耗的社恐电量
-    cost_speak_passive: float = 5.0  # 被动回复消耗的社恐电量
-    relief_boredom_active: float = 50.0 # 主动说话释放的无聊值
+#     # === 消耗成本 ===
+#     cost_speak_active: float = 15.0  # 主动说话消耗的社恐电量
+#     cost_speak_passive: float = 5.0  # 被动回复消耗的社恐电量
+#     relief_boredom_active: float = 50.0 # 主动说话释放的无聊值
     
-    # === [ADD] 对话惯性参数 ===
-    # 刚刚结束对话时的惯性倍率 (例如 10 倍速增长)
-    momentum_multiplier: float = 50.0 
-    # 惯性衰减半衰期 (分钟)：多少分钟后惯性消失一半
-    momentum_decay_half_life: float = 10.0
+#     # === [ADD] 对话惯性参数 ===
+#     # 刚刚结束对话时的惯性倍率 (例如 10 倍速增长)
+#     momentum_multiplier: float = 50.0 
+#     # 惯性衰减半衰期 (分钟)：多少分钟后惯性消失一半
+#     momentum_decay_half_life: float = 10.0
     
-    def __dict__(self):
-        return {
-            "max_energy": self.max_energy,
-            "sleep_start_hour": self.sleep_start_hour,
-            "sleep_end_hour": self.sleep_end_hour,
-            "energy_drain_rate": self.energy_drain_rate,
-            "energy_recover_rate": self.energy_recover_rate,
-            "max_social_battery": self.max_social_battery,
-            "social_battery_recover_rate": self.social_battery_recover_rate,
-            "boredom_threshold": self.boredom_threshold,
-            "base_boredom_growth": self.base_boredom_growth,
-            "cost_speak_active": self.cost_speak_active,
-            "cost_speak_passive": self.cost_speak_passive,
-            "relief_boredom_active": self.relief_boredom_active,
-            "momentum_multiplier": self.momentum_multiplier,
-            "momentum_decay_half_life": self.momentum_decay_half_life
-        }
+#     def __dict__(self):
+#         return {
+#             "max_energy": self.max_energy,
+#             "sleep_start_hour": self.sleep_start_hour,
+#             "sleep_end_hour": self.sleep_end_hour,
+#             "energy_drain_rate": self.energy_drain_rate,
+#             "energy_recover_rate": self.energy_recover_rate,
+#             "max_social_battery": self.max_social_battery,
+#             "social_battery_recover_rate": self.social_battery_recover_rate,
+#             "boredom_threshold": self.boredom_threshold,
+#             "base_boredom_growth": self.base_boredom_growth,
+#             "cost_speak_active": self.cost_speak_active,
+#             "cost_speak_passive": self.cost_speak_passive,
+#             "relief_boredom_active": self.relief_boredom_active,
+#             "momentum_multiplier": self.momentum_multiplier,
+#             "momentum_decay_half_life": self.momentum_decay_half_life
+#         }
 
 
 @dataclass
@@ -66,30 +66,32 @@ class EnvironmentalStimuli:
     is_user_present: bool = False # 用户是否在线/活跃
 
 
-@dataclass
-class InternalState:
-    """当前的生理数值状态"""
-    energy: float = 100.0        # 精力 (0~100)
-    social_battery: float = 100.0 # 社交电量 (0~100)
-    boredom: float = 0.0         # 表达欲/无聊 (0~100+)
-    mood: float = 0.0            # 心情 (-100~100)
-    # === [ADD] 对话惯性/热度 (0.0 ~ 1.0) ===
-    # 1.0 表示刚刚还在热聊，0.0 表示早已冷却
-    conversation_momentum: float = 0.0
+# @dataclass
+# class InternalState:
+#     """当前的生理数值状态"""
+#     energy: float = 100.0        # 精力 (0~100)
+#     social_battery: float = 100.0 # 社交电量 (0~100)
+#     boredom: float = 0.0         # 表达欲/无聊 (0~100+)
+#     mood: float = 0.0            # 心情 (-100~100)
+#     # === [ADD] 对话惯性/热度 (0.0 ~ 1.0) ===
+#     # 1.0 表示刚刚还在热聊，0.0 表示早已冷却
+#     conversation_momentum: float = 0.0
     
-    def __str__(self):
-        return (f"🔋Energy: {self.energy:.1f} | ⚡Social: {self.social_battery:.1f} | "
-                f"🥱Boredom: {self.boredom:.1f} | 🌈Mood: {self.mood:.1f} | 🔥Momentum: {self.conversation_momentum:.0f}")
+#     def __str__(self):
+#         return (f"🔋Energy: {self.energy:.1f} | ⚡Social: {self.social_battery:.1f} | "
+#                 f"🥱Boredom: {self.boredom:.1f} | 🌈Mood: {self.mood:.1f} | 🔥Momentum: {self.conversation_momentum:.0f}")
 
 # ==========================================
 # 2. 核心逻辑类
 # ==========================================
+from Config import PsycheSystemConfig, PsycheConfig, InternalState
 
 class PsycheSystem:
-    def __init__(self, config: PsycheConfig = PsycheConfig()):
-        self.cfg: PsycheConfig = config
-        self.state: InternalState = InternalState()
-        self.logger: logging.Logger = setup_logger("PsycheSystem")
+    def __init__(self, config: PsycheSystemConfig):
+        self.config: PsycheSystemConfig = config
+        self.cfg: PsycheConfig = config.psyche_config
+        self.state: InternalState = config.internal_state # TODO 这里好像有点问题
+        self.logger: logging.Logger = setup_logger(self.config.logger_name)
         
         self.logger.info(">>> PsycheSystem initialized with config:")
         
@@ -336,19 +338,3 @@ class PsycheSystem:
             
         return " | ".join(desc_parts)
 
-# ==========================================
-# 测试代码 (独立运行此文件可看效果)
-# ==========================================
-if __name__ == "__main__":
-    psyche = PsycheSystem()
-    env = EnvironmentalStimuli(current_time=datetime.now())
-    
-    print("=== Simulating 6 Hours passing... ===")
-    # 模拟 6 小时 (21600秒)
-    psyche.update(21600, env)
-    print(f"State: {psyche.state}")
-    print(f"Prompt: {psyche.get_internal_state_description()}")
-    
-    print("\n=== AI Speaks Actively ===")
-    psyche.on_ai_active_speak()
-    print(f"State: {psyche.state}")

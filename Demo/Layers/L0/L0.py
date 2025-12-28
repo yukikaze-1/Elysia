@@ -10,31 +10,31 @@ from openai import OpenAI
 from typing import Optional
 import threading
 import time
-import os
 import queue
 from datetime import datetime
 from pydantic import ValidationError
 
-from Core.OutputChannel import OutputChannel, ConsoleChannel
 from Layers.L0.Sensor import SensoryProcessor, EnvironmentInformation
 from Layers.L0.Amygdala import AmygdalaOutput, Amygdala
 from Core.Schema import (Event, EventType, EventContentType, EventSource, 
                               ChatMessage, UserMessage, WebClientMessage, 
                               L0InputSourceType, ExternalInputEvent,
                               L0InternalQueueItem)
-from Core.EventBus import EventBus, global_event_bus
+from Core.EventBus import EventBus
+from Config import L0Config
 from Logger import setup_logger
 
-from dotenv import load_dotenv
 
 
 class SensorLayer:
     """L0 模块"""
-    def __init__(self, event_bus: EventBus = global_event_bus):
-        load_dotenv()
-        self.logger = setup_logger("L0_SensorLayer")
+    def __init__(self, event_bus: EventBus, config: L0Config):
+        # 配置
+        self.config: L0Config = config
+        self.logger = setup_logger(self.config.SensorLayer.logger_name)
         # 初始化 OpenAI 客户端
-        self.openai_client: OpenAI = OpenAI(api_key=os.getenv("DEEPSEEK_API_KEY"), base_url=os.getenv("DEEPSEEK_API_BASE"))
+        self.openai_client: OpenAI = OpenAI(api_key=self.config.SensorLayer.LLM_API_KEY, 
+                                            base_url=self.config.SensorLayer.LLM_URL)
         
         amygdala_client = self.openai_client  # 目前使用同一个 LLM 客户端，未来可以分开配置
         amygdala_logger = self.logger.getChild("Amygdala")
@@ -42,8 +42,11 @@ class SensorLayer:
         sensor_logger = self.logger.getChild("SensoryProcessor")
         
         # 业务组件
-        self.sensory_processor: SensoryProcessor = SensoryProcessor(sensor_logger)    # 感官处理器
-        self.amygdala: Amygdala = Amygdala(amygdala_client, amygdala_logger)         # 本能反应器
+        self.sensory_processor: SensoryProcessor = SensoryProcessor(logger=sensor_logger, 
+                                                                    config=self.config.Sensor)    # 感官处理器
+        self.amygdala: Amygdala = Amygdala(openai_client=amygdala_client, 
+                                           logger=amygdala_logger,
+                                           config=self.config.Amygdala)         # 本能反应器
         
         # 输入缓冲队列
         self.input_queue: queue.Queue = queue.Queue()
@@ -53,7 +56,7 @@ class SensorLayer:
         self.running: bool = False
         
         # 心跳
-        self.heartbeat_interval: float = 10.0  # 心跳间隔，单位秒
+        self.heartbeat_interval: float = self.config.SensorLayer.heartbeat_interval # 心跳间隔，单位秒
         
         # 线程句柄
         self._processor_thread: Optional[threading.Thread] = None # 新增处理线程

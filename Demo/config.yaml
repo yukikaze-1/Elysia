@@ -13,23 +13,28 @@ Core:
     logger_name: "EventBus"
   Dispatcher:
     logger_name: "Dispatcher"
+  Actuator:
+    logger_name: "ActuatorLayer"
 
 L0:
-  L0:
+  SensorLayer:
     logger_name: "SensorLayer"
     heartbeat_interval: 10.0  # 心跳间隔，单位秒
-    model: "deepseek-chat" 
-    use_prefix: true
-    max_tokens: 1500
-    temperature: 1.2
     LLM_API_KEY: ""  # TODO 放在 .env 文件中
-    LLM_URL: "https://api.deepseek.com/beta"  # TODO 放在 .env 文件中
+    LLM_URL: "https://api.deepseek.com/"  # TODO 放在 .env 文件中
 
   Sensor: {}
 
-  Amygdala: {}
+  Amygdala: 
+    model: "deepseek-chat" 
+    use_prefix: true
+    stream: false
+    max_tokens: 1500
+    temperature: 1.2
+    
 
   PsycheSystem:
+    logger_name: "PsycheSystem"
     psyche_config:
       # === 基础代谢 ===
       max_energy: 100.0
@@ -66,12 +71,20 @@ L0:
 
 L1:
   BrainLayer:
-    model: "deepseek-chat" 
-    use_prefix: true
-    temperature: 1.3
-    max_tokens: 2000
+    logger_name: "BrainLayer"
     LLM_API_KEY: ""  # TODO 放在 .env 文件中
     LLM_URL: "https://api.deepseek.com/beta"  # TODO 放在 .env 文件中
+    ActiveGenerateConfig:
+      model: "deepseek-chat" 
+      use_prefix: true
+      temperature: 1.3
+      max_tokens: 2000
+    NormalGenerateConfig:
+      model: "deepseek-chat" 
+      use_prefix: true
+      temperature: 1.3
+      max_tokens: 2000
+    
 
 L2:
   MemoryLayer:
@@ -95,9 +108,9 @@ Reflector:
   logger_name: "Reflector"
   micro_threshold: 10  # 微观反思触发阈值(10条 ChatMessage)(约等于5轮对话)
   macro_interval_seconds: 86400  # 宏观反思触发间隔，单位秒（默认24小时）
-  work_sleep_interval: 2.0  # 反思工作线程休眠间隔，单位秒
+  worker_sleep_interval: 2.0  # 反思工作线程休眠间隔，单位秒
   MemoryReflector:
-    MicroReflector:
+    MicroReflector: 
       logger_name: "MicroReflector"
       conversation_split_gap_seconds: 1800.0  # 对话切割的时间间隔，单位秒，默认30分钟
       milvus_collection: "micro_memory"

@@ -158,13 +158,15 @@ class TimeSensor:
 # =============================================================================
 # L0 业务组件集成
 # =============================================================================
+from Config import SensorConfig       
        
 class SensoryProcessor:
     """
     处理传感器数据的类
     目前非常简陋
     """
-    def __init__(self, logger: logging.Logger):
+    def __init__(self, logger: logging.Logger, config: SensorConfig):
+        self.config = config
         self.logger: logging.Logger = logger
         self.time_sensor: TimeSensor = TimeSensor(self.logger)
         

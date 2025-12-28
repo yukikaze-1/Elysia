@@ -54,13 +54,19 @@ from openai import OpenAI
 from datetime import datetime
 from Layers.L0.Sensor import TimeInfo
 from Core.Schema import  UserMessage
+from Config import AmygdalaConfig
 import logging
 
 class Amygdala:
     """ L0_b 杏仁核模块"""
-    def __init__(self, openai_client: OpenAI, logger: logging.Logger):
-        self.openai_client = openai_client
-        self.logger = logger
+    def __init__(self, 
+                 openai_client: OpenAI, 
+                 logger: logging.Logger,
+                 config: AmygdalaConfig
+                 ):
+        self.openai_client: OpenAI = openai_client
+        self.logger: logging.Logger = logger
+        self.config: AmygdalaConfig = config
         self.l3_core_identity: str = self.get_l3_core_identity()
         
     
@@ -116,12 +122,14 @@ class Amygdala:
         
         # 调用 OpenAI API 生成描述
         response = self.openai_client.chat.completions.create(
-            model="deepseek-chat",
+            model=self.config.model,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ],
-            stream=False
+            stream=False,
+            max_tokens=self.config.max_tokens,
+            temperature=self.config.temperature,
         )
         
         if not response.choices[0].message.content:

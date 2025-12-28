@@ -11,38 +11,29 @@ import os
 import json
 from Logger import setup_logger
 from Core.Schema import ChatMessage
+from Config import SessionStateConfig
 
 class SessionState:
     """
     [内部辅助类] 会话状态管理
     负责维护 Context Window (上下文窗口)，确保发给 LLM 的 Token 不会溢出。
     """
-    def __init__(self, 
-                 user_name: str, 
-                 role: str, 
-                 max_messages_limit: int = 30, 
-                 max_inner_limit = 3,
-                 persist_dir: str = "/home/yomu/Elysia/Demo/storage/sessions"):
+    def __init__(self, config: SessionStateConfig):
         """
         初始化会话状态
-        Args:
-            user_name (str): 用户名称
-            role (str): AI 角色名称
-            max_messages_limit (int): 最大消息数限制
-            max_inner_limit (int): 最大包含内心独白的消息数限制
-            persist_dir (str): 会话持久化存储目录 TODO 这个可以改成配置项
         """
-
-        self.logger: logging.Logger = setup_logger("SessionState")
-        self.user_name: str = user_name     # 用户的名字
-        self.role: str = role               # AI的名字
+        self.config: SessionStateConfig = config
         
-        if not os.path.exists(persist_dir):
-            os.makedirs(persist_dir)
-        self.file_path = os.path.join(persist_dir, f"{user_name}_{role}_history.json")
+        self.logger: logging.Logger = setup_logger(self.config.logger_name)
+        self.user_name: str = self.config.user_name     # 用户的名字
+        self.role: str = self.config.role               # AI的名字
         
-        self.max_messages_limit: int = max_messages_limit    # 最大对话数(含inner voice + 不含inner voice)
-        self.max_inner_limit: int = max_inner_limit     # 最大包含inner voice的对话数
+        if not os.path.exists(self.config.persist_dir):
+            os.makedirs(self.config.persist_dir)
+        self.file_path = os.path.join(self.config.persist_dir, f"{self.user_name}_{self.role}_history.json")
+        
+        self.max_messages_limit: int = self.config.session_capacity    # 最大对话数(含inner voice + 不含inner voice)
+        self.max_inner_limit: int = self.config.inner_capacity    # 最大包含inner voice的对话数
         
         self.lock = threading.RLock()       # 线程锁，保护会话状态的并发访问
         self.conversations: list[ChatMessage] = []  # 会话历史

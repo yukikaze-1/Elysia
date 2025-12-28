@@ -9,8 +9,22 @@ from Core.Schema import Event
 from Logger import setup_logger
 
 class EventBus:
-    def __init__(self):
-        self.logger: logging.Logger = setup_logger("EventBus")
+    _instance = None
+    _initialized = False
+
+    def __new__(cls, *args, **kwargs):
+        if cls._instance is None:
+            cls._instance = super(EventBus, cls).__new__(cls)
+        return cls._instance
+
+    def __init__(self, logger_name: str = "EventBus"):
+        """
+        事件总线初始化
+        """
+        if self._initialized:
+            return
+
+        self.logger: logging.Logger = setup_logger(logger_name)
         # 核心队列：使用 Python 内置的 PriorityQueue 或 Queue
         # Queue 是线程安全的，完美适配多线程环境 (L0 input thread vs Main loop)
         self._queue = queue.Queue()
@@ -19,6 +33,7 @@ class EventBus:
         # 格式: { "EVENT_TYPE": [callback_function1, callback_function2] }
         self._subscribers: Dict[str, List[Callable[[Event], None]]] = {}
         self.logger.info("EventBus initialized.")
+        self._initialized = True
 
 
     def subscribe(self, event_type: str, callback: Callable[[Event], None]):
@@ -77,9 +92,6 @@ class EventBus:
         """当前积压的事件数量"""
         return self._queue.qsize()
     
-
-# 单例模式 (可选，如果在整个应用中只用一个总线)
-global_event_bus = EventBus()
 
     
     
