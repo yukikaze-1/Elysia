@@ -173,7 +173,7 @@ class MemoryLayer:
             # 组织数据
             info = {
                 "content": mem.content,
-                "embedding": vector,
+                "embedding": vector[0],
                 "subject": mem.subject,
                 "memory_type": mem.memory_type,
                 "poignancy": mem.poignancy,
@@ -202,7 +202,7 @@ class MemoryLayer:
             vector = self.embedding_model.embed_documents([mem.diary_content])[0]
             info = {
                 "diary_content":mem.diary_content,
-                "embedding": vector,
+                "embedding": vector[0],
                 "subject":mem.subject,
                 "dominant_emotion":mem.dominant_emotion,
                 "poignancy":mem.poignancy,

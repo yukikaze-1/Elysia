@@ -216,30 +216,10 @@ class MacroReflector:
             self.logger.info("No memories to store.")
             return
         self.logger.info(f"Storing {len(memories)} Macro Memories to Milvus...")
-        # 准备数据插入 Milvus
-        data = []
-        
-        for mem in memories:
-            # 生成向量
-            vec = self.get_embedding(mem.diary_content)
-            info = {
-                "diary_content": mem.diary_content,
-                "embedding": vec,
-                "subject": mem.subject,
-                "dominant_emotion": mem.dominant_emotion,
-                "poignancy": mem.poignancy,
-                "keywords": mem.keywords,
-                "timestamp": int(mem.timestamp)
-            }
-            data.append(info)
+        # 直接调用 MemoryLayer 的存储接口
+        self.milvus_agent.save_macro_memory(memories)
+        self.logger.info("Macro Memories stored successfully.")
+        return
 
-        # 插入
-        res = self.milvus_agent.milvus_client.insert(
-            collection_name=self.collection_name, 
-            data=data
-        )
-        self.logger.info(f"Stored {len(data)} new memories.\n")
-        self.logger.debug(f"Insert result details: {res}")
-        return res    
     
     

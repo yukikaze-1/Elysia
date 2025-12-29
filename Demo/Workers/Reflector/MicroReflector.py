@@ -235,37 +235,13 @@ class MicroReflector:
     
     def save_reflection_results(self, memories: list[MicroMemory]):
         """ 将抽象出来的记忆存入 milvus. """
-        self.logger.info(f"[Reflector] Saving {len(memories)} Micro Memories to Milvus...")
-        
         if not memories or len(memories) == 0:
             self.logger.warning("No memories to store.")
             return
+        self.logger.info(f"[Reflector] Saving {len(memories)} Micro Memories to Milvus...")
         
-        # 准备数据插入 Milvus
-        data = []
+        # 直接调用 MemoryLayer 的存储接口
+        self.milvus_agent.save_micro_memory(memories)
+        self.logger.info(f"[Reflector] Successfully stored {len(memories)} Micro Memories to Milvus.")
         
-        for mem in memories:
-            if mem.poignancy < 3: continue # 过滤掉琐事
-
-            # 生成向量
-            vec = self.get_embedding(mem.content)
-            info = {
-                "content": mem.content,
-                "embedding": vec,
-                "subject": mem.subject,
-                "memory_type": mem.memory_type,
-                "poignancy": mem.poignancy,
-                "keywords": mem.keywords,
-                "timestamp": int(mem.timestamp)
-            }
-            data.append(info)
-
-        # 插入
-        res = self.milvus_agent.milvus_client.insert(
-            collection_name=self.collection_name, 
-            data=data
-        )
-        self.logger.info(f"Stored {len(data)} new memories.\n {res}")
-        return res
-    
     
