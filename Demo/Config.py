@@ -236,7 +236,7 @@ class MicroReflectorConfig:
     temperature: float = 1.2
     max_tokens: int = 1500
     LLM_API_KEY: str = field(default_factory=lambda: _load_env("DEEPSEEK_API_KEY", ""))
-    LLM_URL: str = field(default_factory=lambda: _load_env("DEEPSEEK_API_KEY", "https://api.deepseek.com/beta"))
+    LLM_URL: str = field(default_factory=lambda: _load_env("DEEPSEEK_API_BETA", "https://api.deepseek.com/beta"))
 
 @dataclass
 class MacroReflectorConfig:
@@ -248,7 +248,7 @@ class MacroReflectorConfig:
     temperature: float = 1.0
     max_tokens: int = 3000
     LLM_API_KEY: str = field(default_factory=lambda: _load_env("DEEPSEEK_API_KEY", ""))
-    LLM_URL: str = field(default_factory=lambda: _load_env("DEEPSEEK_API_KEY", "https://api.deepseek.com/beta"))
+    LLM_URL: str = field(default_factory=lambda: _load_env("DEEPSEEK_API_BETA", "https://api.deepseek.com/beta"))
 
 @dataclass
 class MemoryReflectorConfig:
