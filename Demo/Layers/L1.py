@@ -1,7 +1,6 @@
 import json
 from datetime import datetime, timedelta
 from openai import OpenAI
-from dotenv import load_dotenv
 from Prompt import (SystemPromptTemplate, 
                          l2_memory_block_template, 
                          l1_decide_to_act_template,
@@ -56,7 +55,6 @@ class BrainLayer:
     只负责接收上下文(Context)，进行推理(Inference)，并返回结果(Result)。
     """
     def __init__(self, config: L1Config):
-        load_dotenv()
         self.config: L1Config = config
         self.logger = setup_logger(self.config.BrainLayer.logger_name)
         self.client: OpenAI = OpenAI(api_key=self.config.BrainLayer.LLM_API_KEY, 
@@ -80,7 +78,7 @@ class BrainLayer:
     # ===========================================================================================================================
     
     def get_status(self) -> dict:
-        """获取当前大脑层状态的摘要信息"""
+        """获取当前大脑层状态的摘要信息 Dashboard用"""
         status = {
             "active_generate_model_name": self.active_generate_model_name,
             "active_generate_temperature": self.active_generate_temperature,
@@ -89,6 +87,50 @@ class BrainLayer:
             "last_thinking_log": self.last_thinking_log.to_dict() if self.last_thinking_log else None
         }
         return status    
+    
+    
+    def get_snapshot(self) -> dict:
+        """获取当前大脑层的完整快照， (供 CheckPointManager 使用)"""
+        snapshot = {
+            "active_generate_model_name": self.active_generate_model_name,
+            "active_generate_temperature": self.active_generate_temperature,
+            "normal_generate_model_name": self.normal_generate_model_name,
+            "normal_temperature": self.normal_temperature,
+            "last_thinking_log": self.last_thinking_log.to_dict() if self.last_thinking_log else None
+        }
+        return snapshot
+    
+    
+    def load_snapshot(self, snapshot: dict):
+        """从快照加载大脑层状态 (供 CheckPointManager 使用)"""
+        
+        # 加载参数,如果快照中没有对应字段，则保持原有值不变
+        self.active_generate_model_name = snapshot.get("active_generate_model_name", self.active_generate_model_name)
+        self.active_generate_temperature = snapshot.get("active_generate_temperature", self.active_generate_temperature)
+        self.normal_generate_model_name = snapshot.get("normal_generate_model_name", self.normal_generate_model_name)
+        self.normal_temperature = snapshot.get("normal_temperature", self.normal_temperature)
+        
+        # 加载最后一次思考日志
+        last_log = snapshot.get("last_thinking_log", None)
+        if last_log:
+            if "should_speak" in last_log:
+                # ActiveResponse
+                self.last_thinking_log = ActiveResponse(
+                    should_speak=last_log["should_speak"],
+                    inner_voice=last_log["inner_voice"],
+                    public_reply=last_log["public_reply"],
+                    mood=last_log["mood"]
+                )
+            else:
+                # NormalResponse
+                self.last_thinking_log = NormalResponse(
+                    inner_thought=last_log["inner_thought"],
+                    public_reply=last_log["public_reply"],
+                    mood=last_log["mood"]
+                )
+        else:
+            self.last_thinking_log = None
+            
 
     def generate_reply(self, 
                        user_input: UserMessage, 

@@ -50,6 +50,33 @@ class MacroReflector:
             "last_macro_reflection_log": [mem.to_dict() for mem in self.last_macro_reflection_log]
         }
         return status
+    
+    
+    def dump_state(self) -> dict:
+        """导出当前状态为字典"""
+        state = {
+            "last_macro_reflection_time": self.last_macro_reflection_time,
+            "last_macro_reflection_log": [mem.to_dict() for mem in self.last_macro_reflection_log]
+        }
+        return state
+    
+    
+    def load_state(self, state: dict):
+        """从字典加载状态"""
+        if 'last_macro_reflection_time' in state:
+            self.last_macro_reflection_time = state['last_macro_reflection_time']
+        if 'last_macro_reflection_log' in state:
+            self.last_macro_reflection_log = []
+            for mem_dict in state['last_macro_reflection_log']:
+                self.last_macro_reflection_log.append(MacroMemory(
+                    diary_content=mem_dict['diary_content'],
+                    subject=mem_dict['subject'],
+                    poignancy=mem_dict['poignancy'],
+                    dominant_emotion=mem_dict['dominant_emotion'],
+                    keywords=mem_dict['keywords'],
+                    timestamp=mem_dict['timestamp']
+                ))
+
         
         
     def gather_daily_memories(self, time_interval: float | None = None)-> list[MicroMemory]:

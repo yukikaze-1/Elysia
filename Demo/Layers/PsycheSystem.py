@@ -107,6 +107,25 @@ class PsycheSystem:
             "config": self.cfg.__dict__()
         }
         
+    def dump_state(self) -> dict:
+        """导出当前状态为字典"""
+        return {
+            "energy": self.state.energy,
+            "social_battery": self.state.social_battery,
+            "boredom": self.state.boredom,
+            "mood": self.state.mood,
+            "conversation_momentum": self.state.conversation_momentum
+        }
+        
+        
+    def load_state(self, data: dict):
+        """从字典加载状态"""
+        self.state.energy = data.get("energy", 100.0)
+        self.state.social_battery = data.get("social_battery", 100.0)
+        self.state.boredom = data.get("boredom", 0.0)
+        self.state.mood = data.get("mood", 0.0)
+        self.state.conversation_momentum = data.get("conversation_momentum", 0.0)
+        
         
     def update(self, dt_seconds: float, env: EnvironmentalStimuli) -> bool:
         """

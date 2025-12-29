@@ -30,6 +30,11 @@ Core:
     inner_capacity: 3
     persist_dir: "/home/yomu/Elysia/Demo/storage/sessions"
 
+  CheckPointManager:
+    logger_name: "CheckPointManager"
+    checkpoint_file: "/home/yomu/Elysia/Demo/storage/runtime_state.json"
+    save_interval: 30.0  # 自动保存间隔，单位秒
+
 L0:
   SensorLayer:
     logger_name: "SensorLayer"
@@ -109,7 +114,8 @@ L2:
     MILVUS_TOKEN: "root:Milvus" # TODO 放在 .env 文件中
 
 
-L3: {}
+L3:
+  logger_name: "PersonaLayer"
 
 Reflector:
   logger_name: "Reflector"

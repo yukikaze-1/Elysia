@@ -55,7 +55,6 @@ class SensorLayer:
         self.bus: EventBus = event_bus  # 事件总线
         self.running: bool = False
         
-        
         # 线程句柄
         self._processor_thread: Optional[threading.Thread] = None # 新增处理线程
 

@@ -7,11 +7,13 @@
 """
 from json import load
 import os
+from typing_extensions import runtime
 import yaml
 import logging
 from dataclasses import dataclass, field, fields, is_dataclass
 from typing import Optional, Any, Dict, Type, TypeVar
 from dotenv import load_dotenv
+
 
 
 # ============================================================================================
@@ -64,6 +66,12 @@ class SessionStateConfig:
     session_capacity: int = 30
     inner_capacity: int = 3
     persist_dir: str = "/home/yomu/Elysia/Demo/storage/sessions"
+    
+@dataclass
+class CheckPointManagerConfig:
+    logger_name: str = "CheckPointManager"
+    checkpoint_file: str = "/home/yomu/Elysia/Demo/storage/runtime_state.json"
+    save_interval: float = 30.0  # 自动保存间隔，单位秒
 
 @dataclass
 class CoreConfig:
@@ -72,6 +80,7 @@ class CoreConfig:
     Actuator: ActuatorConfig = field(default_factory=ActuatorConfig)
     SystemClock: SystemClockConfig = field(default_factory=SystemClockConfig)
     SessionState: SessionStateConfig = field(default_factory=SessionStateConfig)
+    CheckPointManager: CheckPointManagerConfig = field(default_factory=CheckPointManagerConfig)
 
 
 # ============================================================================================

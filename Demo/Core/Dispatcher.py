@@ -14,6 +14,7 @@ from Layers.L3 import PersonaLayer
 from Workers.Reflector.Reflector import Reflector
 from Core.ActuatorLayer import ActuatorLayer, ActionType
 from Core.SessionState import SessionState
+from Core.CheckPointManager import CheckpointManager
 from Logger import setup_logger
 
 from Utils import timedelta_to_text
@@ -35,7 +36,8 @@ class Dispatcher:
                  actuator: ActuatorLayer,
                  reflector: Reflector,
                  psyche_system: PsycheSystem,
-                 session: SessionState
+                 session: SessionState,
+                 checkpoint_manager: CheckpointManager
                  ):
         """
         初始化调度器，注入所有依赖层
@@ -46,6 +48,7 @@ class Dispatcher:
         self.bus: EventBus = event_bus  # 事件总线
         self.actuator: ActuatorLayer = actuator  # 执行层
         self.session: SessionState = session  # 会话状态管理
+        self.checkpoint_manager: CheckpointManager = checkpoint_manager  # 检查点管理
         
         # 各层引用
         self.l0: SensorLayer = l0  # 感知层
@@ -213,25 +216,12 @@ class Dispatcher:
         """
         self.logger.info("System tick event received.")
         
-        # 1. 定期保存会话状态
-        # TODO 后续将在CheckPointManager中定时进行，此处将废弃
-        self._handle_system_tick_save_session(event)
+        # 1. 保存状态到检查点
+        self.checkpoint_manager.save_checkpoint()
         
         # 2. 检查是否需要主动发起对话
         self._handle_system_tick_active_speak(event)
         
-    # TODO 即将废弃    
-    def _handle_system_tick_save_session(self, event: Event):
-        """
-        处理心跳事件：定期保存会话状态
-        """
-        # TODO 这里可以根据实际需求调整保存频率
-        self.logger.info("Saving session state...")
-        try:
-            self.session._save_session()
-            self.logger.info("Session state saved successfully.")
-        except Exception as e:
-            self.logger.error(f"Error saving session state: {e}", exc_info=True)
             
     
     def _handle_system_tick_active_speak(self, event: Event):
@@ -319,8 +309,8 @@ class Dispatcher:
             self.actuator.perform_action(ActionType.SPEECH, msg)
             
             # 7. 记忆更新
-            self.session.add_messages(messages=[msg])
-            self.reflector.on_new_message(msg)
+            self.session.add_messages(messages=[msg])   # 更新短时记忆(直接加入对话历史)
+            self.reflector.on_new_message(msg)  # 发送给 Reflector 以便存入长期记忆(先进入buffer，再提取)
             
             # === [ADD] 生理反馈：释放压力，消耗能量 ===
             self.psyche_system.on_ai_active_speak()

@@ -124,7 +124,6 @@ class SessionState:
         """ 修剪历史消息，保留最近的消息，去掉较早的inner thought """
         # 假设 history 结构是 [msg1, msg2, msg3, ...]
         # 我们保留最近 max_messages_limit 条消息 (max_messages_limit/2 轮) 的完整内容
-        # 对于更早的消息，只保留回复部分，去掉 Inner Thought
         # 对于非常老的消息，直接丢弃，保持总长度不超过 max_limits
         # TODO 待配套完善
         
@@ -138,12 +137,12 @@ class SessionState:
             self.logger.info(f"Pruned history to last {self.max_messages_limit} messages.")
         
         # 清洗inner thought
-        threshold_index = len(history) - 2 * self.max_inner_limit
-        if threshold_index > 0:
-            for i in range(threshold_index):
-                if history[i].role == self.role:
-                    # 清洗掉 Inner Thought，只留 Reply
-                    history[i].inner_voice = ""
+        # threshold_index = len(history) - 2 * self.max_inner_limit
+        # if threshold_index > 0:
+        #     for i in range(threshold_index):
+        #         if history[i].role == self.role:
+        #             # 清洗掉 Inner Thought，只留 Reply
+        #             history[i].inner_voice = ""
                     
         self.conversations.clear()
         self.conversations = history
@@ -201,6 +200,33 @@ class SessionState:
                     
         except Exception as e:
             self.logger.error(f"Failed to save session: {e}")
+    
+    
+    def dump_state(self) -> dict:
+        """导出当前会话状态为字典"""
+        try:
+            with self.lock:
+                serialized_msgs = [msg.to_dict() for msg in self.conversations]
+                state = {
+                    "last_interaction_time": self.last_interaction_time,
+                    "conversations": serialized_msgs
+                }
+            return state
+        except Exception as e:
+            self.logger.error(f"Failed to dump SessionState to dict: {e}")
+            return {}        
+    
+    
+    def load_state(self, state: dict):
+        """从给定状态字典加载会话状态"""
+        try:
+            with self.lock:
+                self.last_interaction_time = state.get("last_interaction_time", 0.0)
+                raw_msgs = state.get("conversations", [])
+                self.conversations = [ChatMessage.from_dict(msg) for msg in raw_msgs]
+            self.logger.info(f"SessionState loaded from state dict with {len(self.conversations)} messages.")
+        except Exception as e:
+            self.logger.error(f"Failed to load SessionState from state dict: {e}")
     
     
     def debug(self):

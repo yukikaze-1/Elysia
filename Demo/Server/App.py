@@ -28,6 +28,7 @@ from Workers.Reflector.Reflector import Reflector
 from Server.ConnectionManager import ConnectionManager
 from Logger import setup_logger
 from Core.SessionState import SessionState
+from Core.CheckPointManager import CheckpointManager
 
 from Config import GlobalConfig
 
@@ -46,6 +47,7 @@ class ElysiaServer:
         self.log_level = self.config.Server.App.log_level
         
         # 1. 初始化核心组件 (但不启动线程)
+        self.checkpoint_manager = CheckpointManager(config=self.config.Core.CheckPointManager)
         self.bus: EventBus = EventBus(logger_name=self.config.Core.EventBus.logger_name)    # 全局事件总线
         self.manager = ConnectionManager()
         self.clock = SystemClock(event_bus=self.bus, config=self.config.Core.SystemClock)
@@ -71,7 +73,8 @@ class ElysiaServer:
             actuator=self.actuator, 
             reflector=self.reflector, 
             psyche_system=self.psyche_system, 
-            session=self.session
+            session=self.session,
+            checkpoint_manager=self.checkpoint_manager
         )
 
         # 线程句柄
@@ -138,13 +141,48 @@ class ElysiaServer:
     #         self.logger.info(f"[Dashboard] Manually set energy to {new_val}")
             
     #     return {"status": "executed", "action": action}
+    
+    def _setup_checkpoints(self):
+        """
+        专门负责将各组件注册到 CheckpointManager。
+        这样业务组件就不需要依赖 Manager，解耦彻底。
+        """
+        # TODO 有些不需要的要去掉
+        registry_list = [
+            ("layer_1_brain", self.l1.get_snapshot, self.l1.load_snapshot),
+            # ("layer_2_memory", self.l2.export_memory, self.l2.import_memory), # L2 似乎不需要存储，因为是 Milvus 外部存储
+            ("layer_3_persona", self.l3.get_snapshot, self.l3.load_snapshot),
+            # ("system_clock", lambda: {"tick": self.clock.current_tick},lambda data: self.clock.set_tick(data["tick"])), # 时钟不需要存储
+            ("reflector", self.reflector.dump_state, self.reflector.load_state),
+            ("session", self.session.dump_state, self.session.load_state), # TODO 待完善
+            ("psyche", self.psyche_system.dump_state, self.psyche_system.load_state)
+        ]
+        # 注册所有组件
+        for name, getter, setter in registry_list:
+            try:
+                self.checkpoint_manager.register(name, getter, setter)
+            except Exception as e:
+                # 这样即使某一个写错了，也不会阻止 Server 启动，但会留下日志
+                self.logger.error(f"Failed to register checkpoint for {name}: {e}")
+        
+
 
     @asynccontextmanager
     async def lifespan(self, app: FastAPI):
         """生命周期管理：处理 Agent 的启动和关闭"""
         # --- Startup ---
         self.logger.info(">>> [System] Elysia Server Starting...")
+        
+        # =========================================================
+        # 第一阶段：静态恢复 (先找回脑子)
+        # 此时没有任何线程在跑，没有任何事件在流动，是最安全的时刻
+        # =========================================================
+        self._setup_checkpoints()
+        self.logger.info(">>> [System] Memory Restored.")
 
+        # =========================================================
+        # 第二阶段：基础设施准备 (准备四肢)
+        # =========================================================
         # 1. 获取 EventLoop 并注入给 ConnectionManager
         try:
             loop = asyncio.get_running_loop()
@@ -184,6 +222,9 @@ class ElysiaServer:
             
         if self.reflector:
             self.reflector.stop()
+            
+        if self.checkpoint_manager:
+            self.checkpoint_manager.save_checkpoint() # 关闭前保存检查点
             
         self.logger.info(">>> [System] Shutdown Complete.")
 

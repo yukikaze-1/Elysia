@@ -50,6 +50,32 @@ class MicroReflector:
         }
         return status
     
+    def dump_state(self) -> dict:
+        """导出当前状态为字典"""
+        state = {
+            "last_micro_reflection_time": self.last_micro_reflection_time,
+            "last_micro_reflection_log": [mem.to_dict() for mem in self.last_micro_reflection_log]
+        }
+        return state
+    
+    def load_state(self, state: dict):
+        """从字典加载状态"""
+        self.last_micro_reflection_time = state.get("last_micro_reflection_time", 0.0)
+        log_list = state.get("last_micro_reflection_log", [])
+        self.last_micro_reflection_log = []
+        for mem_dict in log_list:
+            self.last_micro_reflection_log.append(
+                MicroMemory(
+                    content=mem_dict['content'],
+                    subject=mem_dict['subject'],
+                    memory_type=mem_dict['memory_type'],
+                    poignancy=mem_dict['poignancy'],
+                    keywords=mem_dict['keywords'],
+                    timestamp=mem_dict['timestamp']
+                )
+            )
+
+    
     
     def run_micro_reflection(self, conversations: list[ChatMessage])->list[MicroMemory]:
         """对一大段对话进行反思，并抽取记忆、存入milvus"""

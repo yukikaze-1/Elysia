@@ -61,7 +61,7 @@ class Reflector:
         
     
     def get_status(self) -> dict:
-        """获取 Reflector Worker 状态"""
+        """获取 Reflector Worker 状态 Dashboard 用"""
         status = {
             "running": self.running,
             "buffer_size": len(self.buffer),
@@ -72,6 +72,32 @@ class Reflector:
             "macro_reflector_status": self.reflector.macro_reflector.get_status(),
         }
         return status
+    
+    
+    def dump_state(self) -> dict:
+        """导出当前状态为字典 (供 CheckPointManager 使用)"""
+        state = {
+            "buffer": [msg.to_dict() for msg in self.buffer],
+            "last_macro_run": self.last_macro_run.timestamp(),
+            "micro_reflector_state": self.reflector.micro_reflector.dump_state(),
+            "macro_reflector_state": self.reflector.macro_reflector.dump_state()
+        }
+        return state
+    
+    
+    def load_state(self, state: dict):
+        """从字典加载状态 (供 CheckPointManager 使用)"""
+        with self.buffer_lock:
+            self.buffer = [ChatMessage.from_dict(msg_dict) for msg_dict in state.get("buffer", [])]
+        
+        last_macro_run_ts = state.get("last_macro_run", 0)
+        if last_macro_run_ts > 0:
+            self.last_macro_run = datetime.fromtimestamp(last_macro_run_ts)
+        
+        self.reflector.micro_reflector.load_state(state.get("micro_reflector_state", {}))
+        self.reflector.macro_reflector.load_state(state.get("macro_reflector_state", {}))
+
+        self.logger.info(">>> Reflector Worker State Loaded from Checkpoint.")
     
 
     def start(self):
@@ -116,22 +142,6 @@ class Reflector:
     # =========================================
     # 接口: 被 Dispatcher 调用
     # =========================================
-
-    # TODO 思考这个方法以及谁来启动macro reflect
-    # def check_and_trigger(self, l2_layer: Any):
-    #     """
-    #     [接口方法] Dispatcher 每次对话后调用此方法。
-    #     注意：Dispatcher 传进来 l2_layer 是为了获取最新的上下文，
-    #     但为了解耦，我们最好让 Dispatcher 直接把新发生的对话传进来，
-    #     或者让 Reflector 自己去 l2 取。
-        
-    #     这里我们采用简单的推模式：利用 EventBus 监听或手动添加。
-    #     (为了适配之前的 main.py，我们在 add_dialogue 里做实际工作)
-    #     """
-    #     # 这个方法在当前架构可以是空的，因为我们通过 add_dialogue 收集数据
-    #     # 或者在这里检查是否需要运行 Macro 反思
-    #     self._check_macro_trigger()
-
 
     def on_new_message(self, msg: ChatMessage):
         """

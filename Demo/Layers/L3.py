@@ -432,6 +432,28 @@ class PersonaLayer:
             "prompt": self.prompt,
             # TODO 添加更多状态信息
         }
+        
+        
+    def get_snapshot(self) -> dict:
+        """获取当前状态快照，供 CheckPointManager 使用"""
+        snapshot = {
+            "mood": self.mood,
+            "prompt": self.prompt,
+            # TODO 添加更多状态信息
+        }
+        return snapshot
+    
+    
+    def load_snapshot(self, snapshot: dict):
+        """从快照恢复状态，供 CheckPointManager 使用"""
+        try:
+            self.mood = snapshot.get("mood", self.mood)
+            self.prompt = snapshot.get("prompt", self.prompt)
+            # TODO 恢复更多状态信息
+            self.logger.info("PersonaLayer state restored from snapshot.")
+        except Exception as e:
+            self.logger.error(f"Failed to restore PersonaLayer state from snapshot: {e}")
+            
     
 # @dataclass
 # class CoreIdentity:
