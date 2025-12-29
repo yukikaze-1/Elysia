@@ -81,12 +81,13 @@ class SessionState:
             self.prune_history()
     
     
-    def get_history(self)-> list[ChatMessage]:
+    def get_full_history(self)-> list[ChatMessage]:
+        """ 返回完整的会话历史 """
         return self.conversations
     
     
-    def get_recent_items(self, limit: int = 6) -> list[ChatMessage]:
-        """获取最近几条，用于主动性判断"""
+    def get_recent_history(self, limit: int = 6) -> list[ChatMessage]:
+        """获取最近几条"""
         subset = self.conversations[-limit:]
         return subset
     

@@ -27,6 +27,7 @@ from Core.SystemClock import SystemClock
 from Workers.Reflector.Reflector import Reflector
 from Server.ConnectionManager import ConnectionManager
 from Logger import setup_logger
+from Core.SessionState import SessionState
 
 from Config import GlobalConfig
 
@@ -48,6 +49,7 @@ class ElysiaServer:
         self.bus: EventBus = EventBus(logger_name=self.config.Core.EventBus.logger_name)    # 全局事件总线
         self.manager = ConnectionManager()
         self.clock = SystemClock(event_bus=self.bus, config=self.config.Core.SystemClock)
+        self.session = SessionState(config=self.config.Core.SessionState)
         
         
         # 初始化层级
@@ -61,7 +63,15 @@ class ElysiaServer:
         
         # 初始化调度器
         self.dispatcher = Dispatcher(
-            self.bus, self.l0, self.l1, self.l2, self.l3, self.actuator, self.reflector, self.psyche_system
+            event_bus=self.bus, 
+            l0=self.l0, 
+            l1=self.l1, 
+            l2=self.l2, 
+            l3=self.l3, 
+            actuator=self.actuator, 
+            reflector=self.reflector, 
+            psyche_system=self.psyche_system, 
+            session=self.session
         )
 
         # 线程句柄
@@ -107,6 +117,7 @@ class ElysiaServer:
                 "online_clients": len(self.manager.active_connections) if hasattr(self.manager, 'active_connections') else 0
             },
             "l3_persona": self.l3.get_status(),
+            "session": self.session.get_status(),
             "l2_memory": self.l2.get_status(),
             "l1_brain": self.l1.get_status(),
             "l0_sensor": self.l0.get_status(),

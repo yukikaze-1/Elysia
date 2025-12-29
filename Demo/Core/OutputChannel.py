@@ -4,7 +4,7 @@
 
 import sys
 from datetime import datetime
-from Layers.L2.SessionState import ChatMessage
+from Core.SessionState import ChatMessage
 from Logger import setup_logger
 from abc import ABC, abstractmethod
 

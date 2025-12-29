@@ -3,7 +3,7 @@ L2 记忆存储与检索模块
 """
 
 import time
-from typing import Literal, List, overload, Union
+from typing import Literal, List, overload
 from langchain_huggingface import HuggingFaceEmbeddings
 import numpy as np
 import threading
@@ -13,7 +13,6 @@ import os
 
 from Utils import create_embedding_model
 from Core.Schema import ChatMessage
-from Layers.L2.SessionState import SessionState
 from Workers.Reflector.MemorySchema import MacroMemory, MicroMemory
 from Config import L2Config
 from Logger import setup_logger
@@ -62,12 +61,6 @@ class MemoryLayer:
         self.embedding_model: HuggingFaceEmbeddings = create_embedding_model(debug_info="L2 Memory Layer Embedding Model")
         self.logger.info("Initialized embedding model for MemoryLayer.")
         
-        # === 2. 初始化短期记忆 (Session) ===
-        # 在单用户场景下，直接持有一个 SessionState 实例
-        # 如果是多用户，这里应该是一个 Dict[user_id, SessionState]
-        self.session = SessionState(config=self.config.SessionState)
-        self.logger.info("Initialized SessionState for short-term memory.")
-        
         # 标记为已初始化
         self._initialized = True
         self.logger.info("MemoryLayer initialized successfully.")
@@ -77,46 +70,31 @@ class MemoryLayer:
     # 核心接口 (供 Dispatcher 调用)
     # ===========================================================================================================================
     
-    def retrieve_context(self, query: str) -> tuple[list[ChatMessage], list[MicroMemory], list[MacroMemory]]:
+    def retrieve_context(self, query: str) -> tuple[list[MicroMemory], list[MacroMemory]]:
         """
-        [接口方法] 获取混合上下文 (短期对话流 + 长期相关记忆 + 日常总结记忆)
+        [接口方法] 获取混合上下文 (长期相关记忆 + 日常总结记忆)
         参数:
             query: 用于检索相关记忆的查询文本
         返回: 
-            (短期对话流, 长期相关记忆, 日常总结记忆)
+            (长期相关记忆, 日常总结记忆)
         """
-        # 1. 获取短期记忆 (正在进行的对话)
-        history: list[ChatMessage] = self.session.get_history()
         
-        # 2. 获取长期记忆 (从 Milvus 检索相关经历)
+        # 1. 获取长期记忆 (从 Milvus 检索相关经历)
         micro_memories: list[MicroMemory] = self.retrieve('Micro', query_text=query, top_k=5)
         
-        # 3. 获取日常总结记忆
+        # 2. 获取日常总结记忆
         macro_memories: list[MacroMemory] = self.retrieve('Macro', query_text=query, top_k=3)
         
-        return history, micro_memories, macro_memories
+        return micro_memories, macro_memories
     
     
-    def add_short_term_memory(self, messages: list[ChatMessage])-> None:
-        """
-        [接口方法] 存储一轮新的对话到 RAM
-        """
-        self.session.add_messages(messages)
-    
-    
-    def get_recent_summary(self, limit: int = 3) -> list[ChatMessage]:
-        """
-        [接口方法] 获取最近几句对话 (给 L1 做主动性决策用)
-        返回: 最近 limit 条消息列表
-        """
-        return self.session.get_recent_items(limit)
     
     def close(self):
         """
         [接口方法] 关闭记忆层，释放资源
         """
         # 因为要将sessionstate的信息保存到磁盘
-        self.session._save_session()
+        # self.session._save_session()
         
     
     def get_status(self) -> dict:
@@ -127,7 +105,6 @@ class MemoryLayer:
         status = {
             "micro_memory_collection": self.micro_memeory_collection_name,
             "macro_memory_collection": self.macro_memeory_collection_name,
-            "session_status": self.session.get_status()
         }
         return status
     
@@ -202,7 +179,7 @@ class MemoryLayer:
             vector = self.embedding_model.embed_documents([mem.diary_content])[0]
             info = {
                 "diary_content":mem.diary_content,
-                "embedding": vector[0],
+                "embedding": vector,
                 "subject":mem.subject,
                 "dominant_emotion":mem.dominant_emotion,
                 "poignancy":mem.poignancy,

@@ -22,6 +22,14 @@ Core:
     logger_name: "SystemClock"
     heartbeat_interval: 10.0 # 系统时钟滴答间隔，单位秒
 
+  SessionState:
+    logger_name: "SessionState"
+    user_name: "妖梦"
+    role: "Elysia"
+    session_capacity: 30
+    inner_capacity: 3
+    persist_dir: "/home/yomu/Elysia/Demo/storage/sessions"
+
 L0:
   SensorLayer:
     logger_name: "SensorLayer"
@@ -100,13 +108,6 @@ L2:
     MILVUS_URI: "http://localhost:19530" # TODO 放在 .env 文件中
     MILVUS_TOKEN: "root:Milvus" # TODO 放在 .env 文件中
 
-  SessionState:
-    logger_name: "SessionState"
-    user_name: "妖梦"
-    role: "Elysia"
-    session_capacity: 30
-    inner_capacity: 3
-    persist_dir: "/home/yomu/Elysia/Demo/storage/sessions"
 
 L3: {}
 

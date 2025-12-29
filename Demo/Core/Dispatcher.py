@@ -13,6 +13,7 @@ from Layers.L2.L2 import MemoryLayer
 from Layers.L3 import PersonaLayer
 from Workers.Reflector.Reflector import Reflector
 from Core.ActuatorLayer import ActuatorLayer, ActionType
+from Core.SessionState import SessionState
 from Logger import setup_logger
 
 from Utils import timedelta_to_text
@@ -34,17 +35,23 @@ class Dispatcher:
                  actuator: ActuatorLayer,
                  reflector: Reflector,
                  psyche_system: PsycheSystem,
+                 session: SessionState
                  ):
         """
         初始化调度器，注入所有依赖层
         """
         self.logger: logging.Logger = setup_logger("Dispatcher")
-        self.bus: EventBus = event_bus
+        
+        # 核心组件
+        self.bus: EventBus = event_bus  # 事件总线
+        self.actuator: ActuatorLayer = actuator  # 执行层
+        self.session: SessionState = session  # 会话状态管理
+        
+        # 各层引用
         self.l0: SensorLayer = l0  # 感知层
         self.l1: BrainLayer = l1  # 大脑层
         self.l2: MemoryLayer = l2  # 记忆层
         self.l3: PersonaLayer = l3  # 人格层
-        self.actuator: ActuatorLayer = actuator  # 执行层
         self.reflector: Reflector = reflector # 反思者
         self.psyche_system: PsycheSystem = psyche_system  # 心理系统
         
@@ -54,9 +61,9 @@ class Dispatcher:
         # 记录上次交互时间
         # TODO 这些运行时参数应该持久化到文件中
         tmp_time = datetime.now()
-        self.last_interaction_time: datetime = tmp_time     # last_interaction_time：AI 或用户最后一次说话的时间
-        self.last_ai_reply_time: datetime = tmp_time        # last_ai_reply_time：AI最后一次说话的时间
-        self.last_user_reply_time: datetime = tmp_time      # last_user_reply_time：用户最后一次说话的时间
+        self.last_interaction_time: datetime = tmp_time     # AI 或用户最后一次说话的时间
+        self.last_ai_reply_time: datetime = tmp_time        # AI最后一次说话的时间
+        self.last_user_reply_time: datetime = tmp_time      # 用户最后一次说话的时间
         self.last_speaker: Literal['Elysia', '妖梦'] = "Elysia"  # 记录上次发言者，初始为 AI
 
         # 用于计算两次心跳之间的时间差 (dt)
@@ -142,7 +149,9 @@ class Dispatcher:
 
         # 3. [L2] 检索相关记忆 (Short-term + Long-term)
         # 获取 3条相关记忆 + 昨天的日记摘要
-        history, micro_memories, macro_memories = self.l2.retrieve_context(query=user_input.content)
+        # 获取 20 条最近对话作为上下文
+        history: list[ChatMessage] = self.session.get_recent_history(limit=20)
+        micro_memories, macro_memories = self.l2.retrieve_context(query=user_input.content)
 
         # 4. [L3] 获取人格状态
         personality:str = self.l3.get_persona_prompt()
@@ -174,7 +183,7 @@ class Dispatcher:
         # 6. [L2] 写入短时记忆
         # === 分发给 L2 (为了下一句能接上话) ===
         messages: list[ChatMessage] = [user_msg, ai_msg]
-        self.l2.add_short_term_memory(messages)
+        self.session.add_messages(messages)
         self.logger.info("Short-term memory updated.")
         
         # 更新最后发言时间和发言者
@@ -205,12 +214,13 @@ class Dispatcher:
         self.logger.info("System tick event received.")
         
         # 1. 定期保存会话状态
+        # TODO 后续将在CheckPointManager中定时进行，此处将废弃
         self._handle_system_tick_save_session(event)
         
         # 2. 检查是否需要主动发起对话
         self._handle_system_tick_active_speak(event)
         
-        
+    # TODO 即将废弃    
     def _handle_system_tick_save_session(self, event: Event):
         """
         处理心跳事件：定期保存会话状态
@@ -218,7 +228,7 @@ class Dispatcher:
         # TODO 这里可以根据实际需求调整保存频率
         self.logger.info("Saving session state...")
         try:
-            self.l2.session._save_session()
+            self.session._save_session()
             self.logger.info("Session state saved successfully.")
         except Exception as e:
             self.logger.error(f"Error saving session state: {e}", exc_info=True)
@@ -286,7 +296,7 @@ class Dispatcher:
         # 询问大脑："用户很久没说话了，现在是{时间}，你想说点什么吗？"
         cur_mood = self.l3.get_current_mood()
         # 读取近期记忆
-        recent_memories = self.l2.get_recent_summary(limit=5)
+        recent_memories = self.session.get_recent_history(limit=10)
         # 调用LLM
         response: ActiveResponse = self.l1.decide_to_act(
             silence_duration=silence_duration,
@@ -309,7 +319,7 @@ class Dispatcher:
             self.actuator.perform_action(ActionType.SPEECH, msg)
             
             # 7. 记忆更新
-            self.l2.add_short_term_memory(messages=[msg])
+            self.session.add_messages(messages=[msg])
             self.reflector.on_new_message(msg)
             
             # === [ADD] 生理反馈：释放压力，消耗能量 ===

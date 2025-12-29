@@ -10,7 +10,7 @@ from Workers.Reflector.MicroReflector import MicroReflector
 from Workers.Reflector.MacroReflector import MacroReflector
 from Workers.Reflector.MemorySchema import MicroMemory, MacroMemory
 from Layers.L2.L2 import MemoryLayer
-from Layers.L2.SessionState import ChatMessage
+from Core.SessionState import ChatMessage
 from Core.EventBus import EventBus
 from Core.Schema import Event, EventType, EventContentType, EventSource
 from Logger import setup_logger
@@ -222,7 +222,7 @@ class Reflector:
                 )
             )
         except Exception as e:
-            self.logger.error(f"[Reflector Error] Macro-reflection failed: {e}")
+            self.logger.error(f"[Reflector Error] Macro-reflection failed: {e}", exc_info=True)
 
 
 

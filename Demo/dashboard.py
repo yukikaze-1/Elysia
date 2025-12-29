@@ -91,7 +91,7 @@ def fetch_state():
 def format_timestamp(ts):
     """格式化时间戳"""
     if isinstance(ts, (int, float)) and ts > 0:
-        return datetime.fromtimestamp(ts).strftime("%H:%M:%S")
+        return datetime.fromtimestamp(int(ts)).strftime("%H:%M:%S")
     return "Never"
 
 # === 主界面 ===
@@ -222,7 +222,7 @@ while True:
         with st.expander("🧬 View Psyche DNA Configuration", expanded=False):
             if psyche_cfg:
                 c_df = pd.DataFrame([{"Parameter": k, "Value": v} for k, v in psyche_cfg.items()])
-                st.dataframe(c_df, use_container_width=True, hide_index=True)
+                st.dataframe(c_df, width='stretch', hide_index=True)
             else:
                 st.info("No configuration data received.")
         # ==========================================
@@ -280,60 +280,77 @@ while True:
                 else:
                     st.warning("No thoughts recorded yet.")
 
-        # --- Tab 2: Memory (L2) ---
+        # --- Tab 2: Memory & Session (已适配架构重构) ---
         with tab_memory:
-            l2 = state.get("l2_memory", {})
-            sess = l2.get("session_status", {})
+            # === 变更点：分别获取独立的 Session 和 L2 Memory 数据 ===
+            sess = state.get("session", {})      # 现在 Session 是顶级对象
+            l2 = state.get("l2_memory", {})      # L2 Memory 只负责向量库信息
             
-            # 顶部指标
+            # 1. 会话状态指标 (Session Metrics)
             m1, m2, m3, m4 = st.columns(4)
-            m1.metric("Session Role", sess.get("role", "AI"))
-            m2.metric("User Name", sess.get("user_name", "User"))
             
-            # 消息窗口进度条
-            curr = sess.get("total_messages", 0)
-            limit = sess.get("max_messages_limit", 20)
-            # 防止除以0错误
-            progress = min(curr / limit, 1.0) if limit > 0 else 0
-            m3.metric("Context Window", f"{curr} / {limit}")
+            # 获取基础信息
+            role = sess.get("role", "AI")
+            user = sess.get("user_name", "User")
+            m1.metric("Session Role", role)
+            m2.metric("User Name", user)
+            
+            # Context Window 进度条
+            curr_msg = sess.get("total_messages", 0)
+            max_msg = sess.get("max_messages_limit", 20)
+            # 防止除零错误
+            progress = 0.0
+            if max_msg > 0:
+                progress = min(curr_msg / max_msg, 1.0)
+            
+            m3.metric("Context Window", f"{curr_msg} / {max_msg}")
             m3.progress(progress)
             
-            m4.metric("Last Interaction", format_timestamp(sess.get("last_interaction_time", 0)))
+            # 时间戳
+            last_ts = sess.get("last_interaction_time", 0)
+            # 简单的格式化函数，如果之前未定义，可以使用 datetime.fromtimestamp
+            ts_str = "Never"
+            if last_ts > 0:
+                ts_str = datetime.fromtimestamp(last_ts).strftime("%H:%M:%S")
+            m4.metric("Last Interaction", ts_str)
             
             st.divider()
             
-            # === 新增：聊天记录可视化 ===
-            st.subheader("💬 Recent Conversation (Context Window)")
+            # 2. 聊天记录可视化 (Chat History)
+            st.subheader("💬 Active Context (Session Buffer)")
             
-            # 获取你新加的字段
+            # 获取最近的消息列表
+            # 注意：确保你的 SessionState.get_status 返回了 "last_few_messages"
             recent_msgs = sess.get("last_few_messages", [])
             
             if recent_msgs:
-                # 创建一个聊天容器
-                chat_container = st.container(height=400) # 固定高度，可滚动
+                chat_container = st.container(height=400) # 固定高度滚动容器
                 with chat_container:
                     for msg in recent_msgs:
-                        role = msg.get("role", "user")
+                        role_tag = msg.get("role", "user")
                         content = msg.get("content", "")
                         
-                        # 映射头像
-                        if role == "妖梦":
-                            avatar = "👤"
-                            # 也可以根据你的 UserMessage 结构显示时间戳
-                            # ts = format_timestamp(msg.get("client_timestamp", 0))
-                        else:
-                            avatar = "🤖" # 或者用你的 Elysia 头像 URL
-                            
-                        # 使用 Streamlit 原生聊天组件
-                        with st.chat_message(name=role, avatar=avatar):
+                        # 设置头像
+                        avatar = "👤" if role_tag == "user" else "🤖"
+                        
+                        # 渲染气泡
+                        with st.chat_message(name=role_tag, avatar=avatar):
                             st.markdown(content)
+                            # 如果有时间戳也可以显示
+                            # st.caption(format_timestamp(msg.get("client_timestamp")))
             else:
-                st.info("No conversation history yet.")
+                st.info("No active conversation in RAM.")
 
             st.divider()
             
-            # 底部显示向量库信息
-            st.caption(f"📚 Vector DB: Micro='{l2.get('micro_memory_collection')}' | Macro='{l2.get('macro_memory_collection')}'")
+            # 3. 向量数据库信息 (L2 Vector DB)
+            # 这部分信息依然保留在 l2_memory 中
+            st.subheader("📚 Long-term Memory (Vector DB)")
+            c1, c2 = st.columns(2)
+            with c1:
+                st.markdown(f"**Micro Collection:** `{l2.get('micro_memory_collection', 'N/A')}`")
+            with c2:
+                st.markdown(f"**Macro Collection:** `{l2.get('macro_memory_collection', 'N/A')}`")
             
         # --- Tab 3: Reflector ---
         with tab_reflector:
@@ -384,7 +401,7 @@ while True:
                 if micro_logs and isinstance(micro_logs, list):
                     # 数据清洗：转字符串防止渲染错误
                     clean_micro = [{k: str(v) for k, v in item.items()} for item in micro_logs]
-                    st.dataframe(clean_micro, use_container_width=True, hide_index=True)
+                    st.dataframe(clean_micro, width='stretch', hide_index=True)
                 else:
                     st.info("No micro-memories yet.")
 

@@ -57,12 +57,21 @@ class SystemClockConfig:
     heartbeat_interval: float = 10.0 # 系统时钟滴答间隔，单位秒
 
 @dataclass
+class SessionStateConfig:
+    logger_name: str = "SessionState"
+    user_name: str = "妖梦"
+    role: str = "Elysia"
+    session_capacity: int = 30
+    inner_capacity: int = 3
+    persist_dir: str = "/home/yomu/Elysia/Demo/storage/sessions"
+
+@dataclass
 class CoreConfig:
     EventBus: EventBusConfig = field(default_factory=EventBusConfig)
     Dispatcher: DispatcherConfig = field(default_factory=DispatcherConfig)
     Actuator: ActuatorConfig = field(default_factory=ActuatorConfig)
     SystemClock: SystemClockConfig = field(default_factory=SystemClockConfig)
-    
+    SessionState: SessionStateConfig = field(default_factory=SessionStateConfig)
 
 
 # ============================================================================================
@@ -202,19 +211,10 @@ class MemoryLayerConfig:
     MILVUS_URI: str = field(default_factory=lambda: _load_env("MILVUS_URI", "http://localhost:19530"))
     MILVUS_TOKEN: str = field(default_factory=lambda: _load_env("MILVUS_TOKEN", "root:Milvus"))
 
-@dataclass
-class SessionStateConfig:
-    logger_name: str = "SessionState"
-    user_name: str = "妖梦"
-    role: str = "Elysia"
-    session_capacity: int = 30
-    inner_capacity: int = 3
-    persist_dir: str = "/home/yomu/Elysia/Demo/storage/sessions"
 
 @dataclass
 class L2Config:
     MemoryLayer: MemoryLayerConfig = field(default_factory=MemoryLayerConfig)
-    SessionState: SessionStateConfig = field(default_factory=SessionStateConfig)
 
 # ============================================================================================
 # L3 层配置

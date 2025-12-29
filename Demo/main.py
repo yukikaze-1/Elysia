@@ -16,6 +16,7 @@ from Layers.L3 import PersonaLayer
 from Workers.Reflector.Reflector import Reflector
 from Core.ActuatorLayer import ActuatorLayer
 from Layers.PsycheSystem import PsycheSystem
+from Core.SessionState import SessionState
 
 from Logger import setup_logger
 from Config import GlobalConfig, global_config
@@ -32,6 +33,7 @@ class Elysia:
         self.reflector = Reflector(self.bus,config.Reflector, self.l2)                # [Reflector] - 负责后台整理
         self.actuator = ActuatorLayer(self.bus, config.Core.Actuator)        # [Actuator] - 负责执行动作
         self.psyche_system = PsycheSystem(config.L0.PsycheSystem)  # [PsycheSystem] - 心智系统
+        self.session = SessionState(config=config.Core.SessionState)  # [SessionState] - 会话状态管理
         
         # 调度器持有所有模块的引用，负责指挥
         self.dispatcher = Dispatcher(
@@ -40,7 +42,8 @@ class Elysia:
             l2=self.l2, l3=self.l3,
             reflector=self.reflector,
             actuator=self.actuator,
-            psyche_system=self.psyche_system
+            psyche_system=self.psyche_system,
+            session=self.session
         )
         self.logger.info("Elysia system initialized.")
         
