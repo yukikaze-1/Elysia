@@ -61,7 +61,6 @@ class UserInputHandler(BaseHandler):
         self.logger.info(f"Processing user input: {user_input.to_str()}")
         
         # 输出用户输入
-        # TODO web端可以不用，但本地终端调试时需要看到
         self.actuator.perform_action(ActionType.SPEECH, ChatMessage.from_UserMessage(user_input))
 
         # === [ADD] 1. 刺激生效：用户理我了！ ===
@@ -69,9 +68,6 @@ class UserInputHandler(BaseHandler):
         # TODO: 如果未来有情感分析模块，可以将情感分数传进去 self.psyche.on_user_interaction(sentiment)
         self.psyche_system.on_user_interaction()
         self.logger.info(f"[PsycheSystem] User interaction received. State reset. {self.psyche_system.state}")
-        
-        # 1. 更新交互时间
-        self.last_interaction_time = datetime.now()
         
         # 2. [Actuator] 输出
         amygdala_output = event.metadata.get("AmygdalaOutput", AmygdalaOutput("", EnvironmentInformation(TimeInfo())) )
@@ -114,12 +110,6 @@ class UserInputHandler(BaseHandler):
         messages: list[ChatMessage] = [user_msg, ai_msg]
         self.session.add_messages(messages)
         self.logger.info("Short-term memory updated.")
-        
-        # 更新最后发言时间和发言者
-        self.last_user_reply_time = datetime.fromtimestamp(user_input.client_timestamp)
-        self.last_ai_reply_time = datetime.now()
-        # TODO 考虑不搭理用户的情况，需要扩展
-        self.last_speaker = "Elysia" # 因为目前ELysia一定会回复 
         
         # === 分发给 Reflector (为了变成长期记忆) ===
         # Reflector 内部会将其加入 buffer，攒够了就提取并清空

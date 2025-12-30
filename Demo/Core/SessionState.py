@@ -5,7 +5,6 @@
 import time
 from datetime import datetime
 import logging
-import time
 import threading
 import os
 import json
@@ -37,7 +36,12 @@ class SessionState:
         
         self.lock = threading.RLock()       # 线程锁，保护会话状态的并发访问
         self.conversations: list[ChatMessage] = []  # 会话历史
+        
+        # [NEW] 新增状态追踪 (运行时维护，不一定非要持久化，加载时可重算)
         self.last_interaction_time: float = time.time()  # 最后交互时间戳
+        self.last_ai_reply_time: float = 0.0    # 最后AI回复时间戳
+        self.last_user_reply_time: float = 0.0  # 最后用户回复时间戳
+        self.last_speaker: str = "" # 最后发言者角色名
         
         # 废弃，目前在checkpoint manager中管理，以免重复保存
         # self._load_session()  # 启动时加载历史会话
@@ -54,7 +58,6 @@ class SessionState:
             "max_messages_limit": self.max_messages_limit,
             "max_inner_limit": self.max_inner_limit,
             "total_messages": len(self.conversations),
-            "last_interaction_time": self.last_interaction_time,
             "last_few_messages": [msg.to_dict() for msg in self.conversations[-10:]]  # 最近10条消息
         }
         return status
@@ -65,7 +68,6 @@ class SessionState:
             with self.lock:
                 serialized_msgs = [msg.to_dict() for msg in self.conversations]
                 state = {
-                    "last_interaction_time": self.last_interaction_time,
                     "conversations": serialized_msgs
                 }
             return state
@@ -78,9 +80,12 @@ class SessionState:
         """从给定状态字典加载会话状态"""
         try:
             with self.lock:
-                self.last_interaction_time = state.get("last_interaction_time", 0.0)
                 raw_msgs = state.get("conversations", [])
                 self.conversations = [ChatMessage.from_dict(msg) for msg in raw_msgs]
+                
+                # [NEW] 加载后重新计算时间状态
+                self._recalculate_time_state()
+                
             self.logger.info(f"SessionState loaded from state dict with {len(self.conversations)} messages.")
         except Exception as e:
             self.logger.error(f"Failed to load SessionState from state dict: {e}")
@@ -92,18 +97,26 @@ class SessionState:
             self.logger.warning("Attempted to add empty message list to SessionState.")
             return
         
+        added_msgs = [] # 用于收集实际添加成功的消息
+        
         # 添加消息
         for msg in messages:
             # 仅添加有效消息
             if self.check_message_valid(msg):
                 self.conversations.append(msg)
+                added_msgs.append(msg) # 记录有效消息
                 self.logger.debug(f"Added message to SessionState: {msg.to_dict()}")
             else:
                 self.logger.warning(f"Invalid message not added to SessionState: {msg.to_dict()}")
         
-        # 更新最后交互时间
-        self.update_last_interaction_time()
-        self.logger.info(f"Added {len(messages)} messages to SessionState. Total messages now: {len(self.conversations)}")
+        # [NEW] 更新详细时间状态
+        if added_msgs:
+            self._update_time_state_from_messages(added_msgs)
+            
+        invalid_mesg_count = len(messages) - len(added_msgs)
+        if invalid_mesg_count > 0:
+            self.logger.warning(f"{invalid_mesg_count} messages were invalid and not added to SessionState.")
+        self.logger.info(f"Added {len(added_msgs)} messages to SessionState. Total messages now: {len(self.conversations)}")
         
         # 检查是否超出限制，若超出则修剪
         if self.check_message_overflow():
@@ -122,22 +135,56 @@ class SessionState:
         subset = self.conversations[-limit:]
         # 清洗掉较早的 inner thoughts
         for i in range(inner_limit):
-            if subset[i].role == self.role:
+            if i < len(subset) and subset[i].role == self.role:
                 subset[i].inner_voice = ""
         return subset
     
     # ===========================================================================================================================
     # 内部方法实现
     # ===========================================================================================================================
+    
+    def _update_time_state_from_messages(self, messages: list[ChatMessage]):
+        """根据新消息更新时间状态，包括全局最后交互时间"""
+        if not messages:
+            return
         
-    def update_last_interaction_time(self)->float:
-        """更新最后交互时间（以最后一条消息为准）"""
-        if len(self.conversations) == 0 :
-            self.logger.error("No conversations in SessionState when updating last interaction time.")
-            return 0.0
+        for msg in messages:
+            if msg.role == self.role:
+                self.last_ai_reply_time = msg.timestamp
+                self.last_speaker = self.role
+            elif msg.role == self.user_name:
+                self.last_user_reply_time = msg.timestamp
+                self.last_speaker = self.user_name
+
+        # 直接使用最后一条消息的时间更新 last_interaction_time
+        self.last_interaction_time = messages[-1].timestamp
+    
+    
+    def _recalculate_time_state(self):
+        """从当前历史记录重新计算时间状态"""
+        # 重置
+        self.last_ai_reply_time = 0.0
+        self.last_user_reply_time = 0.0
+        self.last_speaker = ""
         
-        self.last_interaction_time = self.conversations[-1].timestamp
-        return self.last_interaction_time
+        # 1. 确定最后交互时间和最后发言人（直接取最后一条）
+        last_msg = self.conversations[-1]
+        self.last_interaction_time = last_msg.timestamp
+        self.last_speaker = last_msg.role
+        
+        # 2. 倒序遍历寻找最近的回复时间
+        for msg in reversed(self.conversations):
+            # 找到最近一次 AI 发言时间
+            if self.last_ai_reply_time == 0.0 and msg.role == self.role:
+                self.last_ai_reply_time = msg.timestamp
+            
+            # 找到最近一次 用户 发言时间
+            if self.last_user_reply_time == 0.0 and msg.role == self.user_name:
+                self.last_user_reply_time = msg.timestamp
+            
+            # 如果两个都找到了，就可以提前结束，无需遍历整个历史
+            if self.last_ai_reply_time != 0.0 and self.last_user_reply_time != 0.0:
+                break
     
     
     def check_message_overflow(self)-> bool:
@@ -188,58 +235,58 @@ class SessionState:
         
     # 废弃，目前在checkpoint manager中管理，以免重复保存
     # 但仍保留该方法以备将来可能的手动保存需求
-    def _load_session(self):
-        """从文件加载会话历史"""
-        if not os.path.exists(self.file_path):
-            self.logger.info(f"No history file found at {self.file_path}, starting new session.")
-            return
+    # def _load_session(self):
+    #     """从文件加载会话历史"""
+    #     if not os.path.exists(self.file_path):
+    #         self.logger.info(f"No history file found at {self.file_path}, starting new session.")
+    #         return
 
-        try:
-            with self.lock: # 读锁
-                with open(self.file_path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
+    #     try:
+    #         with self.lock: # 读锁
+    #             with open(self.file_path, 'r', encoding='utf-8') as f:
+    #                 data = json.load(f)
                     
-                # 恢复时间戳
-                self.last_interaction_time = data.get("last_interaction_time", 0.0)
+    #             # 恢复时间戳
+    #             self.last_interaction_time = data.get("last_interaction_time", 0.0)
                 
-                # 恢复消息列表
-                raw_msgs = data.get("conversations", [])
-                self.conversations = [ChatMessage.from_dict(msg) for msg in raw_msgs]
+    #             # 恢复消息列表
+    #             raw_msgs = data.get("conversations", [])
+    #             self.conversations = [ChatMessage.from_dict(msg) for msg in raw_msgs]
                 
-            self.logger.info(f"Loaded {len(self.conversations)} messages from history.")
+    #         self.logger.info(f"Loaded {len(self.conversations)} messages from history.")
             
-        except Exception as e:
-            self.logger.error(f"Failed to load session: {e}")
-            # 如果加载失败（文件损坏），选择重置还是保留空列表视业务而定
-            self.conversations = []
+    #     except Exception as e:
+    #         self.logger.error(f"Failed to load session: {e}")
+    #         # 如果加载失败（文件损坏），选择重置还是保留空列表视业务而定
+    #         self.conversations = []
     
     # 废弃，目前在checkpoint manager中管理，以免重复保存
     # 但仍保留该方法以备将来可能的手动保存需求
-    def _save_session(self):
-        """将当前会话保存到文件"""
-        try:
-            # 准备数据
-            serialized_msgs = [msg.to_dict() for msg in self.conversations] 
+    # def _save_session(self):
+    #     """将当前会话保存到文件"""
+    #     try:
+    #         # 准备数据
+    #         serialized_msgs = [msg.to_dict() for msg in self.conversations] 
             
-            data = {
-                "last_interaction_time": self.last_interaction_time,
-                "conversations": serialized_msgs
-            }
+    #         data = {
+    #             "last_interaction_time": self.last_interaction_time,
+    #             "conversations": serialized_msgs
+    #         }
 
-            with self.lock: # 写锁
-                # 使用临时文件写入再重命名的方式（Atomic Write），防止写入中途断电导致文件损坏
-                temp_file = self.file_path + ".tmp"
-                with open(temp_file, 'w', encoding='utf-8') as f:
-                    json.dump(data, f, ensure_ascii=False, indent=2)
+    #         with self.lock: # 写锁
+    #             # 使用临时文件写入再重命名的方式（Atomic Write），防止写入中途断电导致文件损坏
+    #             temp_file = self.file_path + ".tmp"
+    #             with open(temp_file, 'w', encoding='utf-8') as f:
+    #                 json.dump(data, f, ensure_ascii=False, indent=2)
                 
-                # 覆盖原文件
-                if os.path.exists(self.file_path):
-                    os.replace(temp_file, self.file_path)
-                else:
-                    os.rename(temp_file, self.file_path)
+    #             # 覆盖原文件
+    #             if os.path.exists(self.file_path):
+    #                 os.replace(temp_file, self.file_path)
+    #             else:
+    #                 os.rename(temp_file, self.file_path)
                     
-        except Exception as e:
-            self.logger.error(f"Failed to save session: {e}")
+    #     except Exception as e:
+    #         self.logger.error(f"Failed to save session: {e}")
     
     
     def debug(self):

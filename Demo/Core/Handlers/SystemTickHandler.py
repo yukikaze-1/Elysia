@@ -44,14 +44,6 @@ class SystemTickHandler(BaseHandler):
         self.checkpoint_manager = checkpoint_manager
         
         # === 主动性控制参数 ===
-        # 记录上次交互时间
-        # TODO 这些运行时参数应该持久化到文件中
-        tmp_time = datetime.now()
-        self.last_interaction_time: datetime = tmp_time     # AI 或用户最后一次说话的时间
-        self.last_ai_reply_time: datetime = tmp_time        # AI最后一次说话的时间
-        self.last_user_reply_time: datetime = tmp_time      # 用户最后一次说话的时间
-        self.last_speaker: Literal['Elysia', '妖梦'] = "Elysia"  # 记录上次发言者，初始为 AI
-
         # 用于计算两次心跳之间的时间差 (dt)
         self.last_tick_time = datetime.now()
         
@@ -85,9 +77,19 @@ class SystemTickHandler(BaseHandler):
         current_time: datetime = datetime.fromtimestamp(event.timestamp)
         self.logger.info(f"System tick received at {current_time.isoformat()}")
         
+        # [NEW] 从 SessionState 获取状态
+        # 如果时间戳为0，说明从未说过话，使用当前时间作为默认值，避免刚启动就触发“很久没说话”的逻辑
+        # 或者使用 datetime.min，但这会导致 silence_duration 极大。
+        # 策略：如果从未说过话，认为 silence_duration = 0
+        
+        last_ai_reply_time = datetime.fromtimestamp(self.session.last_ai_reply_time) if self.session.last_ai_reply_time > 0 else current_time
+        last_user_reply_time = datetime.fromtimestamp(self.session.last_user_reply_time) if self.session.last_user_reply_time > 0 else current_time
+        last_interaction_time = datetime.fromtimestamp(self.session.last_interaction_time) if self.session.last_interaction_time > 0 else current_time
+        last_speaker = self.session.last_speaker if self.session.last_speaker else "Elysia"
+
         # 0. 计算沉默时长
-        silence_duration_since_last_ai_reply: timedelta = current_time - self.last_ai_reply_time
-        silence_duration_since_last_user_reply: timedelta = current_time - self.last_user_reply_time
+        silence_duration_since_last_ai_reply: timedelta = current_time - last_ai_reply_time
+        silence_duration_since_last_user_reply: timedelta = current_time - last_user_reply_time
         self.logger.info(f"Silence duration since last AI reply: {timedelta_to_text(silence_duration_since_last_ai_reply)}, \
             since last user reply: {timedelta_to_text(silence_duration_since_last_user_reply)}"
         )
@@ -101,7 +103,8 @@ class SystemTickHandler(BaseHandler):
         
         # 2. 构建环境刺激 (Stimuli)
         # 简单判定：如果用户在过去 5 分钟内说过话，就算 "User Present"
-        is_user_present = (current_time - self.last_user_reply_time).total_seconds() < 300
+        # TODO 未来可以结合 L0 的环境感知结果进行更复杂的判定
+        is_user_present = (current_time - last_user_reply_time).total_seconds() < 300
         
         env = EnvironmentalStimuli(
             current_time=current_time,
@@ -130,7 +133,7 @@ class SystemTickHandler(BaseHandler):
         # 3.5 感知当前环境
         cur_envs: EnvironmentInformation = self.l0.sensory_processor.active_perception_envs()
         current_time = datetime.fromtimestamp(cur_envs.time_envs.current_time)
-        silence_duration = current_time - self.last_interaction_time
+        silence_duration = current_time - last_interaction_time
 
         # 4. [L1] 决策层
         # 询问大脑："用户很久没说话了，现在是{时间}，你想说点什么吗？"
@@ -140,7 +143,7 @@ class SystemTickHandler(BaseHandler):
         # 调用LLM
         response: ActiveResponse = self.l1.decide_to_act(
             silence_duration=silence_duration,
-            last_speaker=self.last_speaker,
+            last_speaker=last_speaker,
             cur_mood=cur_mood,
             cur_envs=cur_envs,
             recent_conversations=recent_memories,
@@ -169,10 +172,7 @@ class SystemTickHandler(BaseHandler):
             self.l3.update_mood(response.mood)
             
             # 9. 重置主动交互时间，避免连续触发
-            tmp_time = datetime.now()
-            self.last_ai_reply_time = tmp_time
-            self.last_interaction_time = tmp_time
-            self.last_speaker = "Elysia"
+            # 不需要手动重置了，因为 add_messages 会自动更新 SessionState
         else:
             # 7. AI 决定克制冲动 (Rational Suppression)
             # 可能是因为太晚了，或者觉得没话题
