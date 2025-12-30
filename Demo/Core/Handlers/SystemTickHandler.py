@@ -17,11 +17,14 @@ from Workers.Reflector.Reflector import Reflector
 from Core.CheckPointManager import CheckpointManager
 from Logger import setup_logger
 from Utils import timedelta_to_text
-from typing import Literal
 from Core.Handlers.BaseHandler import BaseHandler
-from Core.Schema import DEFAULT_ERROR_INNER_THOUGHT, DEFAULT_ERROR_MOOD, DEFAULT_ERROR_PUBLIC_REPLY
+from Core.Schema import EventType, DEFAULT_ERROR_INNER_THOUGHT, DEFAULT_ERROR_MOOD, DEFAULT_ERROR_PUBLIC_REPLY
 from Core.AgentContext import AgentContext
 
+from Core.HandlerRegistry import HandlerRegistry
+
+
+@HandlerRegistry.register(EventType.SYSTEM_TICK)
 class SystemTickHandler(BaseHandler):
     # === 配置常量 ===
     MAX_TICK_DT = 60.0          # 最大生理更新步长（秒）
@@ -29,10 +32,8 @@ class SystemTickHandler(BaseHandler):
     RECENT_MEMORY_LIMIT = 10    # 读取最近记忆的条数
     
     def __init__(self, context: AgentContext):
+        super().__init__(context)
         self.logger: logging.Logger = setup_logger("SystemTickHandler")
-        
-        # 保存上下文引用
-        self.context: AgentContext = context
         
         # 核心组件引用
         self.actuator: ActuatorLayer = context.actuator

@@ -1,5 +1,5 @@
 import logging
-from typing import Literal, Dict, Optional
+from typing import Dict
 from Core.EventBus import EventBus
 from Core.Schema import Event, EventType
 from Logger import setup_logger
@@ -9,6 +9,7 @@ from Core.Handlers.UserInputHandler import UserInputHandler
 from Core.Handlers.SystemTickHandler import SystemTickHandler
 
 from Core.AgentContext import AgentContext
+from Core.HandlerRegistry import HandlerRegistry
 
 class Dispatcher:
     """
@@ -32,16 +33,11 @@ class Dispatcher:
 
     def _register_handlers(self):
         """初始化并注册所有具体的策略 (Handlers)"""
+        # 自动发现并实例化所有注册的 Handler
+        for event_type, handler_cls in HandlerRegistry.get_handlers().items():
+            self.handlers[event_type] = handler_cls(self.context)
+            self.logger.info(f"Registered handler {handler_cls.__name__} for {event_type}")
         
-        # 1. 注册用户输入策略
-        self.handlers[EventType.USER_INPUT] = UserInputHandler(self.context)
-        
-        # 2. 注册系统心跳策略
-        self.handlers[EventType.SYSTEM_TICK] = SystemTickHandler(self.context)
-        
-        # 未来可以在这里轻松添加新的事件处理策略，例如：
-        # self.handlers[EventType.REFLECTION_DONE] = ReflectionHandler(...)
-
 
     def start(self):
         """启动调度主循环 (阻塞式)"""

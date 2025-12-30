@@ -218,7 +218,6 @@ class SensorLayer:
                 current_env=env_info,
                 user_reaction_latency=item.payload.reaction_latency
             )
-            self.logger.info(f"Amygdala reaction: {amygdala_reaction.debug()}")
         except Exception as e:
             self.logger.error(f"Amygdala error: {e}", exc_info=True)
 

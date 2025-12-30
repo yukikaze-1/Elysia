@@ -17,14 +17,16 @@ from Workers.Reflector.Reflector import Reflector
 from Core.Handlers.BaseHandler import BaseHandler
 
 from Core.AgentContext import AgentContext
+from Core.HandlerRegistry import HandlerRegistry
+from Core.Schema import EventType
 
 from Logger import setup_logger
 
+@HandlerRegistry.register(EventType.USER_INPUT)
 class UserInputHandler(BaseHandler):
     def __init__(self, context: AgentContext):
+        super().__init__(context)
         self.logger: logging.Logger = setup_logger("UserInputHandler")
-        # 保存上下文引用
-        self.context: AgentContext = context
         
         # 核心组件引用
         self.actuator: ActuatorLayer = context.actuator
