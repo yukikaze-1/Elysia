@@ -13,7 +13,7 @@ from Layers.PsycheSystem import PsycheSystem, EnvironmentalStimuli
 from Core.SessionState import SessionState
 from Layers.L2 import MemoryLayer
 from Layers.L3 import PersonaLayer
-from Layers.L1 import BrainLayer
+from Layers.L1 import BrainLayer, NormalResponse
 from Workers.Reflector.Reflector import Reflector
 from Core.Handlers.BaseHandler import BaseHandler
 
@@ -47,14 +47,9 @@ class UserInputHandler(BaseHandler):
         处理用户输入的核心流程：
         感知 -> 检索记忆 -> 读取人设 -> 思考 -> 表达 -> 存储 
         """
-        if not isinstance(event.content, UserMessage):
-            self.logger.error(f"Invalid event content type for USER_INPUT: {type(event.content)}")
-            return
-        if not isinstance(event.metadata, dict):
-            self.logger.error(f"Invalid event metadata type for USER_INPUT: {type(event.metadata)}")
-            return
-        if not isinstance(event.metadata.get("AmygdalaOutput"), AmygdalaOutput):
-            self.logger.error(f"Invalid AmygdalaOutput type in event metadata: {type(event.metadata.get('AmygdalaOutput'))}")
+        # 0. 检查事件有效性
+        if not self._check_event_validity(event):
+            self.logger.error("Event validity check failed. Aborting user input handling.")
             return
         
         user_input: UserMessage = event.content
@@ -69,10 +64,52 @@ class UserInputHandler(BaseHandler):
         self.psyche_system.on_user_interaction()
         self.logger.info(f"[PsycheSystem] User interaction received. State reset. {self.psyche_system.state}")
         
-        # 2. [Actuator] 输出
-        amygdala_output = event.metadata.get("AmygdalaOutput", AmygdalaOutput("", EnvironmentInformation(TimeInfo())) )
+        # 调用大脑层生成回复
+        res = self._execute_brain_decision(event, user_input)
+        
+        # === 构造标准消息对象 ===
+        user_msg = ChatMessage.from_UserMessage(user_input)
+        ai_msg = ChatMessage(role="Elysia", content=res.public_reply, inner_voice=res.inner_thought)
+        
+        # [Actuator] 输出回复
+        self.actuator.perform_action(ActionType.SPEECH, ai_msg)
+        
+        # 消耗生效：AI 被动回复 
+        # 虽然是被动回复，但也会消耗少量的 Energy 和 Social Battery
+        self.psyche_system.on_ai_passive_reply()
+        
+        # === 存储对话到记忆系统 ===
+        self._save_to_memory(user_msg, ai_msg)
+        
+        # [L3] 更新情绪
+        self.l3.update_mood(res.mood) 
+        self.logger.info("Persona mood updated.")
 
-        # 3. [L2] 检索相关记忆 (Short-term + Long-term)
+        self.logger.info("User input processing completed.")
+        self.logger.info("------------------------------------------------------------------------------------------------")
+
+    
+    def _check_event_validity(self, event: Event) -> bool:
+        """检查事件的有效性"""
+        if not isinstance(event.content, UserMessage):
+            self.logger.error(f"Invalid event content type for USER_INPUT: {type(event.content)}")
+            return False
+        if not isinstance(event.metadata, dict):
+            self.logger.error(f"Invalid event metadata type for USER_INPUT: {type(event.metadata)}")
+            return False
+        if not isinstance(event.metadata.get("AmygdalaOutput"), AmygdalaOutput):
+            self.logger.error(f"Invalid AmygdalaOutput type in event metadata: {type(event.metadata.get('AmygdalaOutput'))}")
+            return False
+        return True
+    
+    
+    def _execute_brain_decision(self, event: Event, user_input: UserMessage) -> NormalResponse:
+        """调用大脑层生成回复"""
+        
+        # 1. amygdala输出
+        amygdala_output = (event.metadata or {}).get("AmygdalaOutput", AmygdalaOutput("", EnvironmentInformation(TimeInfo())) )
+
+        # 2. [L2] 检索相关记忆 (Short-term + Long-term)
         # 获取 3条相关记忆 + 昨天的日记摘要
         # 获取 20 条最近对话作为上下文
         history: list[ChatMessage] = self.session.get_recent_history(limit=20)
@@ -84,7 +121,7 @@ class UserInputHandler(BaseHandler):
 
         # 5. [L1] 调用大脑生成回复
         # 组装 Prompt 的工作通常在 L1 内部或这里完成，建议由 L1 封装
-        res = self.l1.generate_reply(
+        res: NormalResponse = self.l1.generate_reply(
             user_input=user_input,
             mood=mood,
             personality=personality,
@@ -93,33 +130,17 @@ class UserInputHandler(BaseHandler):
             history=history,
             l0_output=amygdala_output
         )
-        
-        # === 构造标准消息对象 ===
-        user_msg = ChatMessage.from_UserMessage(user_input)
-        ai_msg = ChatMessage(role="Elysia", content=res.public_reply, inner_voice=res.inner_thought)
-        
-        # [Actuator] 输出回复
-        self.actuator.perform_action(ActionType.SPEECH, ai_msg)
-        
-        # === [ADD] 2. 消耗生效：AI 被动回复 ===
-        # 虽然是被动回复，但也会消耗少量的 Energy 和 Social Battery
-        self.psyche_system.on_ai_passive_reply()
-        
-        # 6. [L2] 写入短时记忆
-        # === 分发给 L2 (为了下一句能接上话) ===
-        messages: list[ChatMessage] = [user_msg, ai_msg]
-        self.session.add_messages(messages)
+        return res
+    
+    def _save_to_memory(self, user_msg: ChatMessage, ai_msg: ChatMessage):
+        """将对话对保存到短时记忆和长期记忆缓冲区"""
+        # 1. 分发给 L2 (Session)
+        self.session.add_messages([user_msg, ai_msg])
         self.logger.info("Short-term memory updated.")
         
-        # === 分发给 Reflector (为了变成长期记忆) ===
-        # Reflector 内部会将其加入 buffer，攒够了就提取并清空
+        # 2. 分发给 Reflector (Long-term Buffer)
         self.reflector.on_new_message(user_msg)
         self.reflector.on_new_message(ai_msg)
         self.logger.info("Message sent to Reflector for potential long-term memory storage.")
-        
-        # [L3] 更新情绪
-        self.l3.update_mood(res.mood) 
-        self.logger.info("Persona mood updated.")
-
-        self.logger.info("User input processing completed.")
-        self.logger.info("------------------------------------------------------------------------------------------------")
+    
+    

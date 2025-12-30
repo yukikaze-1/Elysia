@@ -1,33 +1,26 @@
 import logging
-from datetime import datetime, timedelta
-from typing import Literal
+from typing import Literal, Dict, Optional
 from Core.EventBus import EventBus
 from Core.Schema import Event, EventType
-from Layers.L0.Sensor import EnvironmentInformation, TimeInfo
-from Core.Schema import UserMessage, ChatMessage
 from Layers.L0.L0 import SensorLayer
-from Layers.PsycheSystem import PsycheSystem, EnvironmentalStimuli
-from Layers.L1 import ActiveResponse, BrainLayer
+from Layers.PsycheSystem import PsycheSystem
+from Layers.L1 import BrainLayer
 from Layers.L2.L2 import MemoryLayer
 from Layers.L3 import PersonaLayer
 from Workers.Reflector.Reflector import Reflector
-from Core.ActuatorLayer import ActuatorLayer, ActionType
+from Core.ActuatorLayer import ActuatorLayer
 from Core.SessionState import SessionState
 from Core.CheckPointManager import CheckpointManager
 from Logger import setup_logger
 
-
+from Core.Handlers.BaseHandler import BaseHandler
 from Core.Handlers.UserInputHandler import UserInputHandler
 from Core.Handlers.SystemTickHandler import SystemTickHandler
 
 class Dispatcher:
     """
     调度器：负责协调 L0, L1, L2, L3 各层的工作流程
-    1. 接收来自 EventBus 的事件
-    2. 根据事件类型调用相应层的处理方法
-    3. 管理各层之间的数据流动和依赖关系
-    4. 实现主动性逻辑 (Agency)，决定何时让 AI 主动发起对话
-    5. 处理错误和异常，确保系统稳定运行
+    采用策略模式分发事件。
     """
     def __init__(self, event_bus: EventBus, 
                  l0: SensorLayer, 
@@ -40,28 +33,34 @@ class Dispatcher:
                  session: SessionState,
                  checkpoint_manager: CheckpointManager
                  ):
-        """
-        初始化调度器，注入所有依赖层
-        """
         self.logger: logging.Logger = setup_logger("Dispatcher")
         
         # 核心组件
-        self.bus: EventBus = event_bus  # 事件总线
-        self.actuator: ActuatorLayer = actuator  # 执行层
-        self.session: SessionState = session  # 会话状态管理
-        self.checkpoint_manager: CheckpointManager = checkpoint_manager  # 检查点管理
+        self.bus: EventBus = event_bus
+        self.actuator: ActuatorLayer = actuator
+        self.session: SessionState = session
+        self.checkpoint_manager: CheckpointManager = checkpoint_manager
         
         # 各层引用
-        self.l0: SensorLayer = l0  # 感知层
-        self.l1: BrainLayer = l1  # 大脑层
-        self.l2: MemoryLayer = l2  # 记忆层
-        self.l3: PersonaLayer = l3  # 人格层
-        self.reflector: Reflector = reflector # 反思者
-        self.psyche_system: PsycheSystem = psyche_system  # 心理系统
+        self.l0: SensorLayer = l0
+        self.l1: BrainLayer = l1
+        self.l2: MemoryLayer = l2
+        self.l3: PersonaLayer = l3
+        self.reflector: Reflector = reflector
+        self.psyche_system: PsycheSystem = psyche_system
         
         self.running = False
         
-        self.user_input_handler = UserInputHandler(
+        # === [策略模式] 事件处理器注册表 ===
+        self.handlers: Dict[EventType, BaseHandler] = {}
+        self._register_handlers()
+
+
+    def _register_handlers(self):
+        """初始化并注册所有具体的策略 (Handlers)"""
+        
+        # 1. 注册用户输入策略
+        self.handlers[EventType.USER_INPUT] = UserInputHandler(
             actuator=self.actuator,
             psyche_system=self.psyche_system,
             session=self.session,
@@ -70,7 +69,9 @@ class Dispatcher:
             l1=self.l1,
             reflector=self.reflector
         )
-        self.systemtick_handler = SystemTickHandler(
+        
+        # 2. 注册系统心跳策略
+        self.handlers[EventType.SYSTEM_TICK] = SystemTickHandler(
             actuator=self.actuator,
             psyche_system=self.psyche_system,
             l0=self.l0,
@@ -82,6 +83,9 @@ class Dispatcher:
             checkpoint_manager=self.checkpoint_manager
         )
         
+        # 未来可以在这里轻松添加新的事件处理策略，例如：
+        # self.handlers[EventType.REFLECTION_DONE] = ReflectionHandler(...)
+
 
     def start(self):
         """启动调度主循环 (阻塞式)"""
@@ -89,47 +93,37 @@ class Dispatcher:
         self.logger.info("Dispatcher Loop Started.")
         
         while self.running:
-            # 1. 从总线获取事件 (阻塞 1 秒，方便处理退出信号)
+            # 1. 从总线获取事件
             event = self.bus.get(block=True, timeout=1.0)
             
             if not event:
                 continue
 
-            try:
-                # 2. 路由分发
-                if event.type == EventType.USER_INPUT:
-                    # 用户输入事件
-                    self.user_input_handler.handle(event)
-                
-                elif event.type == EventType.SYSTEM_TICK:
-                    # 系统心跳事件
-                    self.systemtick_handler.handle(event)
-                
-                elif event.type == EventType.MACRO_REFLECTION_DONE:
-                    # Reflector 完成了Macro reflect，通知 L2 或 L3 更新
-                    # TODO 待实现
-                    self.logger.info("Macro reflection completed.")
-                
-                elif event.type == EventType.MICRO_REFLECTION_DONE:
-                    # Reflector 完成了Micro reflect，通知 L2 或 L3 更新
-                    # TODO 待实现
-                    self.logger.info("Micro reflection completed.")
-                elif event.type == EventType.REFLECTION_DONE:
-                    # Reflector 完成了 reflection，通知 L2 或 L3 更新
-                    # TODO 待实现
-                    self.logger.info("Reflection completed.")
-                else:
-                    self.logger.warning(f"Unknown event type: {event.type}")
+            # 2. [策略模式] 路由分发
+            # 直接根据类型查找对应的 Handler
+            handler = self.handlers.get(event.type)
 
-            except Exception as e:
-                self.logger.error(f"Error processing event {event.id}: {e}", exc_info=True)
-                # 可以在这里让 L0 输出一个通用的错误提示，比如 "我有点头晕..."
+            if handler:
+                try:
+                    handler.handle(event)
+                except Exception as e:
+                    self.logger.error(f"Error processing event {event.id} with {type(handler).__name__}: {e}", exc_info=True)
+            else:
+                # 处理未注册 Handler 的事件 (Fallback)
+                self._handle_unregistered_event(event)
 
         self.logger.info("Dispatcher Loop Stopped.")
-
+        
+    def _handle_unregistered_event(self, event: Event):
+        """处理没有对应 Handler 的事件"""
+        # 暂时保留之前的 TODO 逻辑
+        if event.type in [EventType.MACRO_REFLECTION_DONE, EventType.MICRO_REFLECTION_DONE, EventType.REFLECTION_DONE]:
+             self.logger.info(f"Reflection event received: {event.type} (Handler not implemented yet).")
+        else:
+            self.logger.warning(f"Unknown or unhandled event type: {event.type}")
 
     def stop(self):
         self.running = False
         self.logger.info("Dispatcher stopping...")
-        
-        
+
+
