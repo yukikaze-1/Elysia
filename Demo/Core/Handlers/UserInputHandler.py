@@ -2,14 +2,13 @@
     用户输入处理器
 """
 
-from datetime import datetime
 import logging
 
 from Core.Schema import Event, UserMessage, ChatMessage
 from Layers.L0.Amygdala import AmygdalaOutput
 from Layers.L0.Sensor import EnvironmentInformation, TimeInfo
 from Core.ActuatorLayer import ActuatorLayer, ActionType
-from Layers.PsycheSystem import PsycheSystem, EnvironmentalStimuli
+from Layers.PsycheSystem import PsycheSystem
 from Core.SessionState import SessionState
 from Layers.L2 import MemoryLayer
 from Layers.L3 import PersonaLayer
@@ -17,25 +16,24 @@ from Layers.L1 import BrainLayer, NormalResponse
 from Workers.Reflector.Reflector import Reflector
 from Core.Handlers.BaseHandler import BaseHandler
 
+from Core.AgentContext import AgentContext
+
 from Logger import setup_logger
 
 class UserInputHandler(BaseHandler):
-    def __init__(self, actuator: ActuatorLayer, 
-                 psyche_system: PsycheSystem, 
-                 session: SessionState,
-                 l2: MemoryLayer,
-                 l3: PersonaLayer,
-                 l1: BrainLayer,
-                 reflector: Reflector
-                 ):
+    def __init__(self, context: AgentContext):
         self.logger: logging.Logger = setup_logger("UserInputHandler")
-        self.actuator = actuator
-        self.psyche_system = psyche_system
-        self.session = session
-        self.l2 = l2
-        self.l3 = l3
-        self.l1 = l1
-        self.reflector = reflector
+        # 保存上下文引用
+        self.context: AgentContext = context
+        
+        # 核心组件引用
+        self.actuator: ActuatorLayer = context.actuator
+        self.psyche_system: PsycheSystem = context.psyche_system
+        self.session: SessionState = context.session
+        self.l2: MemoryLayer = context.l2
+        self.l3: PersonaLayer = context.l3
+        self.l1: BrainLayer = context.l1
+        self.reflector: Reflector = context.reflector
         
         
     def handle(self, event: Event):

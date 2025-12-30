@@ -7,30 +7,31 @@ from math import e
 import threading
 from contextlib import asynccontextmanager
 from typing import Optional
-import json
 
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
-# === 引入你的 Agent 核心组件 ===
-from Core.EventBus import EventBus, Event
+from Core.EventBus import EventBus
 from Core.Dispatcher import Dispatcher
-from Core.Schema import EventType, EventContentType, EventSource, UserMessage, L0InputSourceType
+from Core.Schema import L0InputSourceType
 from Layers.L0.L0 import SensorLayer
-from Layers.PsycheSystem import PsycheConfig, EnvironmentalStimuli, InternalState, PsycheSystem
+from Layers.PsycheSystem import PsycheSystem
 from Layers.L1 import BrainLayer
 from Layers.L2.L2 import MemoryLayer
 from Layers.L3 import PersonaLayer
-from Core.ActuatorLayer import ActuatorLayer, ActionType
+from Core.ActuatorLayer import ActuatorLayer
 from Core.SystemClock import SystemClock
 from Workers.Reflector.Reflector import Reflector
 from Server.ConnectionManager import ConnectionManager
-from Logger import setup_logger
 from Core.SessionState import SessionState
 from Core.CheckPointManager import CheckpointManager
 
+from Core.AgentContext import AgentContext
+
 from Config import GlobalConfig
+from Logger import setup_logger
+
 
 class ElysiaServer:
     def __init__(self, config: GlobalConfig):
@@ -41,6 +42,7 @@ class ElysiaServer:
         self.config: GlobalConfig = config
         
         self.logger = setup_logger(self.config.Server.App.logger_name)
+        
         # 初始化uvicorn配置参数
         self.host = self.config.Server.App.host
         self.port = self.config.Server.App.port
@@ -53,8 +55,7 @@ class ElysiaServer:
         self.clock = SystemClock(event_bus=self.bus, config=self.config.Core.SystemClock)
         self.session = SessionState(config=self.config.Core.SessionState)
         
-        
-        # 初始化层级
+        # 2. 初始化层级
         self.l0 = SensorLayer(event_bus=self.bus, config=self.config.L0)
         self.l1 = BrainLayer(config=self.config.L1)
         self.l2 = MemoryLayer(config=self.config.L2)
@@ -63,19 +64,22 @@ class ElysiaServer:
         self.actuator = ActuatorLayer(event_bus=self.bus, config=self.config.Core.Actuator)
         self.psyche_system = PsycheSystem(config=self.config.L0.PsycheSystem)  
         
-        # 初始化调度器
-        self.dispatcher = Dispatcher(
-            event_bus=self.bus, 
-            l0=self.l0, 
-            l1=self.l1, 
-            l2=self.l2, 
-            l3=self.l3, 
-            actuator=self.actuator, 
-            reflector=self.reflector, 
-            psyche_system=self.psyche_system, 
+        # 3. 打包成 Context
+        self.context = AgentContext(
+            event_bus=self.bus,
+            l0=self.l0,
+            l1=self.l1,
+            l2=self.l2,
+            l3=self.l3,
+            actuator=self.actuator,
+            reflector=self.reflector,
+            psyche_system=self.psyche_system,
             session=self.session,
             checkpoint_manager=self.checkpoint_manager
         )
+        
+        # 初始化调度器
+        self.dispatcher = Dispatcher(self.context)
         
         # 注册检查点管理器
         self._setup_checkpoints()  

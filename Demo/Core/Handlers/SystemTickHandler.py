@@ -20,7 +20,7 @@ from Utils import timedelta_to_text
 from typing import Literal
 from Core.Handlers.BaseHandler import BaseHandler
 from Core.Schema import DEFAULT_ERROR_INNER_THOUGHT, DEFAULT_ERROR_MOOD, DEFAULT_ERROR_PUBLIC_REPLY
-
+from Core.AgentContext import AgentContext
 
 class SystemTickHandler(BaseHandler):
     # === 配置常量 ===
@@ -28,26 +28,22 @@ class SystemTickHandler(BaseHandler):
     USER_PRESENT_TIMEOUT = 300  # 用户被判定为“在场”的超时时间（秒）
     RECENT_MEMORY_LIMIT = 10    # 读取最近记忆的条数
     
-    def __init__(self, actuator: ActuatorLayer, 
-                    psyche_system: PsycheSystem,
-                    l0: SensorLayer,
-                    l1: BrainLayer,
-                    session: SessionState,
-                    l2: MemoryLayer,
-                    l3: PersonaLayer,
-                    reflector: Reflector,
-                    checkpoint_manager: CheckpointManager
-                 ):
+    def __init__(self, context: AgentContext):
         self.logger: logging.Logger = setup_logger("SystemTickHandler")
-        self.actuator = actuator
-        self.psyche_system = psyche_system
-        self.l0 = l0
-        self.l1 = l1
-        self.session = session
-        self.l2 = l2
-        self.l3 = l3
-        self.reflector = reflector
-        self.checkpoint_manager = checkpoint_manager
+        
+        # 保存上下文引用
+        self.context: AgentContext = context
+        
+        # 核心组件引用
+        self.actuator: ActuatorLayer = context.actuator
+        self.psyche_system: PsycheSystem = context.psyche_system
+        self.l0: SensorLayer = context.l0
+        self.l1: BrainLayer = context.l1
+        self.session: SessionState = context.session
+        self.l2: MemoryLayer = context.l2
+        self.l3: PersonaLayer = context.l3
+        self.reflector: Reflector = context.reflector
+        self.checkpoint_manager: CheckpointManager = context.checkpoint_manager
         
         # === 主动性控制参数 ===
         # 用于计算两次心跳之间的时间差 (dt)
