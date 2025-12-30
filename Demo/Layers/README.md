@@ -10,7 +10,7 @@ Elysia 的认知架构主要分为以下几个层次：
 | --- | --- | --- | --- |
 | **L0** | **Sensor Layer (感知层)** | 系统的“感官”和“直觉”。负责接收外部输入，感知环境变化，并产生本能的情绪反应。 | `Sensor`, `Amygdala` |
 | **L1** | **Brain Layer (大脑层)** | 系统的“理性大脑”。负责逻辑思考、决策制定、语言生成以及主动行为的规划。 | `L1.py` |
-| **L2** | **Memory Layer (记忆层)** | 系统的“海马体”。负责管理短期工作记忆（Session）和长期情景记忆（Vector DB）。 | `L2.py`, `SessionState` |
+| **L2** | **Memory Layer (记忆层)** | 系统的“海马体”。负责管理短期工作记忆（Session）和长期情景记忆（Vector DB）。 | `L2.py` |
 | **L3** | **Persona Layer (人格层)** | 系统的“灵魂”。定义角色的静态设定、性格特征、价值观和社会属性。 | `L3.py`, `CoreIdentity` |
 | **Psyche**| **Psyche System (心理系统)** | 系统的“生理/心理状态机”。模拟精力、社交能量、无聊度等动态指标。 | `PsycheSystem.py` |
 
@@ -33,7 +33,7 @@ Elysia 的认知架构主要分为以下几个层次：
 ### 3. L2: Memory Layer (记忆层)
 位于 `Layers/L2/`。
 - **统一接口**: `MemoryLayer` 类作为单例运行，统一管理所有记忆操作。
-- **短期记忆**: `SessionState` 维护当前的对话上下文，确保对话的连贯性。
+- **短期记忆**: ~~调用 `Core` 模块中的 `SessionState` 维护当前的对话上下文，确保对话的连贯性。~~ SessionState移到Core下了，目前不属于L2。
 - **长期记忆**: 集成向量数据库 (Milvus)，存储历史对话的 Embedding，支持语义检索，让 AI 能够“回忆”起很久以前的事情。
 
 ### 4. L3: Persona Layer (人格层)

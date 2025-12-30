@@ -41,7 +41,10 @@ class SessionState:
         
         # 废弃，目前在checkpoint manager中管理，以免重复保存
         # self._load_session()  # 启动时加载历史会话
-        
+    
+    # ==================================================================================================================================
+    # 外部接口
+    # ==================================================================================================================================    
     
     def get_status(self) -> dict:
         """获取当前会话状态的摘要信息"""
@@ -55,6 +58,32 @@ class SessionState:
             "last_few_messages": [msg.to_dict() for msg in self.conversations[-10:]]  # 最近10条消息
         }
         return status
+    
+    def dump_state(self) -> dict:
+        """导出当前会话状态为字典"""
+        try:
+            with self.lock:
+                serialized_msgs = [msg.to_dict() for msg in self.conversations]
+                state = {
+                    "last_interaction_time": self.last_interaction_time,
+                    "conversations": serialized_msgs
+                }
+            return state
+        except Exception as e:
+            self.logger.error(f"Failed to dump SessionState to dict: {e}")
+            return {}        
+    
+    
+    def load_state(self, state: dict):
+        """从给定状态字典加载会话状态"""
+        try:
+            with self.lock:
+                self.last_interaction_time = state.get("last_interaction_time", 0.0)
+                raw_msgs = state.get("conversations", [])
+                self.conversations = [ChatMessage.from_dict(msg) for msg in raw_msgs]
+            self.logger.info(f"SessionState loaded from state dict with {len(self.conversations)} messages.")
+        except Exception as e:
+            self.logger.error(f"Failed to load SessionState from state dict: {e}")
 
     
     def add_messages(self, messages: list[ChatMessage]):
@@ -87,11 +116,19 @@ class SessionState:
         return self.conversations
     
     
-    def get_recent_history(self, limit: int = 6) -> list[ChatMessage]:
+    def get_recent_history(self, limit: int = 6, inner_limit: int = 3) -> list[ChatMessage]:
         """获取最近几条"""
+        # 取最近的 limit 条消息
         subset = self.conversations[-limit:]
+        # 清洗掉较早的 inner thoughts
+        for i in range(inner_limit):
+            if subset[i].role == self.role:
+                subset[i].inner_voice = ""
         return subset
     
+    # ===========================================================================================================================
+    # 内部方法实现
+    # ===========================================================================================================================
         
     def update_last_interaction_time(self)->float:
         """更新最后交互时间（以最后一条消息为准）"""
@@ -203,33 +240,6 @@ class SessionState:
                     
         except Exception as e:
             self.logger.error(f"Failed to save session: {e}")
-    
-    
-    def dump_state(self) -> dict:
-        """导出当前会话状态为字典"""
-        try:
-            with self.lock:
-                serialized_msgs = [msg.to_dict() for msg in self.conversations]
-                state = {
-                    "last_interaction_time": self.last_interaction_time,
-                    "conversations": serialized_msgs
-                }
-            return state
-        except Exception as e:
-            self.logger.error(f"Failed to dump SessionState to dict: {e}")
-            return {}        
-    
-    
-    def load_state(self, state: dict):
-        """从给定状态字典加载会话状态"""
-        try:
-            with self.lock:
-                self.last_interaction_time = state.get("last_interaction_time", 0.0)
-                raw_msgs = state.get("conversations", [])
-                self.conversations = [ChatMessage.from_dict(msg) for msg in raw_msgs]
-            self.logger.info(f"SessionState loaded from state dict with {len(self.conversations)} messages.")
-        except Exception as e:
-            self.logger.error(f"Failed to load SessionState from state dict: {e}")
     
     
     def debug(self):

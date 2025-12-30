@@ -13,7 +13,6 @@ import os
 
 from Utils import create_embedding_model
 from Core.Schema import ChatMessage
-from Workers.Reflector.MemorySchema import MacroMemory, MicroMemory
 from Config import L2Config
 from Logger import setup_logger
 from Workers.Reflector.MemorySchema import MicroMemory, MacroMemory

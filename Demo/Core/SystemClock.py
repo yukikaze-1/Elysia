@@ -38,16 +38,21 @@ class SystemClock:
 
     def _tick_loop(self):
         while self.running:
+            # 推送时间事件
+            self._push_time_event()
+            # 等待下一个周期
             time.sleep(self.interval)
             
-            timestamp = time.time()
-            # 发送心跳事件
-            event = Event(
-                type=EventType.SYSTEM_TICK,
-                content_type=EventContentType.TIME,
-                content=timestamp,
-                source=EventSource.SYSTEM_CLOCK, 
-                timestamp=timestamp
-            )
-            self.bus.publish(event)
-            self.logger.debug(f"Tick: {datetime.fromtimestamp(timestamp).strftime('%H:%M:%S')}")
+            
+    def _push_time_event(self):
+        """立即推送一次时间事件"""
+        timestamp = time.time()
+        event = Event(
+            type=EventType.SYSTEM_TICK,
+            content_type=EventContentType.TIME,
+            content=timestamp,
+            source=EventSource.SYSTEM_CLOCK, 
+            timestamp=timestamp
+        )
+        self.bus.publish(event)
+        self.logger.debug(f"Immediate Tick: {datetime.fromtimestamp(timestamp).strftime('%H:%M:%S')}")
