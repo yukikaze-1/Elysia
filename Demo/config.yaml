@@ -26,8 +26,8 @@ Core:
     logger_name: "SessionState"
     user_name: "妖梦"
     role: "Elysia"
-    session_capacity: 30
-    inner_capacity: 3
+    session_capacity: 100
+    inner_capacity: 5
     persist_dir: "/home/yomu/Elysia/Demo/storage/sessions"
 
   CheckPointManager:

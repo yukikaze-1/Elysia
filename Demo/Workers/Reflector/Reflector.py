@@ -36,7 +36,7 @@ class Reflector:
                                          config=self.config.MemoryReflector, 
                                          memory_layer=memory_layer)     # MemoryLayer 是全局单例
 
-        # 2. 缓冲池
+        # 2. 缓冲池(用于Micro Reflection)
         self.buffer: List[ChatMessage] = []
         self.buffer_lock = threading.Lock()
         

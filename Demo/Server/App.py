@@ -222,13 +222,13 @@ class ElysiaServer:
         
         # 停止组件
         if self.dispatcher:
-            self.dispatcher.stop()
+            self.dispatcher.stop()  # 停止 Dispatcher 线程
         
         if self.l0:
-            self.l0.stop_threads()
+            self.l0.stop_threads()  # 停止L0线程
             
         if self.reflector:
-            self.reflector.stop()
+            self.reflector.stop()   # 停止Reflector线程
             
         if self.checkpoint_manager:
             self.checkpoint_manager.save_checkpoint() # 关闭前保存检查点

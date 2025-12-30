@@ -1,64 +1,74 @@
-# Core 核心基础设施
+# Core 核心架构模块
 
-`Core` 模块是 Elysia 系统的核心基础设施层，提供了系统的骨架，负责组件间的通信、任务调度、数据定义以及基础服务。它不包含具体的业务逻辑（如具体的感知算法或人格模型），而是连接各个功能层（Layers）的纽带。
+`Core` 目录包含了 Elysia 智能体系统的基础设施和核心运行时组件。这些组件共同构成了系统的骨架，负责事件流转、状态管理、任务调度以及与外部世界的交互。
 
-## 模块概览
+## 架构概览
 
-| 文件 | 模块名 | 描述 |
-| --- | --- | --- |
-| `Dispatcher.py` | **调度器** | 系统的中央控制器，协调感知、认知、记忆和表达各层的工作流程。 |
-| `EventBus.py` | **事件总线** | 基于发布-订阅模式的消息通信中枢，实现组件间的解耦。 |
-| `ActuatorLayer.py` | **执行层** | 负责将 AI 的决策转化为外部行动（如语音、指令），管理输出通道。 |
-| `SystemClock.py` | **系统时钟** | 提供系统心跳（Tick），驱动周期性任务和时间相关的逻辑。 |
-| `Schema.py` | **数据模式** | 定义系统通用的数据结构、事件类型和枚举。 |
-| `SessionState.py` | **会话状态** | 管理当前的对话上下文和短期记忆。 |
-| `OutputChannel.py` | **输出通道** | 定义输出接口标准，并提供基础实现（如控制台输出）。 |
+Elysia 的核心架构基于 **事件驱动 (Event-Driven)** 和 **组件化** 设计。
 
-## 详细说明
+1.  **EventBus (事件总线)** 作为系统的神经中枢，负责所有模块间的通信。
+2.  **Dispatcher (调度器)** 监听事件总线，根据事件类型将任务分发给具体的 **Handlers (处理器)**。
+3.  **AgentContext (智能体上下文)** 作为一个全局容器，持有所有核心组件的引用，方便各层级访问。
+4.  **SystemClock (系统时钟)** 提供心跳机制，驱动系统的周期性任务。
 
-### 1. Dispatcher (调度器)
-`Dispatcher` 是整个系统的大脑。它负责：
-- **事件分发**：从 `EventBus` 接收事件，并根据事件类型调用 L0-L3 各层的处理逻辑。
-- **流程协调**：管理数据在感知层 (L0)、大脑层 (L1)、记忆层 (L2) 和人格层 (L3) 之间的流动。
-- **主动性管理**：实现 Agency 逻辑，决定 AI 何时主动发起交互。
+## 模块说明
 
-### 2. EventBus (事件总线)
-`EventBus` 实现了观察者模式，是系统内部通信的高速公路。
-- **线程安全**：使用 `queue.Queue` 处理多线程环境下的事件传递。
-- **发布/订阅**：组件可以订阅特定类型的事件（如 `SYSTEM_TICK`），也可以发布事件（如 `USER_INPUT`）。
+### 基础组件
 
-### 3. ActuatorLayer (执行层)
-`ActuatorLayer` 是 AI 对外行动的接口。
-- **动作执行**：处理 `SPEECH` (说话) 和 `COMMAND` (指令) 等动作。
-- **多通道支持**：可以注册多个 `OutputChannel`（如终端、WebSocket 客户端、TTS 引擎），将内容分发到不同的端点。
+- **`AgentContext.py`**
+  - 定义了 `AgentContext` 数据类。
+  - 作用：作为依赖注入的容器，封装了系统所有核心层级（L0-L3, PsycheSystem 等）和管理器实例，确保各模块能方便地获取所需资源。
 
-### 4. SystemClock (系统时钟)
-`SystemClock` 是系统的心脏。
-- **心跳机制**：在独立线程中运行，定期发送 `SYSTEM_TICK` 事件。
-- **时间驱动**：驱动心理系统 (PsycheSystem) 的状态衰减、环境感知更新等周期性任务。
+- **`EventBus.py`**
+  - 实现了一个线程安全的事件总线。
+  - 作用：解耦各个模块。支持异步事件队列（供 Dispatcher 消费）和同步订阅者模式（Observer Pattern）。
 
-### 5. Schema (数据模式)
-`Schema` 定义了系统的“通用语言”。
-- **Event**：标准事件对象，包含类型、来源、内容和时间戳。
-- **Enums**：定义了 `EventType` (事件类型)、`EventSource` (来源) 等枚举值，规范系统常量。
+- **`Dispatcher.py`**
+  - 系统的核心调度循环。
+  - 作用：不断从 `EventBus` 获取事件，并根据 `EventType` 查找对应的策略（Handler）进行处理。
+  - 采用了策略模式，将具体的事件处理逻辑委托给 `Handlers/` 下的处理器。
 
-### 6. SessionState (会话状态)
-`SessionState` 负责管理当前的对话上下文（短期记忆）。
-- **上下文维护**：存储最近的 N 轮对话记录，供 LLM 生成回复时参考。
-- **状态管理**：确保对话的连贯性，避免 AI “失忆”。
+- **`Schema.py`**
+  - 定义了系统通用的数据结构和枚举。
+  - 包含：`Event` (事件对象), `EventType`, `EventSource`, `UserMessage` 等核心数据定义。
 
-### 7. OutputChannel (输出通道)
-`OutputChannel` 定义了输出的抽象基类。
-- **扩展性**：开发者可以通过继承 `OutputChannel` 来实现不同的输出方式（例如接入 Live2D 前端或 Discord 机器人）。
-- **ConsoleChannel**：提供了一个默认的控制台输出实现，支持带颜色的日志打印。
+- **`SystemClock.py`**
+  - 系统的心跳发生器。
+  - 作用：在后台线程中运行，定期发布 `SYSTEM_TICK` 事件，用于驱动需要时间感知的模块（如情绪衰减、定时任务）。
 
-## 交互流程示例
+### 状态与持久化
 
-一个典型的交互流程如下：
+- **`SessionState.py`**
+  - 会话状态管理器。
+  - 作用：维护当前的对话历史（Context Window），管理短期记忆，确保发送给 LLM 的 Token 数量在控制范围内。
 
-1.  **输入**: 外部输入（如用户消息）被封装为 `Event`，通过 `EventBus` 发布。
-2.  **调度**: `Dispatcher` 监听到事件，调用 `L0` 感知层进行处理。
-3.  **认知**: `Dispatcher` 将感知结果传递给 `L1` 大脑层和 `L2` 记忆层生成响应。
-4.  **决策**: `L3` 人格层对响应进行润色。
-5.  **执行**: `Dispatcher` 调用 `ActuatorLayer` 执行最终决策。
-6.  **输出**: `ActuatorLayer` 通过注册的 `OutputChannel` 将回复发送给用户。
+- **`CheckPointManager.py`**
+  - 统一的存档管理器。
+  - 作用：负责系统各模块状态的序列化与持久化（Save/Load）。
+  - 机制：采用注册机制，各模块注册自己的 `getter` (获取状态) 和 `setter` (恢复状态) 函数，管理器统一进行原子化的文件读写。
+
+### 执行与输出
+
+- **`ActuatorLayer.py`**
+  - 执行层 / 表达层。
+  - 作用：将 AI 的决策转化为具体的外部行动。
+  - 功能：支持多种动作类型（如 `SPEECH`, `COMMAND`），并将结果分发到注册的 `OutputChannel`。
+
+- **`OutputChannel.py`**
+  - 定义了输出通道的抽象基类及实现。
+  - 包含：
+    - `ConsoleChannel`: 输出到终端控制台（带颜色高亮）。
+    - `WebSocketChannel`: 输出到 WebSocket 客户端（用于 Web 前端）。
+
+### 事件处理器 (Handlers/)
+
+位于 `Handlers/` 目录下，包含具体的事件处理逻辑：
+- **`UserInputHandler`**: 处理用户输入事件，驱动认知层进行响应。
+- **`SystemTickHandler`**: 处理系统心跳事件，驱动心理系统（PsycheSystem）的更新。
+
+## 工作流程示例
+
+1.  **用户输入**: 前端/终端产生输入 -> 封装为 `Event(USER_INPUT)` -> 推送至 `EventBus`。
+2.  **调度**: `Dispatcher` 从 `EventBus` 取出事件 -> 识别为 `USER_INPUT` -> 交给 `UserInputHandler`。
+3.  **处理**: `UserInputHandler` 调用 L0-L3 层级进行感知、记忆检索、决策和生成。
+4.  **行动**: 生成的回复通过 `ActuatorLayer` -> `OutputChannel` -> 返回给用户。

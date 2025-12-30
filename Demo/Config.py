@@ -63,15 +63,15 @@ class SessionStateConfig:
     logger_name: str = "SessionState"
     user_name: str = "妖梦"
     role: str = "Elysia"
-    session_capacity: int = 30
-    inner_capacity: int = 3
+    session_capacity: int = 100
+    inner_capacity: int = 5
     persist_dir: str = "/home/yomu/Elysia/Demo/storage/sessions"
     
 @dataclass
 class CheckPointManagerConfig:
     logger_name: str = "CheckPointManager"
     checkpoint_file: str = "/home/yomu/Elysia/Demo/storage/runtime_state.json"
-    save_interval: float = 30.0  # 自动保存间隔，单位秒
+    save_interval: float = 30.0  # TODO 自动保存间隔，单位秒，这个参数没有被使用到  后续实现 
 
 @dataclass
 class CoreConfig:
