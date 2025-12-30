@@ -3,9 +3,11 @@
 """
   
     
+import re
 import time
 import json   
 from datetime import datetime
+from unittest import result
 from Layers.L2.L2 import MemoryLayer
 from openai import OpenAI
 from Prompt import MacroReflector_SystemPrompt, MacroReflector_UserPrompt
@@ -33,10 +35,12 @@ class MacroReflector:
         # TODO 这个一天的记忆有待商榷
         self.gather_memory_time_interval_seconds: int = self.config.gather_memory_time_interval_seconds  # 汇集记忆的时间间隔，单位秒，默认一天
         
-        # TODO 这些参数要存入json
         self.last_macro_reflection_time: float = 0.0  # 上一次macro reflection的时间
         self.last_macro_reflection_log: list[MacroMemory] = []  # 上一次macro reflection的结果日志(Dashboard用) 
-        
+    
+    # ==================================================================================
+    # 状态导入导出
+    # ==================================================================================   
     
     def get_status(self) -> dict:
         """获取 MacroReflector 状态"""
@@ -77,98 +81,100 @@ class MacroReflector:
                     timestamp=mem_dict['timestamp']
                 ))
 
+    # ==================================================================================
+    # 核心方法
+    # ==================================================================================    
+
+    def run_macro_reflection(self) -> list[MacroMemory]:
+        """主流程：协调各步骤"""
+        self.logger.info("Starting Macro Reflection...")
         
+        # 1. 获取数据
+        micro_memories = self._gather_daily_memories()
+        if not micro_memories:
+            self.logger.info("No memories found. Skipping.")
+            return []
+
+        # 2. 思考 (LLM 交互的核心逻辑封装在这里)
+        macro_memories: list[MacroMemory] = self._generate_macro_memories(micro_memories)
         
-    def gather_daily_memories(self, time_interval: float | None = None)-> list[MicroMemory]:
+        # 3. 更新状态
+        self._update_state(macro_memories)
+        
+        # 4. 存储结果
+        self.save_reflection_results(macro_memories)
+        
+        return macro_memories
+    
+    # ==================================================================================
+    # 内部方法实现
+    # ==================================================================================
+
+    def _generate_macro_memories(self, micro_memories: list[MicroMemory]) -> list[MacroMemory]:
+        """职责：负责与 LLM 交互并解析结果"""
+        # 1. 准备 Prompt
+        messages: list = self._build_llm_messages(micro_memories)
+        
+        # 2. 调用 LLM
+        raw_json: str = self._call_llm(messages)
+        
+        # 3. 解析并转换为对象
+        timestamp = int(time.time())
+        llm_outs = self.parse_macro_llm_output(raw_json)
+        
+        return [
+            MacroMemory.from_macro_memory_llm_out(mem, timestamp)
+            for mem in llm_outs
+        ]
+
+    def _build_llm_messages(self, memories: list[MicroMemory]) -> list[dict]:
+        """职责：构建 Prompt"""
+        memories_text = self.format_micro_memories_to_lines(memories)
+        user_prompt = self.user_prompt.format(
+            character_name="Elysia",
+            memories_list=memories_text
+        )
+        return [
+            {"role": "system", "content": self.system_prompt},
+            {"role": "user", "content": user_prompt},
+            {"role": "assistant", "content": "{\n", "prefix": True}
+        ]
+
+    def _call_llm(self, messages: list) -> str:
+        """职责：纯粹的 LLM I/O"""
+        response = self.openai_client.chat.completions.create(
+            model="deepseek-chat",
+            messages=messages,
+            stream=False
+        )
+        content = response.choices[0].message.content
+        return '{' + content if content else ""
+
+
+    def _update_state(self, memories: list[MacroMemory]):
+        """职责：更新内部状态"""
+        self.last_macro_reflection_log = memories
+        self.last_macro_reflection_time = time.time()
+    
+    
+    def _gather_daily_memories(self, time_interval: float | None = None)-> list[MicroMemory]:
         """汇集一天的记忆"""
         if time_interval is None:
             time_interval = self.gather_memory_time_interval_seconds
-        start_time = int(time.time()) - time_interval
+            
+        start_time:int = int(time.time()) - int(time_interval)
     
-        # Milvus 表达式查询 (Hybrid Search)
         # 查出今天发生的高权重记忆
-        expr = f"timestamp > {start_time} AND poignancy >= 3"
-        results: list = self.milvus_agent.query(
-            mem_type='Micro', filter=expr, 
-            output_fields=["content", "subject", "memory_type", "poignancy", "timestamp", "keywords"]
+        results: list[MicroMemory] = self.milvus_agent.get_recent_micro_memories(
+            start_time=start_time,
+            min_poignancy=3  # 只取重要性 >=3 的记忆
         )
         
         self.logger.info("--------------- Gather Daily Memories ---------------")
-        self.logger.info(f"Query Expression: {expr}")
         self.logger.info(f"Found {len(results)} memories from Milvus.")
         self.logger.info("-----------------------------------------------------")
         
-        # 将查询到的结果转为标准的MicroMemory格式返回
-        micro_memories: list[MicroMemory] = []
-        for res in results:
-            micro_memories.append(MicroMemory(
-                content=res['content'],
-                subject=res['subject'],
-                memory_type=res['memory_type'],
-                poignancy=res['poignancy'],
-                keywords=res['keywords'],
-                timestamp=res['timestamp']
-            ))
-        return micro_memories
-
-
-    def run_macro_reflection(self):
-        """对一天的记忆进行反思"""
-        # TODO 时间点待调整
-        timestamp = int(time.time())
-        
-        micro_memories: list[MicroMemory] = self.gather_daily_memories()
-        if not micro_memories or len(micro_memories) == 0:
-            self.logger.info("No micro memories found for macro reflection. Exiting.")
-            return []
-        
-        # 准备prompt
-        system_prompt = self.system_prompt
-        user_prompt = self.user_prompt.format(
-            character_name="Elysia",
-            memories_list=self.format_micro_memories_to_lines(micro_memories)
-        )
-        
-        self.logger.info("--------------- Reflector L2 to L2 User Prompt ---------------")
-        self.logger.info("User Prompt:")
-        self.logger.info(user_prompt)
-        self.logger.info("---------------------------------------------------------")
-        
-        # 调用llm进行宏观反思
-        # 采用前缀续写
-        messgaes = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-                {"role": "assistant", "content": "{\n", "prefix": True} # 让模型续写
-        ]
-        response = self.openai_client.chat.completions.create(
-            model="deepseek-chat",
-            messages=messgaes,
-            stream=False
-        )
-        
-        self.logger.info("--------------- Reflector L2 to L2 Raw Response ---------------")
-        self.logger.info(response)
-        self.logger.info("--------------- End of Reflector L2 to L2 Raw Response ---------------")
-
-        # 解析llm输出
-        raw_content = response.choices[0].message.content
-        if raw_content:
-                raw_content = '{' + raw_content
-        macro_memories_llm_out: list[MacroMemoryLLMOut] = self.parse_macro_llm_output(raw_content)
-        
-        # 添加时间戳
-        macro_memories: list[MacroMemory] = []
-        for mem in macro_memories_llm_out:
-            macro_memories.append(MacroMemory.from_macro_memory_llm_out(mem, timestamp))
-            
-        # 记录日志
-        self.last_macro_reflection_log = macro_memories
-        self.last_macro_reflection_time = time.time()
-            
-        # 将结果存入数据库milvus
-        self.save_reflection_results(macro_memories)
-        return macro_memories
+        return results
     
     
     def format_micro_memories_to_lines(self, memories: list[MicroMemory])-> str:
@@ -248,5 +254,4 @@ class MacroReflector:
         self.logger.info("Macro Memories stored successfully.")
         return
 
-    
-    
+

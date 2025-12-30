@@ -37,6 +37,10 @@ class MicroReflector:
         self.last_micro_reflection_log: list[MicroMemory] = []  # 上一次micro reflection的结果日志(Dashboard用)
         
     
+    # ==================================================================================
+    # 状态导入导出
+    # ==================================================================================
+    
     def get_status(self) -> dict:
         """获取当前 MicroReflector 状态的摘要信息"""
         # TODO 加一个计数器，计算处理了多少条记忆，生成了多少条记忆，然后保存在文件中,启动时从文件加载
@@ -75,7 +79,9 @@ class MicroReflector:
                 )
             )
 
-    
+    # ==================================================================================
+    # 核心方法
+    # ==================================================================================
     
     def run_micro_reflection(self, conversations: list[ChatMessage])->list[MicroMemory]:
         """对一大段对话进行反思，并抽取记忆、存入milvus"""
@@ -107,61 +113,52 @@ class MicroReflector:
     # 内部方法
     # ==================================================================================
             
-    def _run_micro_reflection_aux(self, conversations: ConversationSegment)->list[MicroMemory]:
-        """对一小段对话进行反思"""
-        self.logger.info(f"[Reflector] Running Micro-Reflection on conversation segment from\
-            {datetime.fromtimestamp(conversations.start_time)} to \
-            {datetime.fromtimestamp(conversations.end_time)}, \
-            containing {len(conversations.messages)} messages."
-        )
-        # 该对话的时间戳
-        timestamp = conversations.start_time
-        # 转化历史对话
-        transcript: str = self.format_conversations_to_lines(conversations)
+    def _run_micro_reflection_aux(self, segment: ConversationSegment) -> list[MicroMemory]:
+        """主流程：协调各步骤"""
+        # 1. 准备输入
+        messages = self._build_llm_messages(segment)
         
-        # 构建prompt
-        system_prompt = self.system_prompt.format(
-            user_name="妖梦",
-            character_name="Elysia"
-        )
-        user_prompt = self.user_prompt.format(
-            transcript=transcript
-        )
+        # 2. 调用 LLM (只负责拿回字符串)
+        raw_response_content = self._call_llm(messages)
         
-        self.logger.info("----------Micro Reflector(L1 to L2) Raw User Prompt ----------")
-        self.logger.info(user_prompt)
-        self.logger.info("----------------------------------------")
+        # 3. 解析与转换
+        return self._parse_and_transform(raw_response_content, segment.start_time)
+
+    # === 拆分出的子方法 ===
+
+    def _build_llm_messages(self, segment: ConversationSegment) -> list[dict]:
+        """职责：构建 Prompt"""
+        transcript = self.format_conversations_to_lines(segment)
+        system_prompt = self.system_prompt.format(user_name="妖梦", character_name="Elysia")
+        user_prompt = self.user_prompt.format(transcript=transcript)
         
-        # 调用LLM ，采用前缀续写方式
-        messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-                {"role": "assistant", "content": "[\n", "prefix": True} 
+        return [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+            {"role": "assistant", "content": "[\n", "prefix": True}
         ]
+
+
+    def _call_llm(self, messages: list) -> str:
+        """职责：纯粹的 LLM I/O"""
         response = self.openai_client.chat.completions.create(
             model="deepseek-chat",
             messages=messages,
             stream=False
         )
-        
-        self.logger.info("--------------- Reflector L1 to L2 Raw Response ---------------")
-        self.logger.info(response)
-        self.logger.info("--------------- End of Reflector L1 to L2 Raw Response ---------------")
-        
-        # 处理llm输出的json，转换为list[dict]
-        # 这里假设解析后的格式是我们规定的格式：MicroMemoryLLMOut
-        # 因为是对话前缀续写，需要手动加上'{'组成完整的json格式
-        raw_content = response.choices[0].message.content
-        if raw_content:
-                raw_content = '[' + raw_content
-        memories: list[MicroMemoryLLMOut] = self.parse_micro_llm_output(raw_content)
-        
-        # 添加时间戳
-        res: list[MicroMemory] = []
-        for mem in memories:
-            res.append(MicroMemory.from_micro_memory_llm_out(mem, timestamp))
-        self.logger.info(f"[Reflector] Extracted {len(res)} Micro Memories from conversation segment.")
+        content = response.choices[0].message.content
+        # 处理前缀续写的补全逻辑属于 LLM 交互的一部分
+        res = '[' + content if content else ""
         return res
+
+
+    def _parse_and_transform(self, raw_json: str, timestamp: float) -> list[MicroMemory]:
+        """职责：数据清洗与对象转换"""
+        llm_outs = self.parse_micro_llm_output(raw_json)
+        return [
+            MicroMemory.from_micro_memory_llm_out(mem, timestamp) 
+            for mem in llm_outs
+        ]
 
 
     def parse_micro_llm_output(self, llm_raw_output)-> list[MicroMemoryLLMOut]:
@@ -233,6 +230,7 @@ class MicroReflector:
         self.logger.debug("Messages to split:")
         for msg in conversations:
             msg.debug(self.logger)    
+            
         segments: list[ConversationSegment] = []
         
         # 目前采用简单粗暴的按时间间隔来分
@@ -269,5 +267,4 @@ class MicroReflector:
         # 直接调用 MemoryLayer 的存储接口
         self.milvus_agent.save_micro_memory(memories)
         self.logger.info(f"[Reflector] Successfully stored {len(memories)} Micro Memories to Milvus.")
-        
-    
+

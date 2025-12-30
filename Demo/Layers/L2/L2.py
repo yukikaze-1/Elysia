@@ -16,6 +16,8 @@ from Core.Schema import ChatMessage
 from Workers.Reflector.MemorySchema import MacroMemory, MicroMemory
 from Config import L2Config
 from Logger import setup_logger
+from Workers.Reflector.MemorySchema import MicroMemory, MacroMemory
+
 
 
 class MemoryLayer:
@@ -108,6 +110,27 @@ class MemoryLayer:
         }
         return status
     
+    def get_recent_micro_memories(self, start_time: int, min_poignancy: int) -> list[MicroMemory]:
+        """ [接口方法] (供 Reflector 调用) 获取最近的高重要性 Micro Memories """
+        micro_memories: list[MicroMemory] = []
+        expr = f"timestamp > {start_time} AND poignancy >= {min_poignancy}"
+        results: list = self.milvus_client.query(
+            collection_name=self.micro_memeory_collection_name,
+            mem_type='Micro', 
+            filter=expr, 
+            output_fields=["content", "subject", "memory_type", "poignancy", "timestamp", "keywords"]
+        )
+        # 将查询到的结果转为标准的MicroMemory格式返回
+        for res in results:
+            micro_memories.append(MicroMemory(
+                content=res['content'],
+                subject=res['subject'],
+                memory_type=res['memory_type'],
+                poignancy=res['poignancy'],
+                keywords=res['keywords'],
+                timestamp=res['timestamp']
+            ))
+        return micro_memories
     
     # ===========================================================================================================================
     # 内部函数实现
