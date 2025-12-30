@@ -76,6 +76,9 @@ class ElysiaServer:
             session=self.session,
             checkpoint_manager=self.checkpoint_manager
         )
+        
+        # 注册检查点管理器
+        self._setup_checkpoints()  
 
         # 线程句柄
         self.dispatcher_thread: Optional[threading.Thread] = None   # Dispatcher 线程句柄
@@ -177,7 +180,7 @@ class ElysiaServer:
         # 第一阶段：静态恢复 (先找回脑子)
         # 此时没有任何线程在跑，没有任何事件在流动，是最安全的时刻
         # =========================================================
-        self._setup_checkpoints()
+        self.checkpoint_manager.load_checkpoint()
         self.logger.info(">>> [System] Memory Restored.")
 
         # =========================================================

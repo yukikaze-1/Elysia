@@ -39,7 +39,8 @@ class SessionState:
         self.conversations: list[ChatMessage] = []  # 会话历史
         self.last_interaction_time: float = time.time()  # 最后交互时间戳
         
-        self._load_session()
+        # 废弃，目前在checkpoint manager中管理，以免重复保存
+        # self._load_session()  # 启动时加载历史会话
         
     
     def get_status(self) -> dict:
@@ -148,7 +149,8 @@ class SessionState:
         self.conversations = history
         self.logger.info("Cleaned inner thoughts from older messages.")
         
-    
+    # 废弃，目前在checkpoint manager中管理，以免重复保存
+    # 但仍保留该方法以备将来可能的手动保存需求
     def _load_session(self):
         """从文件加载会话历史"""
         if not os.path.exists(self.file_path):
@@ -174,7 +176,8 @@ class SessionState:
             # 如果加载失败（文件损坏），选择重置还是保留空列表视业务而定
             self.conversations = []
     
-    
+    # 废弃，目前在checkpoint manager中管理，以免重复保存
+    # 但仍保留该方法以备将来可能的手动保存需求
     def _save_session(self):
         """将当前会话保存到文件"""
         try:

@@ -63,6 +63,7 @@ class CheckpointManager:
             for name, (getter, _) in self._handlers.items():
                 try:
                     state = getter()
+                    self.logger.debug(f"收集模块 {name} 状态: {state}")
                     # 可以在这里加一个校验，确保 state 是 JSON 可序列化的
                     data_snapshot[name] = state
                 except Exception as e:
@@ -82,7 +83,7 @@ class CheckpointManager:
                 f.flush()
                 os.fsync(f.fileno())
             os.replace(self.temp_filepath, self.filepath)
-            self.logger.info(f"检查点保存完毕，共 {len(data_snapshot)} 个模块")
+            self.logger.info(f"检查点保存完毕，共 {len(data_snapshot)} 个模块:{list(data_snapshot.keys())}")
         except Exception as e:
             self.logger.error(f"保存文件失败: {e}")
 
@@ -110,6 +111,8 @@ class CheckpointManager:
                     getter, setter = self._handlers[name]
                     try:
                         data = self._pending_data.pop(name) # 取出并移除
+                        self.logger.info(f"恢复模块 {name} 状态")
+                        self.logger.debug(f"数据内容: {data}")
                         setter(data)
                     except Exception as e:
                         self.logger.error(f"恢复模块 {name} 失败: {e}")

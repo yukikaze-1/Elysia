@@ -14,3 +14,4 @@ CharacterSystem/demo.py
 demo.py
 Demo/Log/*
 Demo/storage/sessions/*
+Demo/storage/runtime_state.json
