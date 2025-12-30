@@ -24,19 +24,17 @@ class Reflector:
     """
     def __init__(self, event_bus: EventBus, 
                  config: ReflectorConfig, 
-                 memory_layer: MemoryLayer):
+                 memory_layer: MemoryLayer  # 传入全局单例
+                 ):
         self.config: ReflectorConfig = config
         self.logger: Logger = setup_logger(self.config.logger_name)
         self.bus: EventBus = event_bus
         self.running: bool = False
         
-        mem_logger = self.logger.getChild("MemoryReflector")
-        
-        # 1. 实例化你的业务逻辑核心
-        # 注意：这里我们让 MemoryReflector 自己管理它的 MemoryLayer 连接
-        self.reflector = MemoryReflector(logger=mem_logger, 
+        # 1. 核心反思模块
+        self.reflector = MemoryReflector(logger=self.logger.getChild("MemoryReflector"), 
                                          config=self.config.MemoryReflector, 
-                                         memory_layer=memory_layer) 
+                                         memory_layer=memory_layer)     # MemoryLayer 是全局单例
 
         # 2. 缓冲池
         self.buffer: List[ChatMessage] = []
@@ -49,16 +47,17 @@ class Reflector:
         self.micro_threshold: int = self.config.micro_threshold
         self.macro_interval_seconds: int = self.config.macro_interval_seconds  # 24小时触发一次
         
-        # TODO 应该写在文件中，记录上次运行时间，每次启动时从文件中读取
         self.last_macro_run: datetime = datetime.now()
         
         # 4. 后台线程
         self._worker_thread = None
-        # 后台线程sleep间隔
-        self.worker_sleep_interval: float = self.config.worker_sleep_interval  # 2秒
+        self.worker_sleep_interval: float = self.config.worker_sleep_interval  # 后台线程sleep间隔
         
         self.logger.info(">>> Reflector Worker Initialized.")
-        
+    
+    # =============================================================
+    # 接口: 被 DashBoard 调用
+    # =============================================================    
     
     def get_status(self) -> dict:
         """获取 Reflector Worker 状态 Dashboard 用"""
@@ -73,6 +72,9 @@ class Reflector:
         }
         return status
     
+    # =============================================================
+    # 接口: 被 CheckPointManager 调用
+    # =============================================================
     
     def dump_state(self) -> dict:
         """导出当前状态为字典 (供 CheckPointManager 使用)"""
@@ -99,6 +101,9 @@ class Reflector:
 
         self.logger.info(">>> Reflector Worker State Loaded from Checkpoint.")
     
+    # =============================================================
+    # 接口: 被系统调用
+    # =============================================================
 
     def start(self):
         """启动后台监视线程"""
@@ -139,9 +144,9 @@ class Reflector:
             self.logger.info(">>> Reflector Worker No Pending Reflections to Save.")
         self.logger.info(">>> Reflector Worker Forced Save Completed.")
 
-    # =========================================
+    # =============================================================
     # 接口: 被 Dispatcher 调用
-    # =========================================
+    # =============================================================
 
     def on_new_message(self, msg: ChatMessage):
         """
@@ -153,68 +158,77 @@ class Reflector:
             self.buffer.append(msg)
             self.logger.info(f"Buffer size: {len(self.buffer)}")
 
-    # =========================================
+    # =============================================================
     # 内部循环
-    # =========================================
+    # =============================================================
 
     def _background_loop(self):
         """后台循环：检查缓冲池是否满了，如果满了就执行反思"""
         while self.running:
-            # 1. 检查 Micro Reflection (基于缓冲数量)
-            data_to_process = []
-            
-            with self.buffer_lock:
-                if len(self.buffer) >= self.micro_threshold:
-                    # 取出当前缓冲，清空列表
-                    data_to_process = self.buffer[:]
-                    self.buffer = []
-            
-            # 如果有数据，执行耗时的反思逻辑 (在锁外面执行，不阻塞写入)
-            if data_to_process:
-                try:
-                    self.logger.info(f"[Reflector] Running Micro-Reflection on {len(data_to_process)} messages...")
-                    self.logger.debug(f"Data to process: {data_to_process}")
-                    # === 调用你的业务代码 ===
-                    # results 是 list[MicroMemory]
-                    results = self.reflector.run_micro_reflection(
-                        conversations=data_to_process, 
-                        store_flag=True
-                    )
-                    
-                    # 通知系统反思完成 (可选)
-                    self.bus.publish(
-                        Event(type=EventType.REFLECTION_DONE, 
-                              content_type=EventContentType.TEXT,
-                              content=f"Created {len(results)} micro-memories",
-                              source=EventSource.REFLECTOR
-                        )
-                    )
-                    
-                except Exception as e:
-                    self.logger.error(f"[Reflector Error] Micro-reflection failed: {e}")
+            # 1. 检查 Micro Reflection 
+            if self._should_run_micro():
+                self._run_micro_reflection_sync()   # 同步执行
 
-            # 2. 检查 Macro Reflection (基于时间，例如每天凌晨)
-            # TODO 逻辑在 _check_macro_trigger 中处理
-            # 这里的【检查是否需要运行宏观反思】是否应该由dispatcher调用？
-            # 毕竟dispatcher有时间心跳，可以更精准地控制
-            # 方法： 让dispatcher 决定macro reflector何时运行，
-            # 此时往event bus上push一个MACRO REFLECTION START event
-            # 算了，到时候问问ai
-            # 先测试一下
-            self._check_macro_trigger()
+            # 2. 检查 Macro Reflection 
+            if self._should_run_macro():
+                self._trigger_macro_reflection()    # 异步执行
             
             time.sleep(self.worker_sleep_interval) # 休息一下，避免死循环空转
             
         self.logger.info(">>> Reflector Worker Stopped.")
+    
+    # =============================================================
+    # Micro Reflection 相关方法
+    # =============================================================
+    
+    def _should_run_micro(self) -> bool:
+        """策略：判断是否满足微观反思的触发条件"""
+        # 当前策略：缓冲区消息数量达到阈值
+        with self.buffer_lock:
+            return len(self.buffer) >= self.micro_threshold
+
+    def _run_micro_reflection_sync(self):
+        """执行：执行微观反思任务 (同步执行，因为很快且需要阻塞buffer处理)"""
+        # 1. 获取数据 (原子操作)
+        data_to_process = []
+        with self.buffer_lock:
+            if self.buffer:
+                data_to_process = self.buffer[:]
+                self.buffer = []
         
-
-    def _check_macro_trigger(self):
-        """检查是否需要运行宏观反思 (例如: 每天一次)"""
+        # 2. 执行业务逻辑
+        if data_to_process:
+            try:
+                self.logger.info(f"[Reflector] Running Micro-Reflection on {len(data_to_process)} messages...")
+                
+                results = self.reflector.run_micro_reflection(
+                    conversations=data_to_process, 
+                    store_flag=True
+                )
+                
+                self.bus.publish(
+                    Event(type=EventType.REFLECTION_DONE, 
+                          content_type=EventContentType.TEXT,
+                          content=f"Created {len(results)} micro-memories",
+                          source=EventSource.REFLECTOR
+                    )
+                )
+            except Exception as e:
+                self.logger.error(f"[Reflector Error] Micro-reflection failed: {e}")
+    
+    # =============================================================
+    # Macro Reflection 相关方法
+    # =============================================================
+    def _should_run_macro(self) -> bool:
+        """检查是否应该运行宏观反思"""
         now = datetime.now()
-
-        if (now - self.last_macro_run).total_seconds() > self.macro_interval_seconds:
-            threading.Thread(target=self._run_macro_async).start()
-            self.last_macro_run = now
+        return (now - self.last_macro_run).total_seconds() > self.macro_interval_seconds    
+    
+    
+    def _trigger_macro_reflection(self):
+        """ 触发宏观反思 (异步执行) """
+        threading.Thread(target=self._run_macro_async).start()
+        self.last_macro_run = datetime.now() # 更新状态通常跟随执行动作
 
 
     def _run_macro_async(self):
