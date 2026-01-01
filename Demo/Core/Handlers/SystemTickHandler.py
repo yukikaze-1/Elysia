@@ -14,7 +14,7 @@ from Core.SessionState import SessionState
 from Layers.L2 import MemoryLayer
 from Layers.L3 import PersonaLayer
 from Workers.Reflector.Reflector import Reflector
-from Core.CheckPointManager import CheckpointManager
+from Core.CheckPointManager import CheckPointManager
 from Logger import setup_logger
 from Utils import timedelta_to_text
 from Core.Handlers.BaseHandler import BaseHandler
@@ -44,7 +44,7 @@ class SystemTickHandler(BaseHandler):
         self.l2: MemoryLayer = context.l2
         self.l3: PersonaLayer = context.l3
         self.reflector: Reflector = context.reflector
-        self.checkpoint_manager: CheckpointManager = context.checkpoint_manager
+        self.checkpoint_manager: CheckPointManager = context.checkpoint_manager
         
         # === 主动性控制参数 ===
         # 用于计算两次心跳之间的时间差 (dt)
@@ -52,6 +52,7 @@ class SystemTickHandler(BaseHandler):
         
         
     def handle(self, event: Event):
+        """  处理系统心跳事件 """
         return self._handle_system_tick(event)
         
     
@@ -184,7 +185,7 @@ class SystemTickHandler(BaseHandler):
 
         
     def _active_speak(self, response: ActiveResponse):
-        """  """
+        """ 处理决定主动说话的情况 """
         self.logger.info("Elysia decided to initiate conversation.")
         # 回复内容
         msg = ChatMessage(role="Elysia", content=response.public_reply, inner_voice=response.inner_voice)

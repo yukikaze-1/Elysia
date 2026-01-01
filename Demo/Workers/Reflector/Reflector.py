@@ -14,8 +14,8 @@ from Core.SessionState import ChatMessage
 from Core.EventBus import EventBus
 from Core.Schema import Event, EventType, EventContentType, EventSource
 from Logger import setup_logger
-from Config import ReflectorConfig, MemoryReflectorConfig, MicroReflectorConfig, MacroReflectorConfig
-
+from Config.Config import ReflectorConfig, MemoryReflectorConfig, MicroReflectorConfig, MacroReflectorConfig
+from Core.PromptManager import PromptManager
 
 class Reflector:
     """
@@ -24,7 +24,8 @@ class Reflector:
     """
     def __init__(self, event_bus: EventBus, 
                  config: ReflectorConfig, 
-                 memory_layer: MemoryLayer  # 传入全局单例
+                 memory_layer: MemoryLayer,  # 传入全局单例
+                 prompt_manager: PromptManager
                  ):
         self.config: ReflectorConfig = config
         self.logger: Logger = setup_logger(self.config.logger_name)
@@ -34,7 +35,8 @@ class Reflector:
         # 1. 核心反思模块
         self.reflector = MemoryReflector(logger=self.logger.getChild("MemoryReflector"), 
                                          config=self.config.MemoryReflector, 
-                                         memory_layer=memory_layer)     # MemoryLayer 是全局单例
+                                         memory_layer=memory_layer,
+                                         prompt_manager=prompt_manager)     # MemoryLayer 是全局单例
 
         # 2. 缓冲池(用于Micro Reflection)
         self.buffer: List[ChatMessage] = []
@@ -222,7 +224,12 @@ class Reflector:
     def _should_run_macro(self) -> bool:
         """检查是否应该运行宏观反思"""
         now = datetime.now()
-        return (now - self.last_macro_run).total_seconds() > self.macro_interval_seconds    
+        res = (now - self.last_macro_run).total_seconds() > self.macro_interval_seconds  
+        if res:
+            self.logger.info("[Reflector] Macro Reflection Triggered by Time Interval.")
+        else:
+            self.logger.debug("[Reflector] Macro Reflection Not Triggered Yet.")
+        return   res
     
     
     def _trigger_macro_reflection(self):
@@ -257,6 +264,7 @@ class MemoryReflector:
     """
     def __init__(self, logger: Logger, 
                  config: MemoryReflectorConfig, 
+                 prompt_manager: PromptManager,
                  memory_layer: MemoryLayer):
         self.config: MemoryReflectorConfig = config
         self.logger: Logger = logger
@@ -278,12 +286,14 @@ class MemoryReflector:
         self.micro_reflector = MicroReflector(openai_client=micro_client, 
                                               milvus_agent=self.milvus_agent, 
                                               logger=micro_logger,
-                                              config=self.config.MicroReflector)
+                                              config=self.config.MicroReflector,
+                                              prompt_manager=prompt_manager)
         
         self.macro_reflector = MacroReflector(openai_client=macro_client, 
                                               milvus_agent=self.milvus_agent, 
                                               logger=macro_logger,
-                                              config=self.config.MacroReflector)
+                                              config=self.config.MacroReflector,
+                                              prompt_manager=prompt_manager)
         
     def run_macro_reflection(self, store_flag: bool = True) -> list[MacroMemory]:
         """运行 Macro 反思，从 Micro Memories 中提炼 Macro Memories"""

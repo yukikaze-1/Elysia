@@ -21,17 +21,21 @@ from Core.Schema import (Event, EventType, EventContentType, EventSource,
                               L0InputSourceType, ExternalInputEvent,
                               L0InternalQueueItem)
 from Core.EventBus import EventBus
-from Config import L0Config
+from Config.Config import L0Config
 from Logger import setup_logger
-
+from Core.PromptManager import PromptManager
 
 
 class SensorLayer:
     """L0 模块"""
-    def __init__(self, event_bus: EventBus, config: L0Config):
+    def __init__(self, 
+                 event_bus: EventBus, 
+                 config: L0Config,
+                 prompt_manager: PromptManager):
         # 配置
         self.config: L0Config = config
         self.logger = setup_logger(self.config.SensorLayer.logger_name)
+        self.pm: PromptManager = prompt_manager
         # 初始化 OpenAI 客户端
         self.openai_client: OpenAI = OpenAI(api_key=self.config.SensorLayer.LLM_API_KEY, 
                                             base_url=self.config.SensorLayer.LLM_URL)
@@ -46,7 +50,8 @@ class SensorLayer:
                                                                     config=self.config.Sensor)    # 感官处理器
         self.amygdala: Amygdala = Amygdala(openai_client=amygdala_client, 
                                            logger=amygdala_logger,
-                                           config=self.config.Amygdala)         # 本能反应器
+                                           config=self.config.Amygdala,
+                                           prompt_manager=self.pm)         # 本能反应器
         
         # 输入缓冲队列
         self.input_queue: queue.Queue = queue.Queue()

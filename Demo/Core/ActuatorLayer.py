@@ -7,7 +7,7 @@ from Core.OutputChannel import OutputChannel
 from Core.EventBus import EventBus
 from Core.Schema import ChatMessage
 from Logger import setup_logger
-from Config import ActuatorConfig
+from Config.Config import ActuatorConfig
 
 class ActionType(str, Enum):
     SPEECH = "SPEECH"

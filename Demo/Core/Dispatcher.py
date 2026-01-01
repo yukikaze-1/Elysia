@@ -1,15 +1,15 @@
 import logging
+import importlib  # 新增
+import pkgutil    # 新增
 from typing import Dict
 from Core.EventBus import EventBus
 from Core.Schema import Event, EventType
 from Logger import setup_logger
 
 from Core.Handlers.BaseHandler import BaseHandler
-from Core.Handlers.UserInputHandler import UserInputHandler
-from Core.Handlers.SystemTickHandler import SystemTickHandler
-
 from Core.AgentContext import AgentContext
 from Core.HandlerRegistry import HandlerRegistry
+import Core.Handlers # 新增：导入包以便扫描
 
 class Dispatcher:
     """
@@ -33,11 +33,30 @@ class Dispatcher:
 
     def _register_handlers(self):
         """初始化并注册所有具体的策略 (Handlers)"""
+        
+        # === 新增：动态加载所有 Handler 模块 ===
+        # 必须先导入模块，装饰器 @HandlerRegistry.register 才会执行
+        self.logger.info("Loading handler modules from Core.Handlers...")
+        package = Core.Handlers
+        prefix = package.__name__ + "."
+        
+        # 遍历 Core.Handlers 目录下的所有文件并导入
+        if hasattr(package, "__path__"):
+            for _, name, _ in pkgutil.iter_modules(package.__path__, prefix):
+                try:
+                    importlib.import_module(name)
+                    self.logger.info(f"Auto-loaded handler module: {name}")
+                except Exception as e:
+                    self.logger.error(f"Failed to load handler module {name}: {e}", exc_info=True)
+        # =========================================
+
         # 自动发现并实例化所有注册的 Handler
+        self.logger.info("Registering event handlers...")
         for event_type, handler_cls in HandlerRegistry.get_handlers().items():
             self.handlers[event_type] = handler_cls(self.context)
             self.logger.info(f"Registered handler {handler_cls.__name__} for {event_type}")
-        
+        self.logger.info("All event handlers registered.")
+
 
     def start(self):
         """启动调度主循环 (阻塞式)"""

@@ -7,6 +7,7 @@ import logging
 from typing import Callable, List, Dict
 from Core.Schema import Event
 from Logger import setup_logger
+from Config.Config import EventBusConfig
 
 class EventBus:
     _instance = None
@@ -17,14 +18,14 @@ class EventBus:
             cls._instance = super(EventBus, cls).__new__(cls)
         return cls._instance
 
-    def __init__(self, logger_name: str = "EventBus"):
+    def __init__(self, config: EventBusConfig):
         """
         事件总线初始化
         """
         if self._initialized:
             return
-
-        self.logger: logging.Logger = setup_logger(logger_name)
+        self.config = config
+        self.logger: logging.Logger = setup_logger(self.config.logger_name)
         # 核心队列：使用 Python 内置的 PriorityQueue 或 Queue
         # Queue 是线程安全的，完美适配多线程环境 (L0 input thread vs Main loop)
         self._queue = queue.Queue()

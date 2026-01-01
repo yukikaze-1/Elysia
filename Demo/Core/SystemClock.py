@@ -4,7 +4,7 @@ from datetime import datetime
 from Core.EventBus import EventBus
 from Core.Schema import Event, EventType, EventContentType, EventSource
 from Logger import setup_logger
-from Config import SystemClockConfig
+from Config.Config import SystemClockConfig
 import logging
 
 class SystemClock:

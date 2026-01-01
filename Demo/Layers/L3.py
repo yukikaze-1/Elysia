@@ -364,8 +364,8 @@ class CoreIdentity:
 from Logger import setup_logger
 import logging
 from Core.Schema import DEFAULT_ERROR_MOOD
-from Prompt import l3_persona_example
-from Config import L3Config
+from Prompt.Prompt import l3_persona_example
+from Config.Config import L3Config
 
 
 class PersonaLayer:

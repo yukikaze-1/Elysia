@@ -72,6 +72,11 @@ class CheckPointManagerConfig:
     logger_name: str = "CheckPointManager"
     checkpoint_file: str = "/home/yomu/Elysia/Demo/storage/runtime_state.json"
     save_interval: float = 30.0  # TODO 自动保存间隔，单位秒，这个参数没有被使用到  后续实现 
+    
+@dataclass
+class PromptManagerConfig:
+    logger_name: str = "PromptManager"
+    template_dir: str = "Prompt"
 
 @dataclass
 class CoreConfig:
@@ -81,6 +86,7 @@ class CoreConfig:
     SystemClock: SystemClockConfig = field(default_factory=SystemClockConfig)
     SessionState: SessionStateConfig = field(default_factory=SessionStateConfig)
     CheckPointManager: CheckPointManagerConfig = field(default_factory=CheckPointManagerConfig)
+    PromptManager: PromptManagerConfig = field(default_factory=PromptManagerConfig)
 
 
 # ============================================================================================
@@ -268,7 +274,7 @@ class MemoryReflectorConfig:
 class ReflectorConfig:
     logger_name: str = "Reflector"
     micro_threshold: int = 10
-    macro_interval_seconds: int = 86400
+    macro_interval_seconds: int = 120 # Macro Reflector 每隔多少秒触发一次反思
     worker_sleep_interval: float = 2.0
     MemoryReflector: MemoryReflectorConfig = field(default_factory=MemoryReflectorConfig)
 

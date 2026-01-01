@@ -84,7 +84,7 @@ class EnvironmentalStimuli:
 # ==========================================
 # 2. 核心逻辑类
 # ==========================================
-from Config import PsycheSystemConfig, PsycheConfig, InternalState
+from Config.Config import PsycheSystemConfig, PsycheConfig, InternalState
 
 class PsycheSystem:
     def __init__(self, config: PsycheSystemConfig):

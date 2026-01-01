@@ -158,7 +158,7 @@ class TimeSensor:
 # =============================================================================
 # L0 业务组件集成
 # =============================================================================
-from Config import SensorConfig       
+from Config.Config import SensorConfig       
        
 class SensoryProcessor:
     """

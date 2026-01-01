@@ -8,14 +8,14 @@ import os
 import logging
 import threading
 from typing import Callable, Any, Dict
-from Config import CheckPointManagerConfig
+from Config.Config import CheckPointManagerConfig
 from Logger import setup_logger
 
 # 定义类型别名，方便阅读
 type Getter = Callable[[], Any]
 type Setter = Callable[[Any], None]
 
-class CheckpointManager:
+class CheckPointManager:
     def __init__(self, config: CheckPointManagerConfig):
         
         self.config: CheckPointManagerConfig = config

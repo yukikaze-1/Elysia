@@ -2,6 +2,7 @@
 定义 AgentContext 数据类，封装智能体的各个核心组件实例。
 """
 from dataclasses import dataclass
+
 from Layers.L0.L0 import SensorLayer
 from Layers.L1 import BrainLayer
 from Layers.L2.L2 import MemoryLayer
@@ -10,8 +11,9 @@ from Core.ActuatorLayer import ActuatorLayer
 from Workers.Reflector.Reflector import Reflector
 from Layers.PsycheSystem import PsycheSystem
 from Core.SessionState import SessionState
-from Core.CheckPointManager import CheckpointManager
+from Core.CheckPointManager import CheckPointManager
 from Core.EventBus import EventBus
+from Core.PromptManager import PromptManager
 
 @dataclass
 class AgentContext:
@@ -24,5 +26,6 @@ class AgentContext:
     reflector: Reflector
     psyche_system: PsycheSystem
     session: SessionState
-    checkpoint_manager: CheckpointManager
+    checkpoint_manager: CheckPointManager
+    prompt_manager: PromptManager
     # 未来添加新组件只需在这里加一行

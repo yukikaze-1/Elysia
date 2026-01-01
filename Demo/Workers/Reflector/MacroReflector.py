@@ -3,19 +3,16 @@
 """
   
     
-import re
 import time
 import json   
 from datetime import datetime
-from unittest import result
 from Layers.L2.L2 import MemoryLayer
 from openai import OpenAI
-from Prompt import MacroReflector_SystemPrompt, MacroReflector_UserPrompt
 from Workers.Reflector.MicroReflector import MicroMemory
 from Utils import parse_json
-from Config import MacroReflectorConfig
+from Config.Config import MacroReflectorConfig
 from Workers.Reflector.MemorySchema import MacroMemoryLLMOut, MacroMemory, MacroMemoryStorage
-
+from Core.PromptManager import PromptManager
 from logging import Logger
 
 class MacroReflector:
@@ -23,14 +20,14 @@ class MacroReflector:
     def __init__(self, openai_client: OpenAI, 
                  milvus_agent: MemoryLayer, 
                  logger: Logger,
-                 config: MacroReflectorConfig):
+                 config: MacroReflectorConfig,
+                 prompt_manager: PromptManager):
         self.config: MacroReflectorConfig = config
         self.logger: Logger = logger
         self.openai_client: OpenAI = openai_client
         self.collection_name: str = config.milvus_collection
         self.milvus_agent: MemoryLayer = milvus_agent
-        self.system_prompt: str = MacroReflector_SystemPrompt
-        self.user_prompt: str = MacroReflector_UserPrompt
+        self.prompt_manager: PromptManager = prompt_manager
         
         # TODO 这个一天的记忆有待商榷
         self.gather_memory_time_interval_seconds: int = self.config.gather_memory_time_interval_seconds  # 汇集记忆的时间间隔，单位秒，默认一天
@@ -47,8 +44,6 @@ class MacroReflector:
         # TODO 加一个计数器，计算处理了多少条记忆，生成了多少条记忆，然后保存在文件中,启动时从文件加载
         status = {
             "collection_name": self.collection_name,
-            "system_prompt": self.system_prompt,
-            "user_prompt": self.user_prompt,
             "last_macro_reflection_time": datetime.fromtimestamp(self.last_macro_reflection_time).strftime("%Y-%m-%d %H:%M:%S") if self.last_macro_reflection_time > 0 else "Never",
             "last_macro_reflection_log_count": len(self.last_macro_reflection_log),
             "last_macro_reflection_log": [mem.to_dict() for mem in self.last_macro_reflection_log]
@@ -129,23 +124,38 @@ class MacroReflector:
 
     def _build_llm_messages(self, memories: list[MicroMemory]) -> list[dict]:
         """职责：构建 Prompt"""
-        memories_text = self.format_micro_memories_to_lines(memories)
-        user_prompt = self.user_prompt.format(
+        # 构建 System Prompt
+        system_prompt: str = self.prompt_manager.render_macro(
+            "MacroReflector.j2",
+            "MacroReflectorSystemPrompt",
             character_name="Elysia",
-            memories_list=memories_text
         )
-        return [
-            {"role": "system", "content": self.system_prompt},
+        # 构建 User Prompt
+        user_prompt: str = self.prompt_manager.render_macro(
+            "MacroReflector.j2",
+            "MacroReflectorUserPrompt",
+            character_name="Elysia",
+            current_date=datetime.now().strftime("%Y-%m-%d"),
+            last_diary_entry=None,  # TODO 这里可以传入上一次的日记内容
+            memories_list=memories
+        )
+        # 构建消息列表
+        messsages: list[dict] = [
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
             {"role": "assistant", "content": "{\n", "prefix": True}
         ]
+        return messsages
+
 
     def _call_llm(self, messages: list) -> str:
         """职责：纯粹的 LLM I/O"""
         response = self.openai_client.chat.completions.create(
             model="deepseek-chat",
             messages=messages,
-            stream=False
+            stream=False,
+            temperature=self.config.temperature,
+            max_tokens=self.config.max_tokens,
         )
         content = response.choices[0].message.content
         return '{' + content if content else ""
@@ -175,14 +185,6 @@ class MacroReflector:
         self.logger.info("-----------------------------------------------------")
         
         return results
-    
-    
-    def format_micro_memories_to_lines(self, memories: list[MicroMemory])-> str:
-        """将micro memories格式化为文本行"""
-        lines = []
-        for mem in memories:
-            lines.append(f"- [{datetime.fromtimestamp(mem.timestamp).strftime("%Y-%m-%d %H:%M:%S")}] (Poignancy: {mem.poignancy}) {mem.content}\n")
-        return "[\n" + "\n".join(lines) + "\n]"
     
     
     def get_embedding(self, text: str) -> list[float]:

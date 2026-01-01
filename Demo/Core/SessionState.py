@@ -10,7 +10,7 @@ import os
 import json
 from Logger import setup_logger
 from Core.Schema import ChatMessage
-from Config import SessionStateConfig
+from Config.Config import SessionStateConfig
 
 class SessionState:
     """

@@ -1,0 +1,68 @@
+{# ==================================================== #}
+{# FormatHistory                                        #}
+{#                                                      #}
+{# messages: list[ChatMessage]                          #}
+{# ChatMessage:                                         #}
+{#   - role: str (e.g., "Elysia", "妖梦")               #}
+{#   - timestamp: float (unix)                          #}
+{#   - content: str                                     #}
+{#   - inner_voice: str (optional)                      #}
+{# ==================================================== #}
+
+
+{# ==================================================== #}
+{# 1. 工具宏：只负责把 list[ChatMessage] 转成文本格式      #}
+{# ==================================================== #}
+{%- macro FormatHistory(messages) -%}
+{%- for msg in messages -%}
+- {{ msg.timestamp | datetime }} {{ msg.role }}: {{ msg.content }} {%- if msg.inner_voice %} (inner_voice:){{ msg.inner_voice }}{%- endif %}
+{%- endfor -%}
+{%- endmacro -%}
+
+
+
+{# ==================================================== #}
+{# FormatMicroMemories                                 #}
+{#                                                     #}
+{# micro_memories: list[MicroMemory]                   #}
+{# MicroMemory:                                       #}
+{#   - timestamp: float (unix)                         #}
+{#   - poignancy: int (1-10)                            #}
+{#   - content: str                                    #}
+{#   - subject: str                                   #}
+{#   - memory_type: str                               #}
+{#   - keywords: list[str]                            #}
+{# ==================================================== #}
+
+{# ==================================================== #}
+{# 2. 工具宏：只负责把 list[MicroMemory] 转成文本格式 #}
+{# ==================================================== #}
+{%- macro FormatMicroMemories(micro_memories) -%}
+{%- for mem in micro_memories -%}
+- {{ mem.timestamp | datetime }} (Poignancy:{{ mem.poignancy }}) {{ mem.content }}
+{% endfor -%}
+{%- endmacro -%}
+
+
+
+{# ==================================================== #}
+{# FormatMacroMemories                                 #}
+{#                                                     #}
+{# macro_memories: list[MacroMemory]                   #}
+{# MacroMemory:                                       #}
+{#   - timestamp: float (unix)                         #}
+{#   - dominant_emotion: str                           #}
+{#   - diary_content: str                              #}
+{#   - keywords: list[str]                            #}
+{#   - subject: str                                   #}
+{#   - poignancy: int (1-100)                           #}
+{# ==================================================== #}
+
+{# ==================================================== #}
+{# 3. 工具宏：只负责把 list[MacroMemory] 转成文本格式 #}
+{# ==================================================== #}
+{%- macro FormatMacroMemories(macro_memories) -%}
+{%- for mem in macro_memories -%}
+- {{ mem.timestamp | datetime }} (Poignancy:{{ mem.poignancy }}) (Dominant Emotion:{{ mem.dominant_emotion }}) {{ mem.diary_content }}
+{% endfor -%}
+{%- endmacro -%}

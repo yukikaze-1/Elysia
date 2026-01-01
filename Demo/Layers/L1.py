@@ -1,18 +1,16 @@
 import json
 from datetime import datetime, timedelta
+import logging
 from openai import OpenAI
-from Prompt import (SystemPromptTemplate, 
-                         l2_memory_block_template, 
-                         l1_decide_to_act_template,
-                         current_state_template)
+
 from Layers.L0.Sensor import EnvironmentInformation
 from Layers.L0.Amygdala import AmygdalaOutput 
 from Workers.Reflector.MemorySchema import MicroMemory, MacroMemory
 from Core.Schema import ChatMessage, UserMessage, DEFAULT_ERROR_INNER_THOUGHT, DEFAULT_ERROR_PUBLIC_REPLY, DEFAULT_ERROR_MOOD
 from Logger import setup_logger
-from Config import L1Config
+from Config.Config import L1Config
 from openai.types.chat import ChatCompletion
-
+from Core.PromptManager import PromptManager
 
 class NormalResponse:
     """正常对话生成模块收到的llm回复格式"""
@@ -54,9 +52,10 @@ class BrainLayer:
     不再持有 MemoryLayer 实例，不再主动检索数据库。
     只负责接收上下文(Context)，进行推理(Inference)，并返回结果(Result)。
     """
-    def __init__(self, config: L1Config):
+    def __init__(self, config: L1Config, prompt_manager: PromptManager):
         self.config: L1Config = config
-        self.logger = setup_logger(self.config.BrainLayer.logger_name)
+        self.prompt_manager: PromptManager = prompt_manager
+        self.logger: logging.Logger = setup_logger(self.config.BrainLayer.logger_name)
         self.client: OpenAI = OpenAI(api_key=self.config.BrainLayer.LLM_API_KEY, 
                                      base_url=self.config.BrainLayer.LLM_URL)
         
@@ -161,21 +160,30 @@ class BrainLayer:
         self.logger.info("Generating reply for user input.")
         # TODO 测试用，实际调用时请传入真实的参数
         # 目前先用传入的 mood 参数，后续考虑扩展，不只是情绪，而是更全面的状态描述
-        current_state:str = mood  
+        # 构建  state_ctx
+        state_ctx = self._construct_state_ctx(mood)
         
-        # 将记忆格式化为文本格式
-        memories: str =  self._construct_memories(micro_memories, macro_memories)
+        # 构建 memories_ctx
+        memories_ctx: dict[str, list] = self._construct_memories_ctx(micro_memories, macro_memories)
         
+        # 构建 sensory_ctx
+        sensory_ctx = self._construct_sensory_ctx(l0_output)
         
         try:
             # 1. 构建系统级 Prompt (System Prompt)
             # 将人格设定和记忆注入到 System 区域，确保模型遵循人设
-            system_prompt = self._construct_system_prompt(
-                l3_personality=personality,
-                l0_output=l0_output, 
-                memories=memories,
-                current_state=current_state
+            system_prompt = self.prompt_manager.render_macro(
+                "Brain.j2",
+                "BrainSystemPrompt",
+                l3_personality_block=personality,
+                sensory=sensory_ctx,
+                memory=memories_ctx,
+                state=state_ctx
             )
+            self.logger.info("-------------------------------------------")
+            self.logger.info("Debug Info:")
+            self.logger.info(system_prompt)
+            self.logger.info("-------------------------------------------")
             self.logger.info("System prompt constructed.")
             
             # 拼装消息列表
@@ -226,7 +234,7 @@ class BrainLayer:
                       cur_mood: str,
                       cur_envs: EnvironmentInformation, 
                       recent_conversations: list[ChatMessage],
-                      cur_psyche_state: str = ""
+                      cur_psyche_state: str 
                       )-> ActiveResponse:
         """
         决定是否主动开口
@@ -244,22 +252,17 @@ class BrainLayer:
         self.logger.info("Deciding whether to initiate conversation.")
         current_mood =  cur_mood
         
-        # 1. 格式化最近对话
-        lines = []
-        for msg in recent_conversations:
-            lines.append(f'  {msg.role}: {msg.content} | {msg.timestamp} | {datetime.fromtimestamp(msg.timestamp)}')
-        recent_convs =  "[\n" + "\n".join(lines) + "\n]"
-        self.logger.info(f"Recent conversations formatted: {recent_convs}")
-        
         # 2. 构造system prompt
-        system_prompt = l1_decide_to_act_template.format(
+        system_prompt = self.prompt_manager.render_macro(
+            "ActiveSpeak.j2",
+            "L1DecideToActiveSpeakSystemPrompt",
             user_name="妖梦",
             last_speaker=last_speaker,
             silence_duration=silence_duration.__str__(),
             current_mood=current_mood,
             current_psyche_state=cur_psyche_state,
             current_time_envs=cur_envs.time_envs.to_l1_decide_to_act_dict(),
-            recent_conversations=recent_convs,
+            recent_conversations=recent_conversations,
         )
         self.logger.info("System prompt for decide_to_act constructed.")
         
@@ -303,37 +306,6 @@ class BrainLayer:
     # 内部函数实现
     # ===========================================================================================================================
     
-    def _construct_memories(self, 
-                            micro_memories: list[MicroMemory], 
-                            macro_memories: list[MacroMemory]
-                            )-> str:
-        """将各种格式的记忆文本格式化"""
-        
-        self.logger.info("Formatting memories into text lines.")
-        
-        def format_micro_memories_to_lines(memories: list[MicroMemory])-> str:
-            """将micro memories格式化为文本行"""
-            lines = []
-            for mem in memories:
-                lines.append(f"- {datetime.fromtimestamp(mem.timestamp).isoformat()} (Poignancy: {mem.poignancy}) {mem.content}")
-            return "[\n" + "\n".join(lines) + "\n]"
-        
-        def format_macro_memories_to_lines(memories: list[MacroMemory])-> str:
-            """将macro memories格式化为文本行"""
-            lines = []
-            for mem in memories:
-                lines.append(f"- {datetime.fromtimestamp(mem.timestamp).isoformat()} (Poignancy: {mem.poignancy}) (Dominant Emotion: {mem.dominant_emotion})  {mem.diary_content}")
-            return "[\n" + "\n".join(lines) + "\n]"
-                
-        
-        res: str = l2_memory_block_template.format(
-            micro_memory=format_micro_memories_to_lines(micro_memories),
-            macro_memory=format_macro_memories_to_lines(macro_memories)
-        )
-        self.logger.info("Memories formatted into text lines.")
-        return res
-    
-    
     def _construct_messages(self, system_prompt: str, history: list[ChatMessage], user_input: UserMessage):
         
         # 拼装消息列表
@@ -357,33 +329,6 @@ class BrainLayer:
         return messages
             
 
-    def _construct_system_prompt(self, 
-                                l3_personality: str,
-                                l0_output: AmygdalaOutput,
-                                memories: str,
-                                current_state: str
-                                ) -> str:
-        # 拼装current_state
-        # TODO 待扩展
-        current_state = current_state_template.format(
-            mood=current_state
-        )
-        
-        # 拼装 System Prompt
-        system_prompt = SystemPromptTemplate.format(
-            l3_personality_block=l3_personality,
-            l0_sensory_block=l0_output.perception,
-            l2_memory_block=memories,
-            current_state=current_state
-        )
-        self.logger.info("-------------------------------------------")
-        self.logger.info("Debug Info:")
-        self.logger.info(system_prompt)
-        self.logger.info("-------------------------------------------")
-        
-        return system_prompt
-    
-    
     def parse_llm_decide_to_act_response(self, llm_raw_output)-> ActiveResponse:
         """ 解析 LLM 决定是否主动开口的回复 """
          # 1. 打印原始内容的 repr()，这样能看到空格、换行符等不可见字符
@@ -439,3 +384,29 @@ class BrainLayer:
             # 如果解析失败，与其让程序崩溃，不如返回一个默认回复，保证对话继续
             return NormalResponse(DEFAULT_ERROR_INNER_THOUGHT, DEFAULT_ERROR_PUBLIC_REPLY, DEFAULT_ERROR_MOOD)
     
+
+    def _construct_state_ctx(self, cur_mood: str) -> dict[str, str]:
+        """构造当前状态文本块"""
+        return {
+            "mood": cur_mood
+        }
+        
+    def _construct_memories_ctx(self, micro_memories: list[MicroMemory], 
+                                macro_memories: list[MacroMemory]
+                                )-> dict[str, list]:
+        """将各种格式的记忆文本格式化"""
+        return {
+            "micro": micro_memories,
+            "macro": macro_memories
+        }
+        
+    def _construct_sensory_ctx(self, l0_output: AmygdalaOutput) -> dict:
+        """构造 sensory_ctx"""
+        return {
+            "current_time": datetime.fromtimestamp(l0_output.envs.time_envs.current_time).strftime("%Y-%m-%d %H:%M:%S"),
+            "time_of_day": l0_output.envs.time_envs.time_of_day,
+            "day_of_week": l0_output.envs.time_envs.day_of_week,
+            "season": l0_output.envs.time_envs.season,
+            "latency": 10,  # TODO 用户反应延迟，待从 L0 获取
+            "perception": l0_output.perception
+        }

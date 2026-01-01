@@ -54,7 +54,8 @@ from openai import OpenAI
 from datetime import datetime
 from Layers.L0.Sensor import TimeInfo
 from Core.Schema import  UserMessage
-from Config import AmygdalaConfig
+from Config.Config import AmygdalaConfig
+from Core.PromptManager import PromptManager
 import logging
 
 class Amygdala:
@@ -62,12 +63,14 @@ class Amygdala:
     def __init__(self, 
                  openai_client: OpenAI, 
                  logger: logging.Logger,
-                 config: AmygdalaConfig
+                 config: AmygdalaConfig,
+                 prompt_manager: PromptManager
                  ):
         self.openai_client: OpenAI = openai_client
         self.logger: logging.Logger = logger
         self.config: AmygdalaConfig = config
         self.l3_core_identity: str = self.get_l3_core_identity()
+        self.pm: PromptManager = prompt_manager
         
     
     def get_status(self) -> dict:
@@ -81,7 +84,7 @@ class Amygdala:
     def get_l3_core_identity(self)->str:
         """获取L3核心身份信息"""
         # TODO 从L3模块获取
-        from Prompt import l3_elysia_persona_block
+        from Prompt.Prompt import l3_elysia_persona_block
         return l3_elysia_persona_block
 
 
@@ -104,12 +107,20 @@ class Amygdala:
         dt = datetime.fromtimestamp(envs.time_envs.current_time)
         
         # 构建 Prompt
-        from Prompt import L0_SubConscious_System_Prompt, L0_SubConscious_User_Prompt
-        system_prompt = L0_SubConscious_System_Prompt.format(
+        system_prompt = self.pm.render(
+            "Amygdala.j2",
+            character_name="Elysia",
+        )
+        system_prompt = self.pm.render_macro(
+            "Amygdala.j2",
+            "AmygdalaSystemPrompt",
             character_name="Elysia",
             l3_persona_block=self.get_l3_core_identity()
         )
-        user_prompt = L0_SubConscious_User_Prompt.format(
+        
+        user_prompt = self.pm.render_macro(
+            "Amygdala.j2",
+            "AmygdalaUserPrompt",
             current_time=dt.strftime("%Y-%m-%d %H:%M:%S"),
             day_of_week=dt.strftime("%A"),
             time_of_day=envs.time_envs.time_of_day,

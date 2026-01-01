@@ -3,7 +3,6 @@ Elysia Server 主程序入口 (FastAPI 版本)单机版本见 Demo/main.py
 负责初始化各个组件并启动 FastAPI 服务
 """
 import asyncio
-from math import e
 import threading
 from contextlib import asynccontextmanager
 from typing import Optional
@@ -25,11 +24,12 @@ from Core.SystemClock import SystemClock
 from Workers.Reflector.Reflector import Reflector
 from Server.ConnectionManager import ConnectionManager
 from Core.SessionState import SessionState
-from Core.CheckPointManager import CheckpointManager
+from Core.CheckPointManager import CheckPointManager
+from Core.PromptManager import PromptManager
 
 from Core.AgentContext import AgentContext
 
-from Config import GlobalConfig
+from Config.Config import GlobalConfig
 from Logger import setup_logger
 
 
@@ -49,18 +49,19 @@ class ElysiaServer:
         self.log_level = self.config.Server.App.log_level
         
         # 1. 初始化核心组件 (但不启动线程)
-        self.checkpoint_manager = CheckpointManager(config=self.config.Core.CheckPointManager)
-        self.bus: EventBus = EventBus(logger_name=self.config.Core.EventBus.logger_name)    # 全局事件总线
+        self.checkpoint_manager = CheckPointManager(config=self.config.Core.CheckPointManager)
+        self.bus: EventBus = EventBus(config=self.config.Core.EventBus)    # 全局事件总线
         self.manager = ConnectionManager()
         self.clock = SystemClock(event_bus=self.bus, config=self.config.Core.SystemClock)
         self.session = SessionState(config=self.config.Core.SessionState)
         
         # 2. 初始化层级
-        self.l0 = SensorLayer(event_bus=self.bus, config=self.config.L0)
-        self.l1 = BrainLayer(config=self.config.L1)
+        self.prompt_manager = PromptManager(config=self.config.Core.PromptManager)
+        self.l0 = SensorLayer(event_bus=self.bus, config=self.config.L0, prompt_manager=self.prompt_manager)
+        self.l1 = BrainLayer(config=self.config.L1, prompt_manager=self.prompt_manager)
         self.l2 = MemoryLayer(config=self.config.L2)
         self.l3 = PersonaLayer(config=self.config.L3)
-        self.reflector = Reflector(event_bus=self.bus, config=self.config.Reflector, memory_layer=self.l2)
+        self.reflector = Reflector(event_bus=self.bus, config=self.config.Reflector, memory_layer=self.l2, prompt_manager=self.prompt_manager)
         self.actuator = ActuatorLayer(event_bus=self.bus, config=self.config.Core.Actuator)
         self.psyche_system = PsycheSystem(config=self.config.L0.PsycheSystem)  
         
@@ -75,7 +76,8 @@ class ElysiaServer:
             reflector=self.reflector,
             psyche_system=self.psyche_system,
             session=self.session,
-            checkpoint_manager=self.checkpoint_manager
+            checkpoint_manager=self.checkpoint_manager,
+            prompt_manager=self.prompt_manager
         )
         
         # 初始化调度器

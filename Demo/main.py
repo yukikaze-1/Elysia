@@ -17,9 +17,11 @@ from Workers.Reflector.Reflector import Reflector
 from Core.ActuatorLayer import ActuatorLayer
 from Layers.PsycheSystem import PsycheSystem
 from Core.SessionState import SessionState
+from Core.CheckPointManager import CheckPointManager
 
 from Logger import setup_logger
-from Config import GlobalConfig, global_config
+from Config.Config import GlobalConfig, global_config
+from Core.AgentContext import AgentContext
 
 
 class Elysia:
@@ -34,17 +36,24 @@ class Elysia:
         self.actuator = ActuatorLayer(self.bus, config.Core.Actuator)        # [Actuator] - 负责执行动作
         self.psyche_system = PsycheSystem(config.L0.PsycheSystem)  # [PsycheSystem] - 心智系统
         self.session = SessionState(config=config.Core.SessionState)  # [SessionState] - 会话状态管理
+        self.checkpoint_manager = CheckPointManager(config.Core.CheckPointManager)  # [CheckpointManager] - 检查点管理器
         
-        # 调度器持有所有模块的引用，负责指挥
-        self.dispatcher = Dispatcher(
+        self.context = AgentContext(
             event_bus=self.bus,
-            l0=self.l0, l1=self.l1,
-            l2=self.l2, l3=self.l3,
+            l0=self.l0,
+            l1=self.l1,
+            l2=self.l2,
+            l3=self.l3,
             reflector=self.reflector,
             actuator=self.actuator,
             psyche_system=self.psyche_system,
-            session=self.session
+            session=self.session,
+            checkpoint_manager=self.checkpoint_manager,
         )
+        
+        # 调度器持有所有模块的引用，负责指挥
+        self.dispatcher = Dispatcher(context=self.context)
+
         self.logger.info("Elysia system initialized.")
         
     def run(self):
