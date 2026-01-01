@@ -17,7 +17,7 @@ Elysia 的核心架构基于 **事件驱动 (Event-Driven)** 和 **组件化** �
 
 - **`AgentContext.py`**
   - 定义了 `AgentContext` 数据类。
-  - 作用：作为依赖注入的容器，封装了系统所有核心层级（L0-L3, PsycheSystem 等）和管理器实例，确保各模块能方便地获取所需资源。
+  - 作用：作为依赖注入的容器，封装了系统所有核心层级（L0-L3, PsycheSystem 等）和管理器实例（如 `PromptManager`），确保各模块能方便地获取所需资源。
 
 - **`EventBus.py`**
   - 实现了一个线程安全的事件总线。
@@ -28,6 +28,10 @@ Elysia 的核心架构基于 **事件驱动 (Event-Driven)** 和 **组件化** �
   - 作用：不断从 `EventBus` 获取事件，并根据 `EventType` 查找对应的策略（Handler）进行处理。
   - 采用了策略模式，将具体的事件处理逻辑委托给 `Handlers/` 下的处理器。
 
+- **`HandlerRegistry.py`**
+  - 事件处理器注册表。
+  - 作用：提供装饰器机制，将 `EventType` 与具体的 `Handler` 类绑定，简化调度器的配置。
+
 - **`Schema.py`**
   - 定义了系统通用的数据结构和枚举。
   - 包含：`Event` (事件对象), `EventType`, `EventSource`, `UserMessage` 等核心数据定义。
@@ -35,6 +39,14 @@ Elysia 的核心架构基于 **事件驱动 (Event-Driven)** 和 **组件化** �
 - **`SystemClock.py`**
   - 系统的心跳发生器。
   - 作用：在后台线程中运行，定期发布 `SYSTEM_TICK` 事件，用于驱动需要时间感知的模块（如情绪衰减、定时任务）。
+
+- **`Paths.py`**
+  - 路径配置模块。
+  - 作用：集中管理项目中的文件路径常量（如 `PROMPT_DIR`, `LOGS_DIR`），避免硬编码。
+
+- **`PromptManager.py`**
+  - 提示词管理器。
+  - 作用：基于 Jinja2 模板引擎，负责加载和渲染 Prompt 模板，支持动态变量注入。
 
 ### 状态与持久化
 
@@ -63,6 +75,7 @@ Elysia 的核心架构基于 **事件驱动 (Event-Driven)** 和 **组件化** �
 ### 事件处理器 (Handlers/)
 
 位于 `Handlers/` 目录下，包含具体的事件处理逻辑：
+- **`BaseHandler`**: 事件处理器的抽象基类，定义了 `handle(event)` 接口。
 - **`UserInputHandler`**: 处理用户输入事件，驱动认知层进行响应。
 - **`SystemTickHandler`**: 处理系统心跳事件，驱动心理系统（PsycheSystem）的更新。
 

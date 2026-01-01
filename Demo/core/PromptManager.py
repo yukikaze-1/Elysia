@@ -9,7 +9,7 @@ import logging
 from Logger import setup_logger
 from config.Config import PromptManagerConfig
 from datetime import datetime
-
+from core.Paths import PROMPT_DIR
 
 class PromptManager:
     _instance = None
@@ -27,22 +27,17 @@ class PromptManager:
         if self._initialized:
             return
         self.logger: logging.Logger = setup_logger(config.logger_name)
-        # TODO 这里的路径待修改
-        template_dir = config.template_dir
-        # 获取当前脚本的绝对路径，确保在任何地方运行都能找到文件夹
-        base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-        template_path = os.path.join(base_path, template_dir)
 
-        if not os.path.exists(template_path):
-            raise FileNotFoundError(f"Prompts directory not found at: {template_path}")
+        if not os.path.exists(PROMPT_DIR):
+            raise FileNotFoundError(f"Prompts directory not found at: {PROMPT_DIR}")
         
-        self.template_dir = template_path
+        self.prompt_dir = PROMPT_DIR
         
         # 初始化 Jinja2 环境
         # trim_blocks=True: 删除代码块 {% ... %} 后的第一个换行符
         # lstrip_blocks=True: 删除代码块 {% ... %} 前面的空白（缩进）
         self.env = Environment(
-            loader=FileSystemLoader(self.template_dir),
+            loader=FileSystemLoader(self.prompt_dir),
             trim_blocks=True,
             lstrip_blocks=True
         )

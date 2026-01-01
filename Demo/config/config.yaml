@@ -1,5 +1,5 @@
 Logger:
-  DEFAULT_LOG_PATH: "/home/yomu/Elysia/Demo/Log"
+  DEFAULT_LOG_PATH: "/home/yomu/Elysia/Demo/log"
   DEFAULT_LOG_LEVEL : "logging.INFO"
 
 
@@ -37,7 +37,6 @@ Core:
 
   PromptManager:
     logger_name: "PromptManager"
-    prompt_directory: "Prompt"
 
 L0:
   SensorLayer:
@@ -124,7 +123,7 @@ L3:
 Reflector:
   logger_name: "Reflector"
   micro_threshold: 6  # 微观反思触发阈值(10条 ChatMessage)(约等于5轮对话)
-  macro_interval_seconds: 120  # 宏观反思触发间隔，单位秒（默认24小时）
+  macro_interval_seconds: 120  # TODO 要改回去，宏观反思触发间隔，单位秒（默认24小时）  
   worker_sleep_interval: 2.0  # 反思工作线程休眠间隔，单位秒
   MemoryReflector:
     MicroReflector: 

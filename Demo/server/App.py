@@ -21,7 +21,7 @@ from layers.L2.L2 import MemoryLayer
 from layers.L3 import PersonaLayer
 from core.ActuatorLayer import ActuatorLayer
 from core.SystemClock import SystemClock
-from workers.Reflector.Reflector import Reflector
+from workers.reflector.Reflector import Reflector
 from server.ConnectionManager import ConnectionManager
 from core.SessionState import SessionState
 from core.CheckPointManager import CheckPointManager

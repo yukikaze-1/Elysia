@@ -2,7 +2,7 @@
 注册和管理事件处理器的模块
 """
 from typing import Type, Dict
-from core.Handlers.BaseHandler import BaseHandler
+from core.handlers.BaseHandler import BaseHandler
 from core.Schema import EventType
 
 class HandlerRegistry:

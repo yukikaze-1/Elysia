@@ -1,15 +1,15 @@
 import logging
-import importlib  # 新增
-import pkgutil    # 新增
+import importlib  
+import pkgutil    
 from typing import Dict
 from core.EventBus import EventBus
 from core.Schema import Event, EventType
 from Logger import setup_logger
 
-from core.Handlers.BaseHandler import BaseHandler
+from core.handlers.BaseHandler import BaseHandler
 from core.AgentContext import AgentContext
 from core.HandlerRegistry import HandlerRegistry
-import core.Handlers # 新增：导入包以便扫描
+import core.handlers 
 
 class Dispatcher:
     """
@@ -37,7 +37,7 @@ class Dispatcher:
         # === 新增：动态加载所有 Handler 模块 ===
         # 必须先导入模块，装饰器 @HandlerRegistry.register 才会执行
         self.logger.info("Loading handler modules from Core.Handlers...")
-        package = core.Handlers
+        package = core.handlers
         prefix = package.__name__ + "."
         
         # 遍历 Core.Handlers 目录下的所有文件并导入
@@ -85,6 +85,7 @@ class Dispatcher:
 
         self.logger.info("Dispatcher Loop Stopped.")
         
+        
     def _handle_unregistered_event(self, event: Event):
         """处理没有对应 Handler 的事件"""
         # 暂时保留之前的 TODO 逻辑
@@ -92,6 +93,7 @@ class Dispatcher:
              self.logger.info(f"Reflection event received: {event.type} (Handler not implemented yet).")
         else:
             self.logger.warning(f"Unknown or unhandled event type: {event.type}")
+
 
     def stop(self):
         self.running = False

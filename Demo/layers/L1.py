@@ -5,7 +5,7 @@ from openai import OpenAI
 
 from layers.L0.Sensor import EnvironmentInformation
 from layers.L0.Amygdala import AmygdalaOutput 
-from workers.Reflector.MemorySchema import MicroMemory, MacroMemory
+from workers.reflector.MemorySchema import MicroMemory, MacroMemory
 from core.Schema import ChatMessage, UserMessage, DEFAULT_ERROR_INNER_THOUGHT, DEFAULT_ERROR_PUBLIC_REPLY, DEFAULT_ERROR_MOOD
 from Logger import setup_logger
 from config.Config import L1Config

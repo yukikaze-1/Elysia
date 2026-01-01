@@ -6,7 +6,6 @@ from prompt.Prompt import l3_elysia_persona_block
 def test():
     config = PromptManagerConfig(
         logger_name="PromptManagerTest",
-        template_dir="Prompt"
     )
     pm = PromptManager(config=config)
     res = pm.render_macro(

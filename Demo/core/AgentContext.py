@@ -8,7 +8,7 @@ from layers.L1 import BrainLayer
 from layers.L2.L2 import MemoryLayer
 from layers.L3 import PersonaLayer
 from core.ActuatorLayer import ActuatorLayer
-from workers.Reflector.Reflector import Reflector
+from workers.reflector.Reflector import Reflector
 from layers.PsycheSystem import PsycheSystem
 from core.SessionState import SessionState
 from core.CheckPointManager import CheckPointManager

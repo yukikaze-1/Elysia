@@ -11,7 +11,7 @@ from datetime import datetime
 from logging import Logger
 import time
 from config.Config import MicroReflectorConfig
-from workers.Reflector.MemorySchema import MicroMemory, MicroMemoryLLMOut, MicroMemoryStorage
+from workers.reflector.MemorySchema import MicroMemory, MicroMemoryLLMOut, MicroMemoryStorage
 from core.PromptManager import PromptManager
 
 

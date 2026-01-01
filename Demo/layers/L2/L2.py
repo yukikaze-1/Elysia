@@ -15,7 +15,7 @@ from Utils import create_embedding_model
 from core.Schema import ChatMessage
 from config.Config import L2Config
 from Logger import setup_logger
-from workers.Reflector.MemorySchema import MicroMemory, MacroMemory
+from workers.reflector.MemorySchema import MicroMemory, MacroMemory
 
 
 

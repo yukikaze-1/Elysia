@@ -7,7 +7,6 @@
 """
 from json import load
 import os
-from typing_extensions import runtime
 import yaml
 import logging
 from dataclasses import dataclass, field, fields, is_dataclass
@@ -30,7 +29,7 @@ def _load_env(key: str, default: Any = None) -> Any:
 # ============================================================================================
 @dataclass
 class LoggerConfig:
-    DEFAULT_LOG_PATH: str = "/home/yomu/Elysia/Demo/Log"
+    DEFAULT_LOG_PATH: str = "/home/yomu/Elysia/Demo/log"
     DEFAULT_LOG_LEVEL: str = "INFO"
 
 @dataclass
@@ -76,7 +75,6 @@ class CheckPointManagerConfig:
 @dataclass
 class PromptManagerConfig:
     logger_name: str = "PromptManager"
-    template_dir: str = "prompt"
 
 @dataclass
 class CoreConfig:

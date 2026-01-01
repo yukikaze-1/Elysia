@@ -6,9 +6,9 @@ import time
 from datetime import datetime
 from logging import Logger
 
-from workers.Reflector.MicroReflector import MicroReflector
-from workers.Reflector.MacroReflector import MacroReflector
-from workers.Reflector.MemorySchema import MicroMemory, MacroMemory
+from workers.reflector.MicroReflector import MicroReflector
+from workers.reflector.MacroReflector import MacroReflector
+from workers.reflector.MemorySchema import MicroMemory, MacroMemory
 from layers.L2.L2 import MemoryLayer
 from core.SessionState import ChatMessage
 from core.EventBus import EventBus

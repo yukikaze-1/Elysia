@@ -13,11 +13,11 @@ from layers.L1 import BrainLayer, ActiveResponse, NormalResponse
 from core.SessionState import SessionState
 from layers.L2 import MemoryLayer
 from layers.L3 import PersonaLayer
-from workers.Reflector.Reflector import Reflector
+from workers.reflector.Reflector import Reflector
 from core.CheckPointManager import CheckPointManager
 from Logger import setup_logger
 from Utils import timedelta_to_text
-from core.Handlers.BaseHandler import BaseHandler
+from core.handlers.BaseHandler import BaseHandler
 from core.Schema import EventType, DEFAULT_ERROR_INNER_THOUGHT, DEFAULT_ERROR_MOOD, DEFAULT_ERROR_PUBLIC_REPLY
 from core.AgentContext import AgentContext
 

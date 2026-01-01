@@ -8,7 +8,7 @@ import sys
 from logging.handlers import TimedRotatingFileHandler
 
 # 定义默认日志路径，方便修改
-DEFAULT_LOG_PATH = "/home/yomu/Elysia/Demo/Log"
+DEFAULT_LOG_PATH = "/home/yomu/Elysia/Demo/log"
 DEFAULT_LOG_LEVEL = logging.INFO
 
 def setup_logger(name: str, log_dir: str = DEFAULT_LOG_PATH, logger_level = DEFAULT_LOG_LEVEL) -> logging.Logger:

@@ -8,10 +8,10 @@ import json
 from datetime import datetime
 from layers.L2.L2 import MemoryLayer
 from openai import OpenAI
-from workers.Reflector.MicroReflector import MicroMemory
+from workers.reflector.MicroReflector import MicroMemory
 from Utils import parse_json
 from config.Config import MacroReflectorConfig
-from workers.Reflector.MemorySchema import MacroMemoryLLMOut, MacroMemory, MacroMemoryStorage
+from workers.reflector.MemorySchema import MacroMemoryLLMOut, MacroMemory, MacroMemoryStorage
 from core.PromptManager import PromptManager
 from logging import Logger
 

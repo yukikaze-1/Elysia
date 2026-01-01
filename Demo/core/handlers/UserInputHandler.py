@@ -13,8 +13,8 @@ from core.SessionState import SessionState
 from layers.L2 import MemoryLayer
 from layers.L3 import PersonaLayer
 from layers.L1 import BrainLayer, NormalResponse
-from workers.Reflector.Reflector import Reflector
-from core.Handlers.BaseHandler import BaseHandler
+from workers.reflector.Reflector import Reflector
+from core.handlers.BaseHandler import BaseHandler
 
 from core.AgentContext import AgentContext
 from core.HandlerRegistry import HandlerRegistry
