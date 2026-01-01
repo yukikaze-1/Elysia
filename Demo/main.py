@@ -7,32 +7,34 @@ Elysia 主程序入口(单机版本)fastapi版本见 Demo/Server/server.py
 import logging
 
 # 1. 引入核心架构组件
-from Core.EventBus import EventBus
-from Core.Dispatcher import Dispatcher
-from Layers.L0.L0 import SensorLayer
-from Layers.L1 import BrainLayer
-from Layers.L2.L2 import MemoryLayer
-from Layers.L3 import PersonaLayer
-from Workers.Reflector.Reflector import Reflector
-from Core.ActuatorLayer import ActuatorLayer
-from Layers.PsycheSystem import PsycheSystem
-from Core.SessionState import SessionState
-from Core.CheckPointManager import CheckPointManager
+from core.EventBus import EventBus
+from core.Dispatcher import Dispatcher
+from layers.L0.L0 import SensorLayer
+from layers.L1 import BrainLayer
+from layers.L2.L2 import MemoryLayer
+from layers.L3 import PersonaLayer
+from workers.Reflector.Reflector import Reflector
+from core.ActuatorLayer import ActuatorLayer
+from layers.PsycheSystem import PsycheSystem
+from core.SessionState import SessionState
+from core.CheckPointManager import CheckPointManager
+from core.PromptManager import PromptManager
 
 from Logger import setup_logger
-from Config.Config import GlobalConfig, global_config
-from Core.AgentContext import AgentContext
+from config.Config import GlobalConfig, global_config
+from core.AgentContext import AgentContext
 
 
 class Elysia:
     def __init__(self, config: GlobalConfig):
         self.logger :logging.Logger = setup_logger("Elysia")
-        self.bus = EventBus()               # 全局事件总线
-        self.l0 = SensorLayer(event_bus=self.bus, config=config.L0)   # [L0 传感层] - 需要 bus 来发送 USER_INPUT 和 SYSTEM_TICK
-        self.l1 = BrainLayer(config.L1)                      # [L1 大脑层] 
+        self.bus = EventBus(config.Core.EventBus)               # 全局事件总线
+        self.prompt_manager = PromptManager(config.Core.PromptManager)  # 全局提示管理器
+        self.l0 = SensorLayer(event_bus=self.bus, config=config.L0, prompt_manager=self.prompt_manager)   # [L0 传感层] - 需要 bus 来发送 USER_INPUT 和 SYSTEM_TICK
+        self.l1 = BrainLayer(config.L1, prompt_manager=self.prompt_manager)                      # [L1 大脑层] 
         self.l2 = MemoryLayer(config.L2)                     # [L2 记忆层] 
         self.l3 = PersonaLayer(config.L3)                    # [L3 人格层] - 加载初始设定
-        self.reflector = Reflector(self.bus,config.Reflector, self.l2)                # [Reflector] - 负责后台整理
+        self.reflector = Reflector(self.bus,config.Reflector, self.l2, prompt_manager=self.prompt_manager)                # [Reflector] - 负责后台整理
         self.actuator = ActuatorLayer(self.bus, config.Core.Actuator)        # [Actuator] - 负责执行动作
         self.psyche_system = PsycheSystem(config.L0.PsycheSystem)  # [PsycheSystem] - 心智系统
         self.session = SessionState(config=config.Core.SessionState)  # [SessionState] - 会话状态管理
@@ -49,6 +51,7 @@ class Elysia:
             psyche_system=self.psyche_system,
             session=self.session,
             checkpoint_manager=self.checkpoint_manager,
+            prompt_manager=self.prompt_manager
         )
         
         # 调度器持有所有模块的引用，负责指挥

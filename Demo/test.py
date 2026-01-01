@@ -1,6 +1,6 @@
-from Core.PromptManager import PromptManager
-from Config.Config import PromptManagerConfig
-from Prompt.Prompt import l3_elysia_persona_block
+from core.PromptManager import PromptManager
+from config.Config import PromptManagerConfig
+from prompt.Prompt import l3_elysia_persona_block
 
 
 def test():

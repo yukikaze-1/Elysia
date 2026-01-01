@@ -2,7 +2,7 @@
 from typing import Literal
 from pymilvus import MilvusClient
 from .Utils import create_embedding_model
-from Layers.L2 import create_micro_memory_collection, create_macro_memory_collection
+from layers.L2 import create_micro_memory_collection, create_macro_memory_collection
 
 milvus_client = MilvusClient(uri="http://localhost:19530", token="root:Milvus")
 micro_memory_collection_name = "micro_memory"
