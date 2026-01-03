@@ -22,7 +22,7 @@ Season: {{ sensory_ctx.season }}
 User_Latency: {{ sensory_ctx.latency | default(0) }}s
 </facts>
 <perception>
-Perception: {{ sensory_ctx.perception }}
+{{ sensory_ctx.perception }}
 </perception>
 {%- endmacro -%}
 
@@ -40,7 +40,7 @@ Perception: {{ sensory_ctx.perception }}
 {#  - timestamp: float (unix)                #}
 {#                                           #}
 {# MacroMemory:                              #}
-{#  - content: str                           #}
+{#  - diary_content: str                     #}
 {#  - subject: str                           #}
 {#  - memory_type: str                       #}
 {#  - poignancy: int(1-100)                  #}
@@ -71,7 +71,7 @@ Perception: {{ sensory_ctx.perception }}
 {% if memory_ctx.macro %}
 
     {%- for mem in memory_ctx.macro %}
-    - {{ mem.timestamp }} (Poignancy: {{ mem.poignancy }}){% if mem.dominant_emotion %} (Dominant Emotion: {{ mem.dominant_emotion }}){% endif %} {{ mem.content }}
+    - {{ mem.timestamp }} (Poignancy: {{ mem.poignancy }}){% if mem.dominant_emotion %} (Dominant Emotion: {{ mem.dominant_emotion }}){% endif %} {{ mem.diary_content }}
     {% endfor %}
 {%- else %}
 
