@@ -56,11 +56,11 @@ Perception: {{ sensory_ctx.perception }}
 {# L2 记忆模块：接收 memory 对象 #}
 {%- macro L2MemoryBlockPrompt(memory_ctx) -%}
 <micro memory>
-{%- if memory_ctx.micro %}
-    {%- for mem in memory_ctx.micro %}
+{% if memory_ctx.micro %}
 
+    {%- for mem in memory_ctx.micro %}
     - {{ mem.timestamp }} (Poignancy: {{ mem.poignancy }}) {{ mem.content }}
-    {%- endfor %}
+    {% endfor %}
 {%- else %}
 
     (No micro memories)
@@ -68,19 +68,17 @@ Perception: {{ sensory_ctx.perception }}
 </micro memory>
 
 <macro memory>
-{%- if memory_ctx.macro %}
-    {%- for mem in memory_ctx.macro %}
+{% if memory_ctx.macro %}
 
+    {%- for mem in memory_ctx.macro %}
     - {{ mem.timestamp }} (Poignancy: {{ mem.poignancy }}){% if mem.dominant_emotion %} (Dominant Emotion: {{ mem.dominant_emotion }}){% endif %} {{ mem.content }}
-    {%- endfor %}
+    {% endfor %}
 {%- else %}
 
     (No macro memories)
-{%- endif %}
+{% endif %}
 </macro memory>
-{#- 核心修复 2: 在宏结束前，强制加一个空行，防止和外部的 closing tag 粘连 -#}
-
-{%- endmacro -%}
+{% endmacro %}
 
 
 

@@ -101,51 +101,51 @@ from openai.types.chat import ChatCompletionMessage
 import time
 import logging
 
-class ChatMessage:
-    """聊天消息类，包含角色、内容、内心独白、时间戳等信息"""
-    def __init__(self, role: str, content: str , inner_voice: str , timestamp: float | None = None):
-        self.role: str = role
-        self.content: str = content
-        self.inner_voice: str = inner_voice
-        self.timestamp: float = timestamp if timestamp else time.time()
+# class ChatMessage:
+#     """聊天消息类，包含角色、内容、内心独白、时间戳等信息"""
+#     def __init__(self, role: str, content: str , inner_voice: str , timestamp: float | None = None):
+#         self.role: str = role
+#         self.content: str = content
+#         self.inner_voice: str = inner_voice
+#         self.timestamp: float = timestamp if timestamp else time.time()
     
-    @classmethod
-    def from_ChatCompletionMessage(cls, message: ChatCompletionMessage, timestamp: int):
-        return cls(role=message.role, 
-                   content=message.content if message.content else "", 
-                   inner_voice="",
-                   timestamp=float(timestamp))
+#     @classmethod
+#     def from_ChatCompletionMessage(cls, message: ChatCompletionMessage, timestamp: int):
+#         return cls(role=message.role, 
+#                    content=message.content if message.content else "", 
+#                    inner_voice="",
+#                    timestamp=float(timestamp))
     
-    @classmethod
-    def from_UserMessage(cls, user_message: UserMessage):
-        return cls(role=user_message.role,
-                   content=user_message.content,
-                   inner_voice="",
-                   timestamp=user_message.client_timestamp)
+#     @classmethod
+#     def from_UserMessage(cls, user_message: UserMessage):
+#         return cls(role=user_message.role,
+#                    content=user_message.content,
+#                    inner_voice="",
+#                    timestamp=user_message.client_timestamp)
     
-    def to_dict(self) -> dict:
-        return {
-            "role": self.role,
-            "content": self.content,
-            "inner_voice":self.inner_voice,
-            "timestamp": self.timestamp
-        }
+#     def to_dict(self) -> dict:
+#         return {
+#             "role": self.role,
+#             "content": self.content,
+#             "inner_voice":self.inner_voice,
+#             "timestamp": self.timestamp
+#         }
     
-    @classmethod    
-    def from_dict(cls, data: dict):
-        """ 从字典加载数据 """
-        return cls(
-            role=data.get("role", ""),
-            content=data.get("content", ""),
-            inner_voice=data.get("inner_voice", ""),
-            timestamp=data.get("timestamp", time.time())
-        )
+#     @classmethod    
+#     def from_dict(cls, data: dict):
+#         """ 从字典加载数据 """
+#         return cls(
+#             role=data.get("role", ""),
+#             content=data.get("content", ""),
+#             inner_voice=data.get("inner_voice", ""),
+#             timestamp=data.get("timestamp", time.time())
+#         )
         
         
-    def debug(self, logger: logging.Logger):
-        logger.info(self.to_dict())
+#     def debug(self, logger: logging.Logger):
+#         logger.info(self.to_dict())
 
-
+from core.ChatMessage import ChatMessage
 class ConversationSegment:
     """对话片段类，表示一段时间内的对话消息集合"""
     def __init__(self, start_time: float, end_time: float, messages: list[ChatMessage]):

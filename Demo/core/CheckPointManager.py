@@ -85,7 +85,7 @@ class CheckPointManager:
             os.replace(self.temp_filepath, self.filepath)
             self.logger.info(f"检查点保存完毕，共 {len(data_snapshot)} 个模块:{list(data_snapshot.keys())}")
         except Exception as e:
-            self.logger.error(f"保存文件失败: {e}")
+            self.logger.error(f"保存文件失败: {e}", exc_info=True)
 
 
     def load_checkpoint(self):
