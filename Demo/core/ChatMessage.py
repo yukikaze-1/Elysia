@@ -58,7 +58,7 @@ import logging
 
 @dataclass
 class ChatMessage:
-    role: str
+    role: str   # 角色名字,如"Elysia", "妖梦"
     content: str  # 核心文本内容 (STT的结果、TTS的输入、LLM的回复)
     inner_voice: str = ""      
     timestamp: float = field(default_factory=time.time)

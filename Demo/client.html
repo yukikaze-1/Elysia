@@ -262,25 +262,33 @@
             // 获取当前时间戳 (秒)
             const currentTimestamp = Date.now() / 1000;
 
-            // 【关键修改】计算反应延迟 (当前时间 - AI 回复时间)
-            // 如果是首条消息，或者刚刷新页面，这个值可能意义不大，后端可以做个阈值判断
+            // 计算反应延迟
             let latency = currentTimestamp - lastAiMessageTimestamp;
-
-            // 避免出现负数（极端情况下本地时钟差异），最小设为 0
             if (latency < 0) latency = 0;
 
-            // 1. 构建 JSON
+            // ==========================================
+            // 【关键修改】适配新的 StreamControlPayload 格式
+            // ==========================================
             const payload = {
-                role: MY_NAME,
-                content: text,
-                timestamp: currentTimestamp,
-                last_ai_timestamp: lastAiMessageTimestamp
+                // 1. event: 对应后端 Pydantic 模型的 event 字段
+                event: "chat", 
+                
+                // 2. content: 聊天的文本内容
+                content: text, 
+
+                // 3. meta: 所有的元数据（时间戳、发送者信息、延迟等）都塞进这里
+                meta: {
+                    role: MY_NAME,   // 你的名字
+                    timestamp: currentTimestamp,
+                    latency: latency, // 刚才计算的延迟
+                    last_ai_timestamp: lastAiMessageTimestamp
+                }
             };
 
-            // 2. 发送
+            // 4. 发送 (发送的是符合协议的 JSON)
             websocket.send(JSON.stringify(payload));
 
-            // 3. ★ 本地立即显示 (带名字) ★
+            // 5. 本地立即显示 (UI 逻辑不变)
             appendMessage('user', text, MY_NAME);
 
             messageInput.value = '';
