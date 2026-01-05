@@ -7,7 +7,7 @@ from layers.L0.L0 import SensorLayer
 from layers.L1 import BrainLayer
 from layers.L2.L2 import MemoryLayer
 from layers.L3 import PersonaLayer
-from core.ActuatorLayer import ActuatorLayer
+from core.actuator.ActuatorLayer import ActuatorLayer
 from workers.reflector.Reflector import Reflector
 from layers.PsycheSystem import PsycheSystem
 from core.SessionState import SessionState

@@ -40,7 +40,7 @@ class Dispatcher:
         package = core.handlers
         prefix = package.__name__ + "."
         
-        # 遍历 Core.Handlers 目录下的所有文件并导入
+        # 遍历 core.handlers 目录下的所有文件并导入
         if hasattr(package, "__path__"):
             for _, name, _ in pkgutil.iter_modules(package.__path__, prefix):
                 try:

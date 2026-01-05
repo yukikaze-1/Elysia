@@ -9,7 +9,6 @@ from typing import Dict, List, Any, Tuple
 
 from HistoryManager import HistoryManager
 from ServiceConfig import get_service_config
-from RAG import RAG
 
 from ChatHandler import ChatHandler
 from Utils__ import TimeTracker

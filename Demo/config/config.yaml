@@ -53,6 +53,11 @@ L0:
     stream: false
     max_tokens: 1500
     temperature: 1.2
+
+  STT:
+    logger_name: "STT"
+    stt_api_key: ""  # TODO 放在 .env 文件中
+    stt_api_url: ""
     
 
   PsycheSystem:

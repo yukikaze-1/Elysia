@@ -5,7 +5,7 @@
 from datetime import datetime, timedelta
 import logging
 from core.Schema import Event, ChatMessage
-from core.ActuatorLayer import ActuatorLayer, ActionType
+from core.actuator.ActuatorLayer import ActuatorLayer, ActionType
 from layers.PsycheSystem import PsycheSystem, EnvironmentalStimuli
 from layers.L0.Sensor import  EnvironmentInformation
 from layers.L0 import SensorLayer

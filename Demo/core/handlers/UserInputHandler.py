@@ -7,7 +7,7 @@ import logging
 from core.Schema import Event, UserMessage, ChatMessage
 from layers.L0.Amygdala import AmygdalaOutput
 from layers.L0.Sensor import EnvironmentInformation, TimeInfo
-from core.ActuatorLayer import ActuatorLayer, ActionType
+from core.actuator.ActuatorLayer import ActuatorLayer, ActionType
 from layers.PsycheSystem import PsycheSystem
 from core.SessionState import SessionState
 from layers.L2 import MemoryLayer

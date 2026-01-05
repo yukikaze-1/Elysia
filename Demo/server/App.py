@@ -21,7 +21,7 @@ from layers.PsycheSystem import PsycheSystem
 from layers.L1 import BrainLayer
 from layers.L2.L2 import MemoryLayer
 from layers.L3 import PersonaLayer
-from core.ActuatorLayer import ActuatorLayer
+from core.actuator.ActuatorLayer import ActuatorLayer
 from core.SystemClock import SystemClock
 from workers.reflector.Reflector import Reflector
 from server.ConnectionManager import ConnectionManager
@@ -303,6 +303,9 @@ class ElysiaServer:
         # 这些变量只在当前这个连接的生命周期内有效
         current_stream_type: Optional[str] = None # 当前正在接收的流类型 (audio/video/image)
         is_streaming: bool = False               # 是否处于流传输模式
+        
+        # 定义一个 buffer 用于暂存当前这段语音的所有数据
+        audio_buffer = bytearray()
 
         try:
             while True:
@@ -331,6 +334,7 @@ class ElysiaServer:
                             # 客户端通知：我要开始发二进制数据了
                             is_streaming = True
                             current_stream_type = cmd.stream_type
+                            audio_buffer.clear() # ★ 清空缓冲区，准备接收新语音
                             self.logger.info(f"[WS] Stream START: Type={current_stream_type}, Meta={cmd.meta}")
                             # 可选：回执确认
                             await websocket.send_text(json.dumps({"status": "ready_to_receive", "type": current_stream_type}))
@@ -338,12 +342,18 @@ class ElysiaServer:
                         elif cmd.event == "stop":
                             # 客户端通知：二进制发送完毕
                             self.logger.info(f"[WS] Stream STOP: Type={current_stream_type}")
-                            # TODO: 这里可以触发流结束后的处理，比如“语音接收完毕，开始STT”
-                            # self.l0.trigger_stt_process(...) 
                             
                             # 重置状态
                             is_streaming = False
+                            
+                            # ★ 核心逻辑：音频接收完毕，开始处理
+                            if current_stream_type == "audio" and len(audio_buffer) > 0:
+                                await self._process_complete_audio(audio_buffer, cmd.meta) # 传入累积的完整数据
+                                audio_buffer.clear() # 处理完毕，清空缓冲区
+                                
+                            # 重置状态    
                             current_stream_type = None
+                                
                             
                         elif cmd.event == "heartbeat":
                             pass # 心跳包，忽略或回应
@@ -362,6 +372,7 @@ class ElysiaServer:
                         
                     # 根据之前的 "start" 信令中确定的类型，分发数据
                     if current_stream_type == "audio":
+                        audio_buffer.extend(binary_data)
                         # 实时语音流 -> 推送给 L0 或 STT 模块
                         await self._handle_stream_audio_chunk(binary_data)
                         
@@ -375,6 +386,9 @@ class ElysiaServer:
                 # 4. 处理断开连接 (receive 返回 disconnect 类型)
                 elif message["type"] == "websocket.disconnect":
                     raise WebSocketDisconnect
+                
+                else:
+                    self.logger.warning(f"[WS] Unknown message type: {message['type']}")
 
         except WebSocketDisconnect:
             self.logger.info(f"[WebSocket] Client disconnected")
@@ -416,6 +430,54 @@ class ElysiaServer:
         # }
         
         self.l0.push_external_input(input_data)
+        
+        
+    async def _process_complete_audio(self, audio_data: bytearray, meta: dict):
+        """
+        处理完整的音频数据段
+        1. 保存为临时文件 (WebM)
+        2. (可选) 转码为 Wav
+        3. 调用 STT 模型 (SenseVoice/Whisper/FunASR)
+        4. 将转出的文本推送到 L0
+        """
+        import time
+        import os
+        from core.Paths import STORAGE_DIR
+        
+        # 1. 保存文件 (方便调试，也方便给 STT 读取)
+        folder_name = os.path.join(STORAGE_DIR, "temp_audio")
+        os.makedirs(folder_name, exist_ok=True)
+        filename = os.path.join(folder_name, f"temp_audio_{int(time.time())}.webm")
+        with open(filename, "wb") as f:
+            f.write(audio_data)
+        
+        self.logger.info(f"[Audio] Saved to {filename}")
+
+        # 2. 调用 STT (这里先写个假的，等你接入真正的模型)
+        # TODO 
+        # text = await self.stt_model.transcribe(filename) 
+        text = f"这是模拟的语音转写内容 (文件已保存为 {filename})"
+        self.logger.info(f"[Audio] Transcribed: {text}")
+        
+        text = "马上要过年了呢，爱莉希雅有什么计划吗？"  # 模拟结果
+        
+        self.logger.info(f"[Audio] Transcribed: {text}")
+
+        # 3. 这里的逻辑和 _process_text_chat 完全一样了！
+        # 把它包装成 InputMessage 扔进系统
+        input_data = {
+            "content": text,  # ★ 这里放的是转写后的文字
+            "role": "妖梦",   # 音频通常是用户发的
+            "timestamp": time.time(),
+            "last_ai_timestamp": 0.0, # 暂时不管
+            "type": InputMessageType.TEXT.value, # 注意：进 L1 脑子的时候，它已经是 Text 了
+            "source": L0InputSourceType.WEBSOCKET.value,
+            "metadata": {
+                "original_audio_file": filename, # 留底
+                "is_voice_input": True
+            }
+        }
+        # self.l0.push_external_input(input_data)
 
     async def _handle_stream_audio_chunk(self, chunk: bytes):
         """

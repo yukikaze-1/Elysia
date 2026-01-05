@@ -167,6 +167,33 @@
         }
         #send-btn:disabled { background: #ccc; cursor: not-allowed; }
 
+        /* 新增：语音按钮样式 */
+        .voice-btn {
+            width: 44px;
+            height: 44px;
+            border-radius: 50%; /* 圆形 */
+            border: 1px solid #ddd;
+            background-color: #fff;
+            color: #555;
+            font-size: 20px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+            flex-shrink: 0; /* 防止被挤扁 */
+        }
+
+        .voice-btn:hover {
+            background-color: #f0f0f0;
+            color: #333;
+        }
+
+        /* 按住时的样式 (JS里我们设置了变红，这里配合一下) */
+        .voice-btn:active {
+            transform: scale(0.95); /* 按下微缩效果 */
+        }
+
     </style>
 </head>
 <body>
@@ -184,6 +211,7 @@
             </div>
 
         <div class="chat-input-area">
+            <button id="talk-btn" class="voice-btn">🎤</button>
             <input type="text" id="message-input" placeholder="和 Elysia 说点什么..." autocomplete="off">
             <button id="send-btn" disabled>发送</button>
         </div>
@@ -206,6 +234,87 @@
         // 【修改】不再记录用户上次时间，而是记录 AI 消息到达的时间
         // 初始化为当前时间，防止第一句话报错
         let lastAiMessageTimestamp = Date.now() / 1000;
+
+        // 全局变量：复用同一个音频流，不再反复申请
+        let globalStream = null;
+        let mediaRecorder = null;
+        let audioChunks = [];
+        
+
+        // 获取按钮元素
+        const talkBtn = document.getElementById('talk-btn'); 
+
+        // 1. 初始化音频流 (只执行一次)
+        async function initAudioStream() {
+            // 如果已经有流了，直接返回，不再弹窗
+            if (globalStream) return globalStream;
+
+            try {
+                // 第一次申请权限
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                globalStream = stream;
+                console.log("麦克风权限已获取，流已保持开启");
+                return stream;
+            } catch (err) {
+                console.error("无法获取麦克风权限:", err);
+                alert("请允许麦克风权限，否则无法语音对话");
+                return null;
+            }
+        }
+
+        // 2. 按下按钮：只负责“开始录制”
+        talkBtn.addEventListener('mousedown', async () => {
+            const stream = await initAudioStream();
+            if (!stream) return;
+
+            // UI 反馈
+            talkBtn.style.backgroundColor = "#f56565";
+            talkBtn.style.transform = "scale(0.95)";
+
+            mediaRecorder = new MediaRecorder(stream);
+
+            // 1. 发送 Start
+            websocket.send(JSON.stringify({
+                event: "start",
+                stream_type: "audio",
+                meta: { role: MY_NAME, sample_rate: 48000, format: "webm" }
+            }));
+
+            // 2. 监听数据切片
+            mediaRecorder.ondataavailable = (event) => {
+                if (event.data.size > 0 && websocket.readyState === WebSocket.OPEN) {
+                    websocket.send(event.data);
+                }
+            };
+
+            // 3. 【关键修改】监听录音结束事件
+            // 只有当录音器真正完全停止，并把最后一段数据吐出来之后，
+            // 这里的 onstop 才会触发。我们在这里发送 STOP 指令。
+            mediaRecorder.onstop = () => {
+                console.log("Recorder stopped, sending STOP signal.");
+                if(websocket.readyState === WebSocket.OPEN) {
+                    websocket.send(JSON.stringify({ event: "stop" }));
+                }
+            };
+
+            mediaRecorder.start(100); 
+            console.log("录音开始...");
+        });
+
+        // 4. 松开按钮：只调用 stop()，不要手动发消息
+        function stopRecording() {
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop(); // 这会自动触发上面的 onstop
+            }
+            
+            // UI 恢复
+            talkBtn.style.backgroundColor = ""; 
+            talkBtn.style.transform = "scale(1)";
+        }
+
+        // 绑定松开事件 (同时绑定鼠标移出，防止用户按住移出按钮后卡死)
+        talkBtn.addEventListener('mouseup', stopRecording);
+        talkBtn.addEventListener('mouseleave', stopRecording);
 
         function connectWebSocket() {
             websocket = new WebSocket(WS_URL);

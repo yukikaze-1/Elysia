@@ -108,6 +108,13 @@ class AmygdalaConfig:
     temperature: float = 1.2
     stream: bool = False    # TODO 这个参数加上之后静态检查会报错，暂时写死在代码中
     
+@dataclass
+class STTConfig:
+    """语音转文本模块配置"""
+    logger_name: str = "STT"
+    stt_api_key: str = field(default_factory=lambda: _load_env("STT_API_KEY", ""))
+    stt_api_url: str = field(default_factory=lambda: _load_env("STT_API_URL", ""))
+    
 
 @dataclass
 class PsycheConfig:
